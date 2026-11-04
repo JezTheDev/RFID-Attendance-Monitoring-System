@@ -1,0 +1,5 @@
+firmware/**/secrets.h
+firmware/**/secrets*.h
+*.local.js
+.DS_Store
+__pycache__/
