@@ -1,0 +1,606 @@
+// Demo handlers for the Instructor and Student portals.
+// Ownership rule (architecture doc, section 7.2): the server never trusts an
+// instructor_id / student_id sent by the browser. It reads linked_id from the
+// signed-in user and only returns rows that belong to that person.
+import {
+  DemoError, validationError, manilaNow, dayCodeOf, isValidDate, indexBy, fullName,
+  cleanText, writeAudit, nextId,
+} from '../demo-utils.js';
+
+const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+const CORRECTABLE = ['present', 'late', 'absent'];
+const CORRECTION_ACTION = 'ATTENDANCE_CORRECT';
+
+/* ---------------- shared helpers ---------------- */
+
+function linkedId(db, session, role) {
+  const user = db.Users.find((row) => row.user_id === session.user_id);
+  if (!user || user.role !== role || !user.linked_id) {
+    throw new DemoError('FORBIDDEN', 'Your account is not linked to a record yet. Contact the administrator.');
+  }
+  return user.linked_id;
+}
+
+function lookups(db) {
+  return {
+    classes: indexBy(db.Classes, 'class_id'),
+    subjects: indexBy(db.Subjects, 'subject_id'),
+    sections: indexBy(db.Sections, 'section_id'),
+    rooms: indexBy(db.Rooms, 'room_id'),
+    instructors: indexBy(db.Instructors, 'instructor_id'),
+    students: indexBy(db.Students, 'student_id'),
+    programs: indexBy(db.Programs, 'program_id'),
+  };
+}
+
+function sectionLabel(maps, sectionId) {
+  const section = maps.sections.get(sectionId);
+  if (!section) return '';
+  const program = maps.programs.get(section.program_id);
+  return `${program?.program_code ?? ''} ${section.section_name}`.trim();
+}
+
+function schedulesOf(db, maps, classId) {
+  return db.Schedules
+    .filter((row) => row.class_id === classId && row.status === 'active')
+    .sort((a, b) => DAY_ORDER.indexOf(a.day_of_week) - DAY_ORDER.indexOf(b.day_of_week) || a.start_time.localeCompare(b.start_time))
+    .map((row) => ({
+      day: row.day_of_week,
+      start_time: row.start_time,
+      end_time: row.end_time,
+      room_code: maps.rooms.get(row.room_id)?.room_code ?? '',
+    }));
+}
+
+function rosterIds(db, maps, classId) {
+  return db.Enrollments
+    .filter((row) => row.class_id === classId && row.status === 'enrolled'
+      && maps.students.get(row.student_id)?.account_status === 'active')
+    .map((row) => row.student_id);
+}
+
+// Sessions that count toward attendance: held (closed) or currently open.
+function countedSessions(db, classId) {
+  return db.ClassSessions
+    .filter((row) => row.class_id === classId && (row.status === 'closed' || row.status === 'open'))
+    .sort((a, b) => a.session_date.localeCompare(b.session_date) || a.scheduled_start.localeCompare(b.scheduled_start));
+}
+
+function recordOf(db, sessionId, studentId) {
+  return db.Attendance.find((row) => row.session_id === sessionId && row.student_id === studentId) ?? null;
+}
+
+function correctionKey(sessionId, studentId) {
+  return `${sessionId}:${studentId}`;
+}
+
+function correctionsFor(db, sessionId) {
+  const map = new Map();
+  db.AuditLog
+    .filter((row) => row.action === CORRECTION_ACTION && row.entity_id.startsWith(`${sessionId}:`))
+    .forEach((row) => map.set(row.entity_id, { reason: row.reason, at: row.timestamp }));
+  return map;
+}
+
+function statusOf(record, session) {
+  if (record) return record.status;
+  return session.status === 'open' ? 'not_scanned' : 'absent';
+}
+
+function rate(present, late, total) {
+  return total > 0 ? (present + late) / total : null;
+}
+
+function summarize(statuses) {
+  const present = statuses.filter((s) => s === 'present').length;
+  const late = statuses.filter((s) => s === 'late').length;
+  const absent = statuses.filter((s) => s === 'absent').length;
+  const total = present + late + absent;
+  return { present, late, absent, total, rate: rate(present, late, total) };
+}
+
+function sessionCounts(db, session, roster) {
+  const records = db.Attendance.filter((row) => row.session_id === session.session_id && roster.includes(row.student_id));
+  const present = records.filter((row) => row.status === 'present').length;
+  const late = records.filter((row) => row.status === 'late').length;
+  const counted = session.status === 'closed' || session.status === 'open';
+  return {
+    enrolled: roster.length,
+    present: counted ? present : null,
+    late: counted ? late : null,
+    absent: counted ? Math.max(roster.length - present - late, 0) : null,
+  };
+}
+
+function describeSession(db, maps, session, roster) {
+  return {
+    session_id: session.session_id,
+    class_id: session.class_id,
+    class_label: maps.classes.get(session.class_id)?.class_label ?? session.class_id,
+    session_date: session.session_date,
+    start_time: session.actual_start || session.scheduled_start,
+    end_time: session.actual_end || session.scheduled_end,
+    room_code: maps.rooms.get(session.room_id)?.room_code ?? '',
+    source: session.source,
+    status: session.status,
+    reason: session.override_reason || '',
+    ...sessionCounts(db, session, roster),
+  };
+}
+
+function ownClass(db, instructorId, classId) {
+  const klass = db.Classes.find((row) => row.class_id === classId);
+  if (!klass || klass.instructor_id !== instructorId) {
+    throw new DemoError('FORBIDDEN', 'This class is not assigned to you.');
+  }
+  return klass;
+}
+
+function classInfo(db, maps, klass) {
+  const subject = maps.subjects.get(klass.subject_id);
+  return {
+    class_id: klass.class_id,
+    class_label: klass.class_label,
+    subject_code: subject?.subject_code ?? '',
+    subject_title: subject?.subject_title ?? '',
+    section_label: sectionLabel(maps, klass.section_id),
+    instructor_name: fullName(maps.instructors.get(klass.instructor_id)),
+    schedules: schedulesOf(db, maps, klass.class_id),
+  };
+}
+
+/* ---------------- Instructor ---------------- */
+
+function myClasses(db, instructorId) {
+  return db.Classes
+    .filter((row) => row.instructor_id === instructorId && row.status === 'active')
+    .sort((a, b) => a.class_label.localeCompare(b.class_label));
+}
+
+function classSummary(db, maps, klass) {
+  const roster = rosterIds(db, maps, klass.class_id);
+  const sessions = countedSessions(db, klass.class_id);
+  const statuses = [];
+  sessions.forEach((session) => roster.forEach((studentId) => {
+    const status = statusOf(recordOf(db, session.session_id, studentId), session);
+    if (status !== 'not_scanned') statuses.push(status);
+  }));
+  const totals = summarize(statuses);
+  return {
+    ...classInfo(db, maps, klass),
+    enrolled: roster.length,
+    sessions_held: sessions.length,
+    last_session_date: sessions.length ? sessions[sessions.length - 1].session_date : null,
+    attendance_rate: totals.rate,
+    totals,
+  };
+}
+
+export function instructorDashboard(db, { date }, session) {
+  if (!isValidDate(date)) throw new DemoError('BAD_REQUEST', 'Please choose a valid date.');
+  const instructorId = linkedId(db, session, 'instructor');
+  const maps = lookups(db);
+  const now = manilaNow();
+  const instructor = maps.instructors.get(instructorId);
+  const classes = myClasses(db, instructorId);
+  const classIds = new Set(classes.map((row) => row.class_id));
+  const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
+  const inTerm = Boolean(activeTerm) && date >= activeTerm.start_date && date <= activeTerm.end_date;
+
+  // Sessions on the chosen date: every scheduled slot + manual sessions
+  const dayCode = dayCodeOf(date);
+  const sessions = [];
+  if (inTerm) {
+    db.Schedules
+      .filter((row) => row.status === 'active' && row.day_of_week === dayCode && classIds.has(row.class_id))
+      .forEach((slot) => {
+        const roster = rosterIds(db, maps, slot.class_id);
+        const held = db.ClassSessions.find((row) => row.schedule_id === slot.schedule_id && row.session_date === date);
+        if (held) {
+          sessions.push(describeSession(db, maps, held, roster));
+          return;
+        }
+        let status;
+        if (date > now.date || (date === now.date && now.time < slot.start_time)) status = 'scheduled';
+        else if (date === now.date && now.time <= slot.end_time) status = 'in_progress';
+        else status = 'no_record';
+        sessions.push({
+          session_id: null,
+          class_id: slot.class_id,
+          class_label: maps.classes.get(slot.class_id)?.class_label ?? slot.class_id,
+          session_date: date,
+          start_time: slot.start_time,
+          end_time: slot.end_time,
+          room_code: maps.rooms.get(slot.room_id)?.room_code ?? '',
+          source: 'auto',
+          status,
+          reason: '',
+          enrolled: roster.length,
+          present: null,
+          late: null,
+          absent: null,
+        });
+      });
+  }
+  db.ClassSessions
+    .filter((row) => row.source === 'manual' && row.session_date === date && classIds.has(row.class_id))
+    .forEach((row) => sessions.push(describeSession(db, maps, row, rosterIds(db, maps, row.class_id))));
+  sessions.sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+  const summaries = classes.map((klass) => classSummary(db, maps, klass));
+  const all = summaries.reduce((acc, row) => ({
+    present: acc.present + row.totals.present,
+    late: acc.late + row.totals.late,
+    total: acc.total + row.totals.total,
+  }), { present: 0, late: 0, total: 0 });
+  const uniqueStudents = new Set(classes.flatMap((klass) => rosterIds(db, maps, klass.class_id)));
+
+  // Students who need follow-up: below 80% in any class with at least 2 sessions
+  const watchlist = [];
+  classes.forEach((klass) => {
+    const held = countedSessions(db, klass.class_id);
+    if (held.length < 2) return;
+    rosterIds(db, maps, klass.class_id).forEach((studentId) => {
+      const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s)).filter((s) => s !== 'not_scanned'));
+      if (totals.rate !== null && totals.rate < 0.8) {
+        const student = maps.students.get(studentId);
+        watchlist.push({
+          student_id: studentId,
+          student_name: fullName(student),
+          student_number: student?.student_number ?? '',
+          class_id: klass.class_id,
+          class_label: klass.class_label,
+          ...totals,
+        });
+      }
+    });
+  });
+  watchlist.sort((a, b) => a.rate - b.rate || b.absent - a.absent);
+
+  return {
+    date,
+    today: now.date,
+    in_term: inTerm,
+    term_name: activeTerm?.term_name ?? null,
+    instructor: { name: fullName(instructor), department: instructor?.department ?? '' },
+    stats: {
+      classes: classes.length,
+      students: uniqueStudents.size,
+      sessions_on_date: sessions.length,
+      attendance_rate: rate(all.present, all.late, all.total),
+    },
+    sessions,
+    classes: summaries,
+    watchlist: watchlist.slice(0, 8),
+  };
+}
+
+export function instructorListSessions(db, { class_id: classId }, session) {
+  const instructorId = linkedId(db, session, 'instructor');
+  const maps = lookups(db);
+  const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
+  if (!classId) return { classes, class: null, sessions: [] };
+  const klass = ownClass(db, instructorId, classId);
+  const roster = rosterIds(db, maps, classId);
+  const sessions = db.ClassSessions
+    .filter((row) => row.class_id === classId)
+    .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.scheduled_start.localeCompare(a.scheduled_start))
+    .map((row) => describeSession(db, maps, row, roster));
+  return { classes, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, sessions };
+}
+
+export function instructorGetSession(db, { session_id: sessionId }, session) {
+  const instructorId = linkedId(db, session, 'instructor');
+  const maps = lookups(db);
+  const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
+  if (!classSession) throw new DemoError('NOT_FOUND', 'This class session was not found.');
+  const klass = ownClass(db, instructorId, classSession.class_id);
+  const roster = rosterIds(db, maps, klass.class_id);
+  const corrections = correctionsFor(db, sessionId);
+
+  const students = roster.map((studentId) => {
+    const student = maps.students.get(studentId);
+    const record = recordOf(db, sessionId, studentId);
+    const correction = corrections.get(correctionKey(sessionId, studentId));
+    return {
+      student_id: studentId,
+      student_number: student?.student_number ?? '',
+      first_name: student?.first_name ?? '',
+      last_name: student?.last_name ?? '',
+      status: classSession.status === 'cancelled' ? 'cancelled' : statusOf(record, classSession),
+      scanned_at: record?.source === 'device' ? record.scanned_at : null,
+      source: record?.source ?? null,
+      sync_mode: record?.sync_mode ?? null,
+      corrected: Boolean(correction),
+      correction_reason: correction?.reason ?? '',
+    };
+  }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+
+  return {
+    session: describeSession(db, maps, classSession, roster),
+    class: classInfo(db, maps, klass),
+    students,
+  };
+}
+
+export function instructorCorrectAttendance(db, request, session) {
+  const instructorId = linkedId(db, session, 'instructor');
+  const maps = lookups(db);
+  const sessionId = request.session_id;
+  const studentId = request.student_id;
+  const status = request.status;
+  const reason = cleanText(request.reason);
+
+  const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
+  if (!classSession) throw new DemoError('NOT_FOUND', 'This class session was not found.');
+  ownClass(db, instructorId, classSession.class_id);
+  if (classSession.status === 'cancelled') {
+    throw new DemoError('SESSION_CANCELLED', 'Attendance cannot be changed for a cancelled class.');
+  }
+  if (!rosterIds(db, maps, classSession.class_id).includes(studentId)) {
+    throw new DemoError('NOT_ENROLLED', 'This student is not enrolled in the class.');
+  }
+
+  const fields = {};
+  if (!CORRECTABLE.includes(status)) fields.status = 'Choose Present, Late, or Absent.';
+  if (reason.length < 5) fields.reason = 'Give a short reason (at least 5 characters).';
+  if (Object.keys(fields).length) throw validationError(fields);
+
+  const record = recordOf(db, sessionId, studentId);
+  const before = statusOf(record, classSession);
+  if (before === status) throw validationError({ status: 'The student already has this status.' });
+
+  if (status === 'absent') {
+    db.Attendance = db.Attendance.filter((row) => row !== record);
+  } else if (record) {
+    record.status = status;
+  } else {
+    const student = maps.students.get(studentId);
+    const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
+    const stamp = `${classSession.session_date}T${classSession.scheduled_start}:00+08:00`;
+    db.Attendance.push({
+      attendance_id: nextId(db.Attendance, 'attendance_id', 'ATT', 5),
+      session_id: sessionId,
+      student_id: student.student_id,
+      card_id: card?.card_id ?? '',
+      rfid_uid: card?.rfid_uid ?? '',
+      device_id: '',
+      scan_id: '',
+      scanned_at: stamp,
+      received_at: manilaNow().iso,
+      status,
+      source: 'manual',
+      sync_mode: '',
+      time_quality: '',
+      created_by: session.user_id,
+    });
+  }
+
+  writeAudit(db, session, {
+    action: CORRECTION_ACTION,
+    entityType: 'Attendance',
+    entityId: correctionKey(sessionId, studentId),
+    before: { status: before },
+    after: { status },
+    reason,
+  });
+  return { session_id: sessionId, student_id: studentId, status };
+}
+
+export function instructorClassReport(db, { class_id: classId, from = '', to = '' }, session) {
+  const instructorId = linkedId(db, session, 'instructor');
+  const maps = lookups(db);
+  const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
+  if (!classId) return { classes, class: null };
+  const klass = ownClass(db, instructorId, classId);
+  if ((from && !isValidDate(from)) || (to && !isValidDate(to))) {
+    throw new DemoError('BAD_REQUEST', 'Please choose valid dates.');
+  }
+  if (from && to && from > to) throw validationError({ to: 'The end date must be on or after the start date.' });
+
+  const roster = rosterIds(db, maps, classId);
+  const sessions = countedSessions(db, classId)
+    .filter((row) => (!from || row.session_date >= from) && (!to || row.session_date <= to));
+
+  const students = roster.map((studentId) => {
+    const student = maps.students.get(studentId);
+    const marks = sessions.map((s) => statusOf(recordOf(db, s.session_id, studentId), s));
+    return {
+      student_id: studentId,
+      student_number: student?.student_number ?? '',
+      first_name: student?.first_name ?? '',
+      last_name: student?.last_name ?? '',
+      marks,
+      ...summarize(marks.filter((s) => s !== 'not_scanned')),
+    };
+  }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+
+  const totals = summarize(students.flatMap((row) => row.marks).filter((s) => s !== 'not_scanned'));
+  const cancelled = db.ClassSessions.filter((row) => row.class_id === classId && row.status === 'cancelled'
+    && (!from || row.session_date >= from) && (!to || row.session_date <= to)).length;
+
+  return {
+    classes,
+    class: { ...classInfo(db, maps, klass), enrolled: roster.length },
+    range: { from, to },
+    generated_at: manilaNow().iso,
+    sessions: sessions.map((row) => describeSession(db, maps, row, roster)),
+    cancelled_sessions: cancelled,
+    students,
+    totals,
+  };
+}
+
+// Everyone enrolled in one of the instructor's classes, with their attendance
+// so far. Works even before the first class session.
+export function instructorClassRoster(db, { class_id: classId }, session) {
+  const instructorId = linkedId(db, session, 'instructor');
+  const maps = lookups(db);
+  const klass = ownClass(db, instructorId, classId);
+  const held = countedSessions(db, classId);
+  const students = rosterIds(db, maps, classId).map((studentId) => {
+    const student = maps.students.get(studentId);
+    const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s)).filter((s) => s !== 'not_scanned'));
+    const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
+    return {
+      student_id: studentId,
+      student_number: student?.student_number ?? '',
+      first_name: student?.first_name ?? '',
+      last_name: student?.last_name ?? '',
+      section_label: sectionLabel(maps, student?.section_id),
+      other_section: student?.section_id !== klass.section_id,
+      has_card: Boolean(card),
+      ...totals,
+    };
+  }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+  return {
+    class: { ...classInfo(db, maps, klass), enrolled: students.length, sessions_held: held.length },
+    students,
+  };
+}
+
+export function instructorStudentHistory(db, { class_id: classId, student_id: studentId }, session) {
+  const instructorId = linkedId(db, session, 'instructor');
+  const maps = lookups(db);
+  const klass = ownClass(db, instructorId, classId);
+  if (!rosterIds(db, maps, classId).includes(studentId)) {
+    throw new DemoError('NOT_ENROLLED', 'This student is not enrolled in the class.');
+  }
+  const student = maps.students.get(studentId);
+  const records = historyRows(db, maps, studentId, [klass]);
+  return {
+    student: {
+      student_id: studentId,
+      name: fullName(student),
+      student_number: student?.student_number ?? '',
+      section_label: sectionLabel(maps, student?.section_id),
+    },
+    class: classInfo(db, maps, klass),
+    records,
+    totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
+  };
+}
+
+/* ---------------- Student ---------------- */
+
+function myEnrolledClasses(db, studentId) {
+  const ids = new Set(db.Enrollments.filter((row) => row.student_id === studentId && row.status === 'enrolled').map((row) => row.class_id));
+  return db.Classes.filter((row) => ids.has(row.class_id) && row.status === 'active')
+    .sort((a, b) => a.class_label.localeCompare(b.class_label));
+}
+
+function historyRows(db, maps, studentId, classes) {
+  const corrections = new Map();
+  db.AuditLog
+    .filter((row) => row.action === CORRECTION_ACTION && row.entity_id.endsWith(`:${studentId}`))
+    .forEach((row) => corrections.set(row.entity_id, row.reason));
+
+  return classes.flatMap((klass) => db.ClassSessions
+    .filter((row) => row.class_id === klass.class_id && row.status !== 'scheduled')
+    .map((row) => {
+      const record = recordOf(db, row.session_id, studentId);
+      const subject = maps.subjects.get(klass.subject_id);
+      return {
+        session_id: row.session_id,
+        class_id: klass.class_id,
+        class_label: klass.class_label,
+        subject_code: subject?.subject_code ?? '',
+        subject_title: subject?.subject_title ?? '',
+        session_date: row.session_date,
+        start_time: row.actual_start || row.scheduled_start,
+        end_time: row.actual_end || row.scheduled_end,
+        room_code: maps.rooms.get(row.room_id)?.room_code ?? '',
+        status: row.status === 'cancelled' ? 'cancelled' : statusOf(record, row),
+        scanned_at: record?.source === 'device' ? record.scanned_at : null,
+        manual: record?.source === 'manual',
+        corrected: corrections.has(correctionKey(row.session_id, studentId)),
+      };
+    }))
+    .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.start_time.localeCompare(a.start_time));
+}
+
+function studentProfile(db, maps, studentId) {
+  const student = maps.students.get(studentId);
+  if (!student) throw new DemoError('NOT_FOUND', 'Your student record was not found. Contact the administrator.');
+  const section = maps.sections.get(student.section_id);
+  const program = maps.programs.get(student.program_id);
+  const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
+  return {
+    name: fullName(student),
+    first_name: student.first_name,
+    last_name: student.last_name,
+    student_number: student.student_number,
+    email: student.email,
+    program_code: program?.program_code ?? '',
+    program_name: program?.program_name ?? '',
+    year_level: student.year_level,
+    section_label: sectionLabel(maps, student.section_id),
+    section_name: section?.section_name ?? '',
+    account_status: student.account_status,
+    card: card ? { rfid_uid_masked: `•••• ${card.rfid_uid.slice(-4)}`, assigned_at: card.assigned_at } : null,
+  };
+}
+
+export function studentOverview(db, _request, session) {
+  const studentId = linkedId(db, session, 'student');
+  const maps = lookups(db);
+  const classes = myEnrolledClasses(db, studentId);
+  const records = historyRows(db, maps, studentId, classes);
+  const counted = (rows) => rows.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled');
+
+  const subjects = classes.map((klass) => {
+    const rows = records.filter((row) => row.class_id === klass.class_id);
+    return {
+      ...classInfo(db, maps, klass),
+      ...summarize(counted(rows)),
+      last: rows.find((row) => row.status !== 'cancelled') ?? null,
+    };
+  });
+
+  const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
+  const now = manilaNow();
+  const todayCode = dayCodeOf(now.date);
+  const today = classes.flatMap((klass) => schedulesOf(db, maps, klass.class_id)
+    .filter((slot) => slot.day === todayCode)
+    .map((slot) => ({ ...slot, class_label: klass.class_label, subject_title: maps.subjects.get(klass.subject_id)?.subject_title ?? '' })))
+    .sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+  return {
+    profile: studentProfile(db, maps, studentId),
+    term_name: activeTerm?.term_name ?? null,
+    today_date: now.date,
+    today,
+    totals: summarize(counted(records)),
+    subjects,
+    recent: records.filter((row) => row.status !== 'cancelled').slice(0, 6),
+  };
+}
+
+export function studentHistory(db, { class_id: classId = '' }, session) {
+  const studentId = linkedId(db, session, 'student');
+  const maps = lookups(db);
+  const classes = myEnrolledClasses(db, studentId);
+  const chosen = classId ? classes.filter((row) => row.class_id === classId) : classes;
+  if (classId && !chosen.length) throw new DemoError('FORBIDDEN', 'You are not enrolled in this class.');
+  const records = historyRows(db, maps, studentId, chosen);
+  return {
+    classes: classes.map((klass) => ({
+      class_id: klass.class_id,
+      class_label: klass.class_label,
+      subject_title: maps.subjects.get(klass.subject_id)?.subject_title ?? '',
+    })),
+    records,
+    totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
+  };
+}
+
+export function studentGetProfile(db, _request, session) {
+  const studentId = linkedId(db, session, 'student');
+  const maps = lookups(db);
+  const user = db.Users.find((row) => row.user_id === session.user_id);
+  return {
+    profile: studentProfile(db, maps, studentId),
+    account: { email: user?.email ?? '', last_login_at: user?.last_login_at || null, google_linked: Boolean(user?.google_sub) },
+    classes: myEnrolledClasses(db, studentId).map((klass) => classInfo(db, maps, klass)),
+  };
+}

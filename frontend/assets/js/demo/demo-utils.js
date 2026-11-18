@@ -21,6 +21,13 @@ export function setting(db, key, fallback) {
 }
 
 export function manilaNow() {
+  // On the Apps Script server, use its own date formatter (always available there).
+  if (typeof Utilities !== 'undefined') {
+    const now = new Date();
+    const date = Utilities.formatDate(now, CONFIG.TIMEZONE, 'yyyy-MM-dd');
+    const time = Utilities.formatDate(now, CONFIG.TIMEZONE, 'HH:mm');
+    return { date, time, iso: `${date}T${Utilities.formatDate(now, CONFIG.TIMEZONE, 'HH:mm:ss')}+08:00` };
+  }
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-CA', {
       timeZone: CONFIG.TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
@@ -80,4 +87,12 @@ export function writeAudit(db, session, { action, entityType, entityId, before =
     after_json: after ? JSON.stringify(after) : '',
     reason,
   });
+}
+
+export function nextId(rows, key, prefix, width = 4) {
+  const highest = rows.reduce((max, row) => {
+    const number = Number(String(row[key]).slice(prefix.length + 1));
+    return Number.isFinite(number) && number > max ? number : max;
+  }, 0);
+  return `${prefix}-${String(highest + 1).padStart(width, '0')}`;
 }

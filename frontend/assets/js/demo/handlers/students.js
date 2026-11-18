@@ -1,7 +1,7 @@
-import { nextId } from '../demo-store.js';
 import {
-  DemoError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit,
+  DemoError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId,
 } from '../demo-utils.js';
+import { enrollInSectionClasses } from './classes.js';
 
 const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
@@ -199,8 +199,9 @@ export function createStudent(db, input, session) {
     created_at: now,
     updated_at: now,
   });
-  writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: student });
-  return { student_id: student.student_id };
+  const classesJoined = enrollInSectionClasses(db, student.student_id, student.section_id);
+  writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } });
+  return { student_id: student.student_id, classes_joined: classesJoined };
 }
 
 export function updateStudent(db, input, session) {

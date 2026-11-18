@@ -330,7 +330,7 @@ function studentFormHtml(sections, student = null) {
       <option value="">Choose a section</option>
       ${sections.map((s) => `<option value="${escapeHtml(s.section_id)}"${s.section_id === student?.section_id ? ' selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}
     </select>`)}
-    ${field('email', 'Google account email', `<input type="email" class="form-control" id="f_email" name="email" maxlength="120" required autocomplete="off" value="${value('email')}">`, 'The student signs in with this Google account. There is no self-registration.')}`;
+    ${field('email', 'Google account email', `<input type="email" class="form-control" id="f_email" name="email" maxlength="120" required autocomplete="off" value="${value('email')}">`, 'This also creates the student’s sign-in account. They sign in with this Google account; there is no self-registration.')}`;
 }
 
 async function createStudentFlow(state, refresh) {
@@ -341,7 +341,10 @@ async function createStudentFlow(state, refresh) {
     onSubmit: (values) => callApi('admin.createStudent', values),
   });
   if (result) {
-    showToast('Student added. You can now assign an RFID card.');
+    const joined = result.classes_joined
+      ? ` Enrolled in ${result.classes_joined} class${result.classes_joined === 1 ? '' : 'es'} of their section.`
+      : '';
+    showToast(`Student and sign-in account created.${joined} You can now assign an RFID card.`);
     await refresh();
   }
 }

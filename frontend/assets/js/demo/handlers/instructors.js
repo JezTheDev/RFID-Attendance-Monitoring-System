@@ -1,5 +1,4 @@
-import { nextId } from '../demo-store.js';
-import { DemoError, validationError, manilaNow, cleanText, writeAudit } from '../demo-utils.js';
+import { DemoError, validationError, manilaNow, cleanText, writeAudit, nextId } from '../demo-utils.js';
 
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;

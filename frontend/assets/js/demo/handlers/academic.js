@@ -1,5 +1,4 @@
-import { nextId } from '../demo-store.js';
-import { DemoError, validationError, isValidDate, cleanText, writeAudit } from '../demo-utils.js';
+import { DemoError, validationError, isValidDate, cleanText, writeAudit, nextId } from '../demo-utils.js';
 
 const CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 -]*$/;
 const ROOM_CODE_PATTERN = /^[A-Za-z0-9-]+$/;

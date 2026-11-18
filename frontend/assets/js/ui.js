@@ -10,9 +10,31 @@ const NAVIGATION = Object.freeze({
       items: [
         { id: 'students', label: 'Students & Cards', icon: 'people', href: 'admin/students.html' },
         { id: 'instructors', label: 'Instructors', icon: 'person-video3', href: 'admin/instructors.html' },
+        { id: 'admins', label: 'Administrators', icon: 'shield-lock', href: 'admin/admins.html' },
       ],
     },
-    { section: 'Academic', items: [{ id: 'academic', label: 'Academic Setup', icon: 'building', href: 'admin/academic.html' }] },
+    {
+      section: 'Academic',
+      items: [
+        { id: 'classes', label: 'Classes & Schedules', icon: 'calendar-week', href: 'admin/classes.html' },
+        { id: 'academic', label: 'Academic Setup', icon: 'building', href: 'admin/academic.html' },
+      ],
+    },
+  ],
+  instructor: [
+    { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: 'speedometer2', href: 'instructor/index.html' }] },
+    {
+      section: 'My Classes',
+      items: [
+        { id: 'attendance', label: 'Attendance', icon: 'clipboard-check', href: 'instructor/attendance.html' },
+        { id: 'reports', label: 'Class Reports', icon: 'file-earmark-bar-graph', href: 'instructor/reports.html' },
+      ],
+    },
+  ],
+  student: [
+    { section: 'Overview', items: [{ id: 'dashboard', label: 'My Attendance', icon: 'speedometer2', href: 'student/index.html' }] },
+    { section: 'Records', items: [{ id: 'history', label: 'Attendance History', icon: 'clock-history', href: 'student/history.html' }] },
+    { section: 'Account', items: [{ id: 'profile', label: 'My Profile', icon: 'person-vcard', href: 'student/profile.html' }] },
   ],
 });
 
@@ -72,11 +94,13 @@ export function initials(name) {
 export function renderShell({ role, active, title, session }) {
   const app = document.getElementById('app');
   const navigation = NAVIGATION[role] ?? [];
+  const activeGroup = navigation.find((group) => group.items.some((item) => item.id === active));
+  const activeItem = activeGroup?.items.find((item) => item.id === active);
   const navHtml = navigation.map((group) => `
     <div class="sidebar-section">${escapeHtml(group.section)}</div>
     <nav class="sidebar-nav nav flex-column">
       ${group.items.map((item) => `
-        <a class="nav-link${item.id === active ? ' active' : ''}" href="${appUrl(item.href)}"${item.id === active ? ' aria-current="page"' : ''}>
+        <a class="nav-link${item.id === active ? ' active' : ''}" href="${appUrl(item.href)}" data-bs-title="${escapeHtml(item.label)}"${item.id === active ? ' aria-current="page"' : ''}>
           <i class="bi bi-${item.icon}" aria-hidden="true"></i><span>${escapeHtml(item.label)}</span>
         </a>`).join('')}
     </nav>`).join('');
@@ -105,11 +129,26 @@ export function renderShell({ role, active, title, session }) {
       </aside>
       <div class="app-main">
         <header class="app-topbar">
-          <button class="btn btn-light border d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#appSidebar" aria-controls="appSidebar" aria-label="Open menu">
+          <button class="btn btn-light border topbar-btn d-lg-none" type="button" data-bs-toggle="offcanvas" data-bs-target="#appSidebar" aria-controls="appSidebar" aria-label="Open menu">
             <i class="bi bi-list" aria-hidden="true"></i>
           </button>
-          <h1 class="topbar-title">${escapeHtml(title)}</h1>
-          <div class="ms-auto dropdown">
+          <button class="btn btn-light border topbar-btn sidebar-toggle d-none d-lg-inline-flex" type="button" data-action="toggle-sidebar" aria-controls="appSidebar" aria-expanded="true" aria-label="Collapse sidebar">
+            <i class="bi bi-chevron-double-left" aria-hidden="true"></i>
+          </button>
+          <div class="topbar-heading min-w-0">
+            <span class="topbar-icon" aria-hidden="true"><i class="bi bi-${activeItem?.icon ?? 'grid'}"></i></span>
+            <div class="min-w-0">
+              <div class="topbar-eyebrow">${escapeHtml(ROLE_LABELS[role] ?? '')}${activeGroup ? ` <i class="bi bi-chevron-right" aria-hidden="true"></i> ${escapeHtml(activeGroup.section)}` : ''}</div>
+              <h1 class="topbar-title text-truncate">${escapeHtml(title)}</h1>
+            </div>
+          </div>
+          <div class="topbar-clock ms-auto d-none d-md-flex" aria-label="Current date and time in Manila">
+            <span class="live-dot" aria-hidden="true"></span>
+            <i class="bi bi-calendar3" aria-hidden="true"></i><span data-role="today"></span>
+            <span class="topbar-clock-sep" aria-hidden="true"></span>
+            <i class="bi bi-clock" aria-hidden="true"></i><span data-role="clock"></span>
+          </div>
+          <div class="ms-auto ms-md-0 dropdown">
             <button class="user-chip dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
               <span class="user-avatar" aria-hidden="true">${escapeHtml(initials(session.display_name))}</span>
               <span class="d-none d-sm-inline text-start">
@@ -125,9 +164,12 @@ export function renderShell({ role, active, title, session }) {
             </ul>
           </div>
         </header>
-        <main class="app-content" id="pageContent"></main>
+        <main class="app-content page-enter" id="pageContent"></main>
       </div>
     </div>`;
+
+  setupSidebar(app);
+  startTopbarClock(app);
 
   app.querySelector('[data-action="sign-out"]').addEventListener('click', (event) => {
     event.currentTarget.disabled = true;
@@ -150,7 +192,96 @@ export function renderShell({ role, active, title, session }) {
     }
   });
 
-  return document.getElementById('pageContent');
+  // Entrance animations run only on the first load of the page,
+  // not every time the content is refreshed.
+  const content = document.getElementById('pageContent');
+  setTimeout(() => content.classList.remove('page-enter'), 1600);
+  return content;
+}
+
+/* ---------- Topbar clock (Manila time) ---------- */
+function startTopbarClock(app) {
+  const today = app.querySelector('[data-role="today"]');
+  const clock = app.querySelector('[data-role="clock"]');
+  if (!today || !clock) return;
+  const dateFormat = new Intl.DateTimeFormat('en-PH', { timeZone: CONFIG.TIMEZONE, weekday: 'short', month: 'short', day: 'numeric' });
+  const timeFormat = new Intl.DateTimeFormat('en-PH', { timeZone: CONFIG.TIMEZONE, hour: 'numeric', minute: '2-digit' });
+  const tick = () => {
+    const now = new Date();
+    today.textContent = dateFormat.format(now);
+    clock.textContent = timeFormat.format(now);
+  };
+  tick();
+  setInterval(tick, 15000);
+}
+
+/* ---------- Sidebar collapse (desktop) & off-canvas (mobile) ---------- */
+const SIDEBAR_KEY = 'rfid.sidebarCollapsed';
+const DESKTOP_QUERY = window.matchMedia('(min-width: 992px)');
+
+function readSidebarCollapsed() {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function saveSidebarCollapsed(collapsed) {
+  try {
+    localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0');
+  } catch {
+    /* storage unavailable: the choice just won't be remembered */
+  }
+}
+
+function setupSidebar(app) {
+  const layout = app.querySelector('.app-layout');
+  const sidebar = app.querySelector('#appSidebar');
+  const toggle = app.querySelector('[data-action="toggle-sidebar"]');
+  const links = [...sidebar.querySelectorAll('.sidebar-nav .nav-link')];
+
+  // Labels appear as tooltips only while the desktop sidebar is collapsed
+  const tooltips = links.map((link) => new window.bootstrap.Tooltip(link, {
+    placement: 'right',
+    trigger: 'hover focus',
+    customClass: 'sidebar-tooltip',
+  }));
+
+  const syncTooltips = () => {
+    const on = layout.classList.contains('sidebar-collapsed') && DESKTOP_QUERY.matches;
+    tooltips.forEach((tip) => {
+      if (on) {
+        tip.enable();
+      } else {
+        tip.hide();
+        tip.disable();
+      }
+    });
+  };
+
+  const apply = (collapsed) => {
+    layout.classList.toggle('sidebar-collapsed', collapsed);
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+    toggle.setAttribute('aria-label', collapsed ? 'Expand sidebar' : 'Collapse sidebar');
+    toggle.title = collapsed ? 'Expand sidebar' : 'Collapse sidebar';
+    syncTooltips();
+  };
+
+  apply(readSidebarCollapsed());
+
+  toggle.addEventListener('click', () => {
+    const next = !layout.classList.contains('sidebar-collapsed');
+    apply(next);
+    saveSidebarCollapsed(next);
+  });
+
+  DESKTOP_QUERY.addEventListener('change', syncTooltips);
+
+  // Mobile: close the menu as soon as a link is picked
+  links.forEach((link) => link.addEventListener('click', () => {
+    window.bootstrap.Offcanvas.getInstance(sidebar)?.hide();
+  }));
 }
 
 function toastContainer() {

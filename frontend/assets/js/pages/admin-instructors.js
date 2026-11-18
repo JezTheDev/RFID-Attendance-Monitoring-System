@@ -1,4 +1,4 @@
-import { requireRole } from '../auth.js';
+import { requireRole, appUrl } from '../auth.js';
 import { renderShell, escapeHtml } from '../ui.js';
 import { mountResourceManager } from '../components/resource-manager.js';
 
@@ -35,21 +35,37 @@ function start() {
       { label: 'Instructor', html: (row) => `<div class="cell-main">${escapeHtml(`${row.first_name} ${row.last_name}`)}</div><div class="cell-sub d-lg-none text-break">${escapeHtml(row.email)}</div>` },
       { label: 'Email', hideBelow: 'lg', html: (row) => `<span class="small">${escapeHtml(row.email)}</span>` },
       { label: 'Department', hideBelow: 'md', html: (row) => escapeHtml(row.department) },
-      { label: 'Classes', numeric: true, html: (row) => row.class_count },
+      { label: 'Classes', numeric: true, html: (row) => `<a class="text-decoration-none" href="${classesLink({ q: `${row.first_name} ${row.last_name}` })}" title="See this instructor's classes">${row.class_count}</a>` },
       { label: 'Google', hideBelow: 'lg', html: (row) => (row.google_linked ? 'Linked' : '<span class="text-secondary">Not signed in yet</span>') },
     ],
     formFields: (row) => [
       { name: 'first_name', label: 'First name', required: true, half: true, maxlength: 60, value: row?.first_name },
       { name: 'last_name', label: 'Last name', required: true, half: true, maxlength: 60, value: row?.last_name },
-      { name: 'email', label: 'Google account email', type: 'email', required: true, maxlength: 120, value: row?.email, help: 'The instructor signs in with this Google account.' },
+      { name: 'email', label: 'Google account email', type: 'email', required: true, maxlength: 120, value: row?.email, help: 'This also creates the instructor’s sign-in account. They sign in with this Google account.' },
       { name: 'department', label: 'Department', required: true, maxlength: 80, value: row?.department ?? 'Computer Engineering' },
+    ],
+    extraActions: [
+      {
+        id: 'assign', label: 'Assign subject & section', icon: 'journal-plus',
+        show: (row) => row.status === 'active',
+        run: (row) => { window.location.href = classesLink({ assign: row.instructor_id }); },
+      },
+      {
+        id: 'classes', label: 'View assigned classes', icon: 'calendar-week',
+        show: (row) => row.class_count > 0,
+        run: (row) => { window.location.href = classesLink({ q: `${row.first_name} ${row.last_name}` }); },
+      },
     ],
     editNotice: (row) => (row.google_linked
       ? '<div class="alert alert-warning small mt-3 mb-0">Changing the email unlinks the current Google account. The instructor must sign in again with the new email.</div>'
       : ''),
     savedMessage: (result, editing) => {
-      if (!editing) return 'Instructor added.';
+      if (!editing) return 'Instructor and sign-in account created. Use “Assign subject & section” next.';
       return result.google_unlinked ? 'Saved. The previous Google account was unlinked.' : 'Instructor saved.';
     },
   });
+}
+
+function classesLink(params) {
+  return `${appUrl('admin/classes.html')}?${new URLSearchParams(params)}`;
 }

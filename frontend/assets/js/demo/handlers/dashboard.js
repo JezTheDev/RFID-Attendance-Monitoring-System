@@ -78,7 +78,7 @@ export function getAdminDashboard(db, { date }) {
   ).size;
 
   const lowBatteryVoltage = Number(setting(db, 'low_battery_voltage', 3.5));
-  const offlineAfterMs = Number(setting(db, 'device_offline_after_minutes', 10)) * 60_000;
+  const offlineAfterMs = Number(setting(db, 'device_offline_after_minutes', 10)) * 60000;
   const devices = db.Devices.filter((row) => row.status !== 'retired').map((row) => {
     const battery = row.battery_voltage === '' ? null : Number(row.battery_voltage);
     return {

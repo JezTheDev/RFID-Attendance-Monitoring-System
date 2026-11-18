@@ -1,0 +1,102 @@
+/* =========================================================
+   Milky background + floating logo bubbles (login page)
+   Load AFTER app.css.
+   ========================================================= */
+
+/* ---------- Milky background ---------- */
+.login-page {
+  position: relative;
+  isolation: isolate;
+  background-color: #fbf8f4;
+  background-image:
+    radial-gradient(1100px 600px at 10% -10%, rgba(255, 255, 255, .95), transparent 60%),
+    radial-gradient(900px 600px at 110% 20%, rgba(255, 246, 236, .9), transparent 60%),
+    radial-gradient(900px 700px at 50% 120%, rgba(245, 238, 230, .9), transparent 65%),
+    linear-gradient(180deg, #fdfbf8 0%, #f6f1ea 100%);
+}
+
+/* Soft milky haze (sits under the bubbles so the logos stay sharp) */
+.login-page::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: rgba(255, 255, 255, .4);
+}
+
+/* Keep the page content above the bubbles and the haze */
+.login-page > #demoBanner,
+.login-page > .login-wrap,
+.login-page > .login-footer {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- Bubble layer ---------- */
+.bubbles {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.bubble {
+  position: absolute;
+  bottom: -130px;
+  left: var(--x);
+  width: var(--size);
+  height: var(--size);
+  animation: bubbleRise var(--dur) linear var(--delay) infinite;
+  will-change: transform, opacity;
+}
+
+.bubble-inner {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  /* milky glass bubble with a small highlight */
+  background:
+    radial-gradient(circle at 30% 27%, rgba(255, 255, 255, 1) 0 7%, transparent 8%),
+    radial-gradient(circle at 50% 45%, rgba(255, 255, 255, .85), rgba(255, 255, 255, .45) 65%, rgba(240, 232, 222, .55) 100%);
+  border: 1px solid rgba(255, 255, 255, .9);
+  box-shadow:
+    inset 0 -8px 16px rgba(220, 205, 188, .35),
+    inset 0 5px 12px rgba(255, 255, 255, .9),
+    0 10px 24px -12px rgba(90, 70, 50, .25);
+  animation: bubbleSway var(--sway-dur) ease-in-out infinite alternate;
+}
+
+.bubble-inner img {
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
+  opacity: .9;
+}
+
+/* Fallback when the logo file isn't found */
+.bubble-inner i {
+  font-size: calc(var(--size) * .42);
+  line-height: 1;
+  color: #8a7a6a;
+  opacity: .6;
+}
+
+@keyframes bubbleRise {
+  0%   { transform: translateY(0) scale(.85); opacity: 0; }
+  10%  { opacity: var(--alpha); }
+  85%  { opacity: var(--alpha); }
+  100% { transform: translateY(calc(-100vh - 200px)) scale(1.05); opacity: 0; }
+}
+
+@keyframes bubbleSway {
+  from { transform: translateX(calc(var(--sway) * -1)) rotate(-6deg); }
+  to   { transform: translateX(var(--sway)) rotate(6deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubbles { display: none; }
+}
