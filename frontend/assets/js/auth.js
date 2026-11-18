@@ -15,31 +15,30 @@ export function homeForRole(role) {
   return ROLE_HOME[role] ? appUrl(ROLE_HOME[role]) : null;
 }
 
-// Test account on the server (only works while TEST_LOGIN / ALLOW_TEST_LOGIN
-// are turned on). Temporary: replaced by username/password login next.
-export function signInTest(role) {
-  return startSession('auth.testSignIn', { role });
-}
-
-// Exchange the Google ID token for our own session token.
-export function signInWithGoogle(idToken) {
-  return startSession('auth.google', { id_token: idToken });
-}
-
-async function startSession(action, payload) {
-  const data = await callApi(action, payload);
+// Username (instructors/admins) or student number (students) + password.
+export async function signIn(username, password) {
+  const data = await callApi('auth.login', { username, password });
   const session = {
     token: data.session_token,
     user_id: data.user_id,
+    username: data.username,
     role: data.role,
     display_name: data.display_name,
     email: data.email,
+    must_change_password: data.must_change_password === true,
     expires_at: data.expires_at,
   };
   if (!saveSession(session)) {
     throw new Error('Your browser blocked session storage, so you cannot stay signed in.');
   }
   return session;
+}
+
+export async function changePassword(oldPassword, newPassword) {
+  await callApi('auth.changePassword', { old_password: oldPassword, new_password: newPassword });
+  const session = getSession();
+  if (session) saveSession({ ...session, must_change_password: false });
+  return getSession();
 }
 
 export async function signOut() {
@@ -52,9 +51,10 @@ export async function signOut() {
   window.location.replace(appUrl('index.html'));
 }
 
+// Navigation only: the server enforces roles and the forced password change.
 export function requireRole(role) {
   const session = getSession();
-  if (!session) {
+  if (!session || session.must_change_password) {
     window.location.replace(appUrl('index.html'));
     return null;
   }

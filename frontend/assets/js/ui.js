@@ -148,7 +148,7 @@ export function renderShell({ role, active, title, session }) {
               </span>
             </button>
             <ul class="dropdown-menu dropdown-menu-end shadow-sm">
-              <li><span class="dropdown-item-text small text-secondary">${escapeHtml(session.email ?? '')}</span></li>
+              <li><span class="dropdown-item-text small text-secondary">${escapeHtml(session.username ?? session.email ?? '')}</span></li>
               <li><hr class="dropdown-divider"></li>
               <li><button class="dropdown-item" type="button" data-action="sign-out"><i class="bi bi-box-arrow-right me-2" aria-hidden="true"></i>Sign out</button></li>
             </ul>

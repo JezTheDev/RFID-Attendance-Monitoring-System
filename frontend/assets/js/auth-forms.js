@@ -1,23 +1,70 @@
-// Login page: sign in and forgot-password views, and their forms.
-// There is no sign-up: only the administrator creates accounts. Works alongside login.js (which fills
-// #signInArea with the temporary test sign-in buttons) and does not touch it.
+// Login page: sign in, forced password change, and forgot-password views.
+// There is no sign-up: only the administrator creates accounts. Server calls go
+// through window.RFIDLogin, which pages/login.js (an ES module) sets up.
 (function () {
   'use strict';
 
   var card = document.getElementById('authCard');
   if (!card) return;
 
-  // The forms are not connected to a server yet. When the API is ready,
-  // replace the body of submitToServer() with real requests.
-  var NOT_CONNECTED = {
-    signInForm: { tone: 'info', icon: 'info-circle', message: 'Password sign-in is not used. Please use the sign-in buttons below.' },
-    forgotForm: { tone: 'info', icon: 'info-circle', message: 'Password reset is not connected to the server yet, so no email was sent.' },
-  };
+  var signInForm = document.getElementById('signInForm');
+  var changeForm = document.getElementById('changeForm');
 
-  function submitToServer(formId /*, values */) {
-    return new Promise(function (resolve) {
-      setTimeout(function () { resolve(NOT_CONNECTED[formId]); }, 700);
-    });
+  function api() {
+    if (!window.RFIDLogin) throw new Error('The page is still loading. Please try again.');
+    if (!window.RFIDLogin.configured) throw new Error('The server address (API_URL) is not set in config.js yet.');
+    return window.RFIDLogin;
+  }
+
+  function errorResult(error) {
+    var message = (error && error.message) || 'Something went wrong. Please try again.';
+    if (error && error.fields) {
+      var first = Object.keys(error.fields)[0];
+      if (first) message = error.fields[first];
+    }
+    return { tone: 'danger', icon: 'exclamation-triangle', message: message };
+  }
+
+  function showChangeForm() {
+    signInForm.hidden = true;
+    changeForm.hidden = false;
+    var first = changeForm.querySelector('.auth-input');
+    if (first && desktop.matches) first.focus({ preventScroll: true });
+  }
+
+  function goHome(session) {
+    showSplash();
+    setTimeout(function () { api().goHome(session); }, SPLASH_DELAY);
+  }
+
+  // Resolves to a notice to show, or to null when the page is moving on.
+  function submitToServer(formId, values) {
+    return Promise.resolve().then(function () {
+      if (formId === 'signInForm') {
+        return api().signIn(values.username, values.password).then(function (session) {
+          if (session.must_change_password) {
+            var old = changeForm.querySelector('[name="old_password"]');
+            old.value = values.password;
+            signInForm.reset();
+            showChangeForm();
+            return null;
+          }
+          goHome(session);
+          return null;
+        });
+      }
+      if (formId === 'changeForm') {
+        if (values.new_password !== values.confirm_password) {
+          return { tone: 'danger', icon: 'exclamation-triangle', message: 'The new passwords do not match.' };
+        }
+        return api().changePassword(values.old_password, values.new_password).then(function (session) {
+          changeForm.reset();
+          goHome(session);
+          return null;
+        });
+      }
+      return null;
+    }).catch(errorResult);
   }
 
   var viewSignIn = card.querySelector('.auth-view--signin');
@@ -129,7 +176,7 @@
   }
 
   // ---------- Form submit ----------
-  ['signInForm', 'forgotForm'].forEach(function (id) {
+  ['signInForm', 'changeForm'].forEach(function (id) {
     var form = document.getElementById(id);
     if (!form) return;
     form.addEventListener('submit', function (event) {
@@ -148,7 +195,10 @@
       setLoading(button, true);
       submitToServer(id, Object.fromEntries(new FormData(form))).then(function (result) {
         setLoading(button, false);
-        showNotice(form, result);
+        if (result) {
+          showNotice(form, result);
+          shake(form);
+        }
       });
     });
   });
@@ -192,29 +242,21 @@
     el.addEventListener('animationend', function () { el.remove(); }, { once: true });
   }
 
-  // for the real sign-in later: showAuthSplash() right before redirecting
-  window.showAuthSplash = showSplash;
-  window.hideAuthSplash = hideSplash;
-
-  // Test sign-in buttons (rendered by login.js): show the screen first, then let
-  // login.js handle the click as usual.
+  // "Sign in as someone else" on the change-password step
   document.addEventListener('click', function (event) {
-    var button = event.target.closest('#signInArea .btn');
-    if (!button || button.disabled || button.dataset.splashDone) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    var rect = button.getBoundingClientRect();
-    var fromKeyboard = event.detail === 0; // Enter/Space has no pointer position
-    showSplash(
-      fromKeyboard ? rect.left + rect.width / 2 : event.clientX,
-      fromKeyboard ? rect.top + rect.height / 2 : event.clientY
-    );
-    setTimeout(function () {
-      button.dataset.splashDone = '1';
-      button.click();
-      delete button.dataset.splashDone;
-    }, SPLASH_DELAY);
-  }, true);
+    if (!event.target.closest('[data-action="cancel-change"]')) return;
+    if (window.RFIDLogin) window.RFIDLogin.cancelChange();
+    changeForm.reset();
+    changeForm.hidden = true;
+    signInForm.hidden = false;
+  });
+
+  // Reloaded the page while a password change was still required
+  function resumePendingChange() {
+    if (window.RFIDLogin && window.RFIDLogin.pendingChange) showChangeForm();
+  }
+  if (window.RFIDLogin) resumePendingChange();
+  else document.addEventListener('rfid-login-ready', resumePendingChange, { once: true });
 
   // If login.js reports an error, remove the screen so the message is visible
   var signInError = document.getElementById('signInError');
@@ -231,7 +273,7 @@
 
   // ---------- Click ripple on buttons ----------
   document.addEventListener('pointerdown', function (event) {
-    var button = event.target.closest('.auth-btn, #signInArea .btn');
+    var button = event.target.closest('.auth-btn');
     if (!button || button.disabled) return;
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     var rect = button.getBoundingClientRect();

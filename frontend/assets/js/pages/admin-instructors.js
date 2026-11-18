@@ -11,7 +11,7 @@ function start() {
     <div class="page-header">
       <div>
         <h2 class="page-title">Instructors</h2>
-        <p class="page-subtitle">Instructors sign in with the Google account registered here. There is no self-registration.</p>
+        <p class="page-subtitle">Instructors sign in with the username created here and the default instructor password, then choose their own. There is no self-registration.</p>
       </div>
     </div>
     <div id="instructorManager"></div>`;
@@ -30,18 +30,19 @@ function start() {
     activateMessage: 'They will be able to sign in again.',
     nameOf: (row) => `${row.first_name} ${row.last_name}`,
     statusOf: (row) => row.status,
-    searchText: (row) => `${row.first_name} ${row.last_name} ${row.email} ${row.department}`,
+    searchText: (row) => `${row.first_name} ${row.last_name} ${row.username} ${row.email} ${row.department}`,
     columns: [
-      { label: 'Instructor', html: (row) => `<div class="cell-main">${escapeHtml(`${row.first_name} ${row.last_name}`)}</div><div class="cell-sub d-lg-none text-break">${escapeHtml(row.email)}</div>` },
-      { label: 'Email', hideBelow: 'lg', html: (row) => `<span class="small">${escapeHtml(row.email)}</span>` },
+      { label: 'Instructor', html: (row) => `<div class="cell-main">${escapeHtml(`${row.first_name} ${row.last_name}`)}</div><div class="cell-sub d-lg-none text-break">${escapeHtml(row.username)}</div>` },
+      { label: 'Username', hideBelow: 'lg', html: (row) => `<span class="small font-monospace">${escapeHtml(row.username)}</span>` },
       { label: 'Department', hideBelow: 'md', html: (row) => escapeHtml(row.department) },
       { label: 'Classes', numeric: true, html: (row) => `<a class="text-decoration-none" href="${classesLink({ q: `${row.first_name} ${row.last_name}` })}" title="See this instructor's classes">${row.class_count}</a>` },
-      { label: 'Google', hideBelow: 'lg', html: (row) => (row.google_linked ? 'Linked' : '<span class="text-secondary">Not signed in yet</span>') },
+      { label: 'Sign-in', hideBelow: 'lg', html: (row) => (row.locked ? '<span class="badge text-bg-danger">Locked</span>' : row.must_change_password ? '<span class="text-secondary">Default password</span>' : 'Active') },
     ],
     formFields: (row) => [
       { name: 'first_name', label: 'First name', required: true, half: true, maxlength: 60, value: row?.first_name },
       { name: 'last_name', label: 'Last name', required: true, half: true, maxlength: 60, value: row?.last_name },
-      { name: 'email', label: 'Google account email', type: 'email', required: true, maxlength: 120, value: row?.email, help: 'This also creates the instructor’s sign-in account. They sign in with this Google account.' },
+      { name: 'username', label: 'Username', required: true, maxlength: 32, value: row?.username, help: '3-32 lowercase letters, numbers, dots, hyphens or underscores. Used to sign in; must be unique.' },
+      { name: 'email', label: 'Email', type: 'email', maxlength: 120, value: row?.email },
       { name: 'department', label: 'Department', required: true, maxlength: 80, value: row?.department ?? 'Computer Engineering' },
     ],
     extraActions: [
@@ -56,13 +57,9 @@ function start() {
         run: (row) => { window.location.href = classesLink({ q: `${row.first_name} ${row.last_name}` }); },
       },
     ],
-    editNotice: (row) => (row.google_linked
-      ? '<div class="alert alert-warning small mt-3 mb-0">Changing the email unlinks the current Google account. The instructor must sign in again with the new email.</div>'
-      : ''),
-    savedMessage: (result, editing) => {
-      if (!editing) return 'Instructor and sign-in account created. Use “Assign subject & section” next.';
-      return result.google_unlinked ? 'Saved. The previous Google account was unlinked.' : 'Instructor saved.';
-    },
+    savedMessage: (_result, editing) => (editing
+      ? 'Instructor saved.'
+      : 'Instructor created. They sign in with this username and the default instructor password. Use “Assign subject & section” next.'),
   });
 }
 

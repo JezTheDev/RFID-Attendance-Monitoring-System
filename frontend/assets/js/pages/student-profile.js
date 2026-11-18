@@ -69,7 +69,8 @@ function profileHtml({ profile, account, classes }) {
               : '<p class="small text-secondary mb-0">No RFID card is assigned to you yet. Please see the administrator.</p>'}
             <h3 class="h6 text-uppercase text-secondary small fw-semibold mt-4">Sign-in account</h3>
             <dl class="row small mb-0">
-              ${row('Account email', escapeHtml(account.email))}
+              ${row('Username', escapeHtml(account.username))}
+              ${account.email ? row('Account email', escapeHtml(account.email)) : ''}
               ${row('Last sign-in', account.last_login_at ? escapeHtml(formatDateTime(account.last_login_at)) : '—')}
             </dl>
           </div>

@@ -282,9 +282,10 @@ function detailsHtml({ student, account, cards, enrollments, attendance }) {
 
     <h3 class="h6 text-uppercase text-secondary small fw-semibold mt-4">Sign-in account</h3>
     <dl class="row small mb-0">
-      <dt class="col-4 fw-normal text-secondary">Google email</dt><dd class="col-8 text-break">${escapeHtml(account?.email ?? student.email)}</dd>
+      <dt class="col-4 fw-normal text-secondary">Username</dt><dd class="col-8 font-monospace">${escapeHtml(account?.username ?? '')}</dd>
+      <dt class="col-4 fw-normal text-secondary">Email</dt><dd class="col-8 text-break">${escapeHtml(account?.email || student.email || '—')}</dd>
       <dt class="col-4 fw-normal text-secondary">Account</dt><dd class="col-8">${account ? escapeHtml(account.account_status) : '<span class="text-danger">Missing user record</span>'}</dd>
-      <dt class="col-4 fw-normal text-secondary">Google link</dt><dd class="col-8">${account?.google_linked ? 'Linked' : 'Not signed in yet'}</dd>
+      <dt class="col-4 fw-normal text-secondary">Password</dt><dd class="col-8">${account?.locked ? '<span class="text-danger">Locked (too many failed sign-ins)</span>' : account?.must_change_password ? 'Default (not changed yet)' : 'Changed by the student'}</dd>
       <dt class="col-4 fw-normal text-secondary">Last sign-in</dt><dd class="col-8">${account?.last_login_at ? escapeHtml(formatDateTime(account.last_login_at)) : '—'}</dd>
     </dl>
 
@@ -330,7 +331,7 @@ function studentFormHtml(sections, student = null) {
       <option value="">Choose a section</option>
       ${sections.map((s) => `<option value="${escapeHtml(s.section_id)}"${s.section_id === student?.section_id ? ' selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}
     </select>`)}
-    ${field('email', 'Google account email', `<input type="email" class="form-control" id="f_email" name="email" maxlength="120" required autocomplete="off" value="${value('email')}">`, 'This also creates the student’s sign-in account. They sign in with this Google account; there is no self-registration.')}`;
+    ${field('email', 'Email (optional)', `<input type="email" class="form-control" id="f_email" name="email" maxlength="120" autocomplete="off" value="${value('email')}">`, 'The student signs in with their student number and the default student password, then chooses their own. There is no self-registration.')}`;
 }
 
 async function createStudentFlow(state, refresh) {
@@ -360,12 +361,12 @@ async function editStudent(studentId, state, refresh) {
   const result = await openFormModal({
     title: `Edit ${fullName(data.student)}`,
     bodyHtml: studentFormHtml(state.sections, data.student)
-      + (data.account?.google_linked ? '<div class="alert alert-warning small mb-0">Changing the email unlinks the current Google account. The student must sign in again with the new email.</div>' : ''),
+      + '<div class="alert alert-info small mb-0">The student number is also the student’s username.</div>',
     submitLabel: 'Save changes',
     onSubmit: (values) => callApi('admin.updateStudent', { ...values, student_id: studentId }),
   });
   if (result) {
-    showToast(result.google_unlinked ? 'Saved. The previous Google account was unlinked.' : 'Student details saved.');
+    showToast('Student details saved.');
     await refresh();
   }
 }

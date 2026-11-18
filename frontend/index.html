@@ -32,10 +32,10 @@
                 </div>
 
                 <div class="auth-field">
-                  <i class="bi bi-envelope auth-field-icon" aria-hidden="true"></i>
-                  <input class="auth-input" id="siEmail" name="email" type="email" placeholder=" " autocomplete="username" required>
-                  <label for="siEmail">PSU email</label>
-                  <div class="auth-field-error">Enter a valid email address.</div>
+                  <i class="bi bi-person auth-field-icon" aria-hidden="true"></i>
+                  <input class="auth-input" id="siUsername" name="username" type="text" placeholder=" " autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64" required>
+                  <label for="siUsername">Username or student number</label>
+                  <div class="auth-field-error">Enter your username or student number.</div>
                 </div>
 
                 <div class="auth-field">
@@ -47,11 +47,7 @@
                 </div>
 
                 <div class="auth-between">
-                  <label class="auth-check">
-                    <input type="checkbox" name="remember">
-                    <span class="auth-check-box" aria-hidden="true"><i class="bi bi-check-lg"></i></span>
-                    <span>Remember me</span>
-                  </label>
+                  <span></span>
                   <button type="button" class="auth-link" data-switch="forgot">Forgot password?</button>
                 </div>
 
@@ -62,11 +58,45 @@
                 </button>
               </form>
 
-              <div class="auth-divider"><span>or</span></div>
+              <!-- First sign-in (or after a reset): the default password must be changed. -->
+              <form class="auth-form" id="changeForm" novalidate hidden>
+                <div class="auth-head">
+                  <span class="auth-eyebrow">One more step</span>
+                  <h2 class="auth-title">Change your password</h2>
+                  <p class="auth-sub">You are using a default password. Choose your own: at least 8 characters, with letters and numbers.</p>
+                </div>
 
-              <!-- Filled by login.js (temporary test sign-in buttons) -->
-              <div id="signInArea"></div>
-              <div id="signInError" class="alert alert-danger d-none mb-0" role="alert"></div>
+                <div class="auth-field">
+                  <i class="bi bi-lock auth-field-icon" aria-hidden="true"></i>
+                  <input class="auth-input" id="cpOld" name="old_password" type="password" placeholder=" " autocomplete="current-password" required>
+                  <label for="cpOld">Current password</label>
+                  <div class="auth-field-error">Enter your current password.</div>
+                </div>
+
+                <div class="auth-field">
+                  <i class="bi bi-key auth-field-icon" aria-hidden="true"></i>
+                  <input class="auth-input" id="cpNew" name="new_password" type="password" placeholder=" " autocomplete="new-password" minlength="8" maxlength="128" required>
+                  <label for="cpNew">New password</label>
+                  <button class="auth-eye" type="button" data-toggle-password aria-label="Show password"><i class="bi bi-eye" aria-hidden="true"></i></button>
+                  <div class="auth-field-error">Use at least 8 characters.</div>
+                </div>
+
+                <div class="auth-field">
+                  <i class="bi bi-key auth-field-icon" aria-hidden="true"></i>
+                  <input class="auth-input" id="cpConfirm" name="confirm_password" type="password" placeholder=" " autocomplete="new-password" required>
+                  <label for="cpConfirm">Repeat new password</label>
+                  <div class="auth-field-error">Repeat the new password.</div>
+                </div>
+
+                <div class="auth-notice" data-role="notice" role="status" hidden></div>
+
+                <button class="auth-btn auth-btn--primary" type="submit">
+                  <span class="auth-btn-label">Save new password</span><i class="bi bi-check2" aria-hidden="true"></i>
+                </button>
+                <button type="button" class="auth-link mt-2" data-action="cancel-change">Sign in as someone else</button>
+              </form>
+
+              <div id="signInError" class="alert alert-danger d-none mb-0 mt-3" role="alert"></div>
 
               <p class="auth-switch-mobile"><i class="bi bi-person-lock me-1" aria-hidden="true"></i>No account yet? Ask your administrator to create one.</p>
             </div>
@@ -79,23 +109,10 @@
                 <div class="auth-head">
                   <span class="auth-key" aria-hidden="true"><i class="bi bi-key"></i></span>
                   <h2 class="auth-title" id="forgotTitle">Forgot your password?</h2>
-                  <p class="auth-sub">Enter your PSU email and we'll send you a link to reset it.</p>
+                  <p class="auth-sub">Passwords are reset by the administrator. Ask them to reset yours; you will then sign in with the default password and choose a new one.</p>
                 </div>
 
-                <div class="auth-field">
-                  <i class="bi bi-envelope auth-field-icon" aria-hidden="true"></i>
-                  <input class="auth-input" id="fpEmail" name="email" type="email" placeholder=" " autocomplete="email" required>
-                  <label for="fpEmail">PSU email</label>
-                  <div class="auth-field-error">Enter a valid email address.</div>
-                </div>
-
-                <div class="auth-notice" data-role="notice" role="status" hidden></div>
-
-                <button class="auth-btn auth-btn--primary" type="submit">
-                  <span class="auth-btn-label">Send reset link</span><i class="bi bi-send" aria-hidden="true"></i>
-                </button>
-
-                <p class="auth-hint"><i class="bi bi-info-circle" aria-hidden="true"></i>Can't access your email? Contact your administrator.</p>
+                <p class="auth-hint"><i class="bi bi-info-circle" aria-hidden="true"></i>For your safety, there is no reset by email.</p>
               </form>
             </div>
           </div>
