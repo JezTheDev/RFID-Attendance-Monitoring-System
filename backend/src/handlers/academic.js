@@ -1,4 +1,4 @@
-import { DemoError, validationError, isValidDate, cleanText, writeAudit, nextId } from '../demo-utils.js';
+import { AppError, validationError, isValidDate, cleanText, writeAudit, nextId } from '../utils.js';
 
 const CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 -]*$/;
 const ROOM_CODE_PATTERN = /^[A-Za-z0-9-]+$/;
@@ -26,7 +26,7 @@ function integer(errors, value, field, min, max) {
 
 function find(rows, key, id, label) {
   const row = rows.find((item) => item[key] === id);
-  if (!row) throw new DemoError('NOT_FOUND', `${label} not found.`);
+  if (!row) throw new AppError('NOT_FOUND', `${label} not found.`);
   return row;
 }
 
@@ -35,12 +35,12 @@ function failIfErrors(errors) {
 }
 
 function changeStatus(db, session, { rows, key, id, status, label, entityType, blockers }) {
-  if (!STATUSES.includes(status)) throw new DemoError('BAD_REQUEST', 'Invalid status.');
+  if (!STATUSES.includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
   const row = find(rows, key, id, label);
-  if (row.status === status) throw new DemoError('NO_CHANGE', `This ${label.toLowerCase()} is already ${status}.`);
+  if (row.status === status) throw new AppError('NO_CHANGE', `This ${label.toLowerCase()} is already ${status}.`);
   if (status === 'inactive') {
     const reasons = blockers(row).filter(Boolean);
-    if (reasons.length) throw new DemoError('IN_USE', `This ${label.toLowerCase()} cannot be deactivated yet: ${reasons.join('; ')}.`);
+    if (reasons.length) throw new AppError('IN_USE', `This ${label.toLowerCase()} cannot be deactivated yet: ${reasons.join('; ')}.`);
   }
   const before = { status: row.status };
   row.status = status;
@@ -121,7 +121,7 @@ export function updateTerm(db, input, session) {
 
 export function setActiveTerm(db, { term_id }, session) {
   const row = find(db.Terms, 'term_id', term_id, 'Term');
-  if (row.is_active === 'TRUE') throw new DemoError('NO_CHANGE', 'This term is already the active term.');
+  if (row.is_active === 'TRUE') throw new AppError('NO_CHANGE', 'This term is already the active term.');
   const previous = db.Terms.find((item) => item.is_active === 'TRUE');
   db.Terms.forEach((item) => { item.is_active = item.term_id === term_id ? 'TRUE' : 'FALSE'; });
   writeAudit(db, session, {

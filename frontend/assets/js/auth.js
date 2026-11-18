@@ -1,4 +1,3 @@
-import { CONFIG } from './config.js';
 import { callApi } from './api.js';
 import { getSession, saveSession, clearSession } from './session.js';
 
@@ -16,13 +15,13 @@ export function homeForRole(role) {
   return ROLE_HOME[role] ? appUrl(ROLE_HOME[role]) : null;
 }
 
-// Demo mode: fake account in the browser. Live mode: test account on the server
-// (only works while TEST_LOGIN / ALLOW_TEST_LOGIN are turned on).
-export function signInDemo(role) {
-  return startSession(CONFIG.MODE === 'demo' ? 'auth.demoSignIn' : 'auth.testSignIn', { role });
+// Test account on the server (only works while TEST_LOGIN / ALLOW_TEST_LOGIN
+// are turned on). Temporary: replaced by username/password login next.
+export function signInTest(role) {
+  return startSession('auth.testSignIn', { role });
 }
 
-// Live mode: exchange the Google ID token for our own session token.
+// Exchange the Google ID token for our own session token.
 export function signInWithGoogle(idToken) {
   return startSession('auth.google', { id_token: idToken });
 }

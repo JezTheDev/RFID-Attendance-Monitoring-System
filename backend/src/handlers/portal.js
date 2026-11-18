@@ -1,11 +1,11 @@
-// Demo handlers for the Instructor and Student portals.
+// Handlers for the Instructor and Student portals.
 // Ownership rule (architecture doc, section 7.2): the server never trusts an
 // instructor_id / student_id sent by the browser. It reads linked_id from the
 // signed-in user and only returns rows that belong to that person.
 import {
-  DemoError, validationError, manilaNow, dayCodeOf, isValidDate, indexBy, fullName,
+  AppError, validationError, manilaNow, dayCodeOf, isValidDate, indexBy, fullName,
   cleanText, writeAudit, nextId,
-} from '../demo-utils.js';
+} from '../utils.js';
 
 const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 const CORRECTABLE = ['present', 'late', 'absent'];
@@ -16,7 +16,7 @@ const CORRECTION_ACTION = 'ATTENDANCE_CORRECT';
 function linkedId(db, session, role) {
   const user = db.Users.find((row) => row.user_id === session.user_id);
   if (!user || user.role !== role || !user.linked_id) {
-    throw new DemoError('FORBIDDEN', 'Your account is not linked to a record yet. Contact the administrator.');
+    throw new AppError('FORBIDDEN', 'Your account is not linked to a record yet. Contact the administrator.');
   }
   return user.linked_id;
 }
@@ -131,7 +131,7 @@ function describeSession(db, maps, session, roster) {
 function ownClass(db, instructorId, classId) {
   const klass = db.Classes.find((row) => row.class_id === classId);
   if (!klass || klass.instructor_id !== instructorId) {
-    throw new DemoError('FORBIDDEN', 'This class is not assigned to you.');
+    throw new AppError('FORBIDDEN', 'This class is not assigned to you.');
   }
   return klass;
 }
@@ -177,7 +177,7 @@ function classSummary(db, maps, klass) {
 }
 
 export function instructorDashboard(db, { date }, session) {
-  if (!isValidDate(date)) throw new DemoError('BAD_REQUEST', 'Please choose a valid date.');
+  if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const now = manilaNow();
@@ -293,7 +293,7 @@ export function instructorGetSession(db, { session_id: sessionId }, session) {
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
-  if (!classSession) throw new DemoError('NOT_FOUND', 'This class session was not found.');
+  if (!classSession) throw new AppError('NOT_FOUND', 'This class session was not found.');
   const klass = ownClass(db, instructorId, classSession.class_id);
   const roster = rosterIds(db, maps, klass.class_id);
   const corrections = correctionsFor(db, sessionId);
@@ -332,13 +332,13 @@ export function instructorCorrectAttendance(db, request, session) {
   const reason = cleanText(request.reason);
 
   const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
-  if (!classSession) throw new DemoError('NOT_FOUND', 'This class session was not found.');
+  if (!classSession) throw new AppError('NOT_FOUND', 'This class session was not found.');
   ownClass(db, instructorId, classSession.class_id);
   if (classSession.status === 'cancelled') {
-    throw new DemoError('SESSION_CANCELLED', 'Attendance cannot be changed for a cancelled class.');
+    throw new AppError('SESSION_CANCELLED', 'Attendance cannot be changed for a cancelled class.');
   }
   if (!rosterIds(db, maps, classSession.class_id).includes(studentId)) {
-    throw new DemoError('NOT_ENROLLED', 'This student is not enrolled in the class.');
+    throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
   }
 
   const fields = {};
@@ -394,7 +394,7 @@ export function instructorClassReport(db, { class_id: classId, from = '', to = '
   if (!classId) return { classes, class: null };
   const klass = ownClass(db, instructorId, classId);
   if ((from && !isValidDate(from)) || (to && !isValidDate(to))) {
-    throw new DemoError('BAD_REQUEST', 'Please choose valid dates.');
+    throw new AppError('BAD_REQUEST', 'Please choose valid dates.');
   }
   if (from && to && from > to) throw validationError({ to: 'The end date must be on or after the start date.' });
 
@@ -464,7 +464,7 @@ export function instructorStudentHistory(db, { class_id: classId, student_id: st
   const maps = lookups(db);
   const klass = ownClass(db, instructorId, classId);
   if (!rosterIds(db, maps, classId).includes(studentId)) {
-    throw new DemoError('NOT_ENROLLED', 'This student is not enrolled in the class.');
+    throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
   }
   const student = maps.students.get(studentId);
   const records = historyRows(db, maps, studentId, [klass]);
@@ -521,7 +521,7 @@ function historyRows(db, maps, studentId, classes) {
 
 function studentProfile(db, maps, studentId) {
   const student = maps.students.get(studentId);
-  if (!student) throw new DemoError('NOT_FOUND', 'Your student record was not found. Contact the administrator.');
+  if (!student) throw new AppError('NOT_FOUND', 'Your student record was not found. Contact the administrator.');
   const section = maps.sections.get(student.section_id);
   const program = maps.programs.get(student.program_id);
   const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
@@ -581,7 +581,7 @@ export function studentHistory(db, { class_id: classId = '' }, session) {
   const maps = lookups(db);
   const classes = myEnrolledClasses(db, studentId);
   const chosen = classId ? classes.filter((row) => row.class_id === classId) : classes;
-  if (classId && !chosen.length) throw new DemoError('FORBIDDEN', 'You are not enrolled in this class.');
+  if (classId && !chosen.length) throw new AppError('FORBIDDEN', 'You are not enrolled in this class.');
   const records = historyRows(db, maps, studentId, chosen);
   return {
     classes: classes.map((klass) => ({

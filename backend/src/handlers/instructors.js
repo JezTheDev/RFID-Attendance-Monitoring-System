@@ -1,4 +1,4 @@
-import { DemoError, validationError, manilaNow, cleanText, writeAudit, nextId } from '../demo-utils.js';
+import { AppError, validationError, manilaNow, cleanText, writeAudit, nextId } from '../utils.js';
 
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -9,7 +9,7 @@ function userOf(db, instructorId) {
 
 function findInstructor(db, instructorId) {
   const row = db.Instructors.find((item) => item.instructor_id === instructorId);
-  if (!row) throw new DemoError('NOT_FOUND', 'Instructor not found.');
+  if (!row) throw new AppError('NOT_FOUND', 'Instructor not found.');
   return row;
 }
 
@@ -100,11 +100,11 @@ export function updateInstructor(db, input, session) {
 
 export function setInstructorStatus(db, { instructor_id, status }, session) {
   const instructor = findInstructor(db, instructor_id);
-  if (!['active', 'inactive'].includes(status)) throw new DemoError('BAD_REQUEST', 'Invalid status.');
-  if (instructor.account_status === status) throw new DemoError('NO_CHANGE', `This instructor is already ${status}.`);
+  if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
+  if (instructor.account_status === status) throw new AppError('NO_CHANGE', `This instructor is already ${status}.`);
   const classes = activeClassCount(db, instructor_id);
   if (status === 'inactive' && classes > 0) {
-    throw new DemoError('IN_USE', `Reassign this instructor's ${classes} active class${classes === 1 ? '' : 'es'} before deactivating.`);
+    throw new AppError('IN_USE', `Reassign this instructor's ${classes} active class${classes === 1 ? '' : 'es'} before deactivating.`);
   }
   const before = { account_status: instructor.account_status };
   instructor.account_status = status;

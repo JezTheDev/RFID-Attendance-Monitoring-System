@@ -1,6 +1,5 @@
 import { CONFIG } from './config.js';
 import { appUrl, signOut } from './auth.js';
-import { callApi } from './api.js';
 
 const NAVIGATION = Object.freeze({
   admin: [
@@ -105,15 +104,7 @@ export function renderShell({ role, active, title, session }) {
         </a>`).join('')}
     </nav>`).join('');
 
-  const demoBanner = CONFIG.MODE === 'demo'
-    ? '<div class="demo-banner" role="status"><i class="bi bi-info-circle me-1" aria-hidden="true"></i><strong>Demo mode:</strong> fake test data. Changes are kept only until you close this browser tab — nothing is saved to a real database.</div>'
-    : '';
-  const demoMenuItem = CONFIG.MODE === 'demo'
-    ? '<li><button class="dropdown-item" type="button" data-action="reset-demo"><i class="bi bi-arrow-counterclockwise me-2" aria-hidden="true"></i>Reset demo data</button></li>'
-    : '';
-
   app.innerHTML = `
-    ${demoBanner}
     <div class="app-layout">
       <aside class="app-sidebar offcanvas-lg offcanvas-start d-flex flex-column" tabindex="-1" id="appSidebar" aria-label="Main navigation">
         <div class="sidebar-brand">
@@ -159,7 +150,6 @@ export function renderShell({ role, active, title, session }) {
             <ul class="dropdown-menu dropdown-menu-end shadow-sm">
               <li><span class="dropdown-item-text small text-secondary">${escapeHtml(session.email ?? '')}</span></li>
               <li><hr class="dropdown-divider"></li>
-              ${demoMenuItem}
               <li><button class="dropdown-item" type="button" data-action="sign-out"><i class="bi bi-box-arrow-right me-2" aria-hidden="true"></i>Sign out</button></li>
             </ul>
           </div>
@@ -174,22 +164,6 @@ export function renderShell({ role, active, title, session }) {
   app.querySelector('[data-action="sign-out"]').addEventListener('click', (event) => {
     event.currentTarget.disabled = true;
     signOut();
-  });
-
-  app.querySelector('[data-action="reset-demo"]')?.addEventListener('click', async () => {
-    const { confirmed } = await confirmAction({
-      title: 'Reset demo data?',
-      message: 'All changes made in this tab will be discarded and the original fake test data restored.',
-      confirmLabel: 'Reset data',
-      tone: 'danger',
-    });
-    if (!confirmed) return;
-    try {
-      await callApi('demo.reset');
-      window.location.reload();
-    } catch (error) {
-      showToast(error.message, 'danger');
-    }
   });
 
   // Entrance animations run only on the first load of the page,

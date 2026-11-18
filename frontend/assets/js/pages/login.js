@@ -1,6 +1,6 @@
 import { CONFIG } from '../config.js';
 import { getSession } from '../session.js';
-import { signInDemo, signInWithGoogle, homeForRole } from '../auth.js';
+import { signInTest, signInWithGoogle, homeForRole } from '../auth.js';
 import { escapeHtml } from '../ui.js';
 
 const ROLES = [
@@ -15,27 +15,13 @@ const existing = getSession();
 const existingHome = existing && homeForRole(existing.role);
 if (existingHome) {
   window.location.replace(existingHome);
-} else if (CONFIG.MODE === 'demo') {
-  renderDemo();
 } else {
-  renderLive();
+  renderSignIn();
 }
 
-/* ---------- Demo mode: fake data in the browser ---------- */
-function renderDemo() {
-  document.getElementById('demoBanner').innerHTML = `
-    <div class="demo-banner" role="status"><i class="bi bi-info-circle me-1" aria-hidden="true"></i><strong>Demo mode:</strong> Google Sign-In is not connected yet. You will see fake test data only.</div>`;
+/* ---------- Sign-in options (temporary until username/password login) ---------- */
+function renderSignIn() {
   const area = document.getElementById('signInArea');
-  area.innerHTML = `${roleButtonsHtml('Demo')}
-    <p class="small text-secondary mt-2 mb-0">Each demo signs in as a fake account so you can try that portal.</p>`;
-  wireRoleButtons(area, 'Demo');
-}
-
-/* ---------- Live mode: Google Sheet through Apps Script ---------- */
-function renderLive() {
-  const area = document.getElementById('signInArea');
-  const divider = document.querySelector('.auth-divider span');
-  if (divider) divider.textContent = 'or';
 
   if (!CONFIG.API_URL) {
     area.innerHTML = '<div class="alert alert-warning mb-0 small">The server address (API_URL) is not set in config.js yet.</div>';
@@ -99,7 +85,7 @@ function roleButtonsHtml(prefix) {
 }
 
 function buttonLabel(item, prefix) {
-  const text = item.primary ? `${prefix === 'Demo' ? 'Continue as Demo' : prefix} ${item.label}` : `${prefix === 'Demo' ? 'Demo ' : ''}${item.label}`;
+  const text = item.primary ? `${prefix} ${item.label}` : item.label;
   return `<i class="bi bi-${item.icon} me-2" aria-hidden="true"></i>${escapeHtml(text)}`;
 }
 
@@ -111,7 +97,7 @@ function wireRoleButtons(area, prefix) {
       area.querySelectorAll('[data-demo-role]').forEach((b) => { b.disabled = true; });
       button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Signing in…';
       try {
-        const session = await signInDemo(item.role);
+        const session = await signInTest(item.role);
         window.location.replace(homeForRole(session.role));
       } catch (error) {
         showError(error.message);

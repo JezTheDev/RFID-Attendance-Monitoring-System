@@ -1,8 +1,8 @@
 // Admin accounts. Unlike students and instructors, an admin has no separate
 // record: the Users row is the whole account (name stored in display_name).
 import {
-  DemoError, validationError, manilaNow, cleanText, writeAudit, nextId,
-} from '../demo-utils.js';
+  AppError, validationError, manilaNow, cleanText, writeAudit, nextId,
+} from '../utils.js';
 
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -13,7 +13,7 @@ function admins(db) {
 
 function findAdmin(db, userId) {
   const row = admins(db).find((item) => item.user_id === userId);
-  if (!row) throw new DemoError('NOT_FOUND', 'Administrator not found.');
+  if (!row) throw new AppError('NOT_FOUND', 'Administrator not found.');
   return row;
 }
 
@@ -90,13 +90,13 @@ export function updateAdmin(db, input, session) {
 
 export function setAdminStatus(db, { user_id: userId, status }, session) {
   const row = findAdmin(db, userId);
-  if (!['active', 'inactive'].includes(status)) throw new DemoError('BAD_REQUEST', 'Invalid status.');
+  if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
   const current = row.account_status === 'active' ? 'active' : 'inactive';
-  if (current === status) throw new DemoError('NO_CHANGE', `This administrator is already ${status}.`);
+  if (current === status) throw new AppError('NO_CHANGE', `This administrator is already ${status}.`);
   if (status === 'inactive') {
-    if (userId === session.user_id) throw new DemoError('IN_USE', 'You cannot deactivate your own account. Ask another administrator.');
+    if (userId === session.user_id) throw new AppError('IN_USE', 'You cannot deactivate your own account. Ask another administrator.');
     const activeAdmins = admins(db).filter((item) => item.account_status === 'active');
-    if (activeAdmins.length <= 1) throw new DemoError('IN_USE', 'There must always be at least one active administrator.');
+    if (activeAdmins.length <= 1) throw new AppError('IN_USE', 'There must always be at least one active administrator.');
   }
   row.account_status = status === 'active' ? 'active' : 'disabled';
   row.updated_at = manilaNow().iso;

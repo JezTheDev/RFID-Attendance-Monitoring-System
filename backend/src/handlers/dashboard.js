@@ -1,9 +1,9 @@
 import {
-  DemoError, setting, manilaNow, dayCodeOf, isValidDate, shiftDate, indexBy, fullName,
-} from '../demo-utils.js';
+  AppError, setting, manilaNow, dayCodeOf, isValidDate, shiftDate, indexBy, fullName,
+} from '../utils.js';
 
 export function getAdminDashboard(db, { date }) {
-  if (!isValidDate(date)) throw new DemoError('BAD_REQUEST', 'Please choose a valid date.');
+  if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
 
   const now = manilaNow();
   const classes = indexBy(db.Classes, 'class_id');

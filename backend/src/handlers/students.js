@@ -1,6 +1,6 @@
 import {
-  DemoError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId,
-} from '../demo-utils.js';
+  AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId,
+} from '../utils.js';
 import { enrollInSectionClasses } from './classes.js';
 
 const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
@@ -30,7 +30,7 @@ function userOf(db, studentId) {
 
 function findStudent(db, studentId) {
   const student = db.Students.find((row) => row.student_id === studentId);
-  if (!student) throw new DemoError('NOT_FOUND', 'Student not found.');
+  if (!student) throw new AppError('NOT_FOUND', 'Student not found.');
   return student;
 }
 
@@ -68,8 +68,8 @@ export function getStudentOptions(db) {
 }
 
 export function listStudents(db, { search = '', section_id = '', status = 'active', card = 'all', page = 1, page_size = 20 }) {
-  if (!['active', 'inactive', 'all'].includes(status)) throw new DemoError('BAD_REQUEST', 'Invalid status filter.');
-  if (!['all', 'with', 'without'].includes(card)) throw new DemoError('BAD_REQUEST', 'Invalid card filter.');
+  if (!['active', 'inactive', 'all'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status filter.');
+  if (!['all', 'with', 'without'].includes(card)) throw new AppError('BAD_REQUEST', 'Invalid card filter.');
   const pageNumber = Math.max(1, Math.floor(Number(page)) || 1);
   const pageSize = Math.min(100, Math.max(1, Math.floor(Number(page_size)) || 20));
   const term = cleanText(search).toLowerCase();
@@ -234,8 +234,8 @@ export function updateStudent(db, input, session) {
 
 export function setStudentStatus(db, { student_id, status, reason }, session) {
   const student = findStudent(db, student_id);
-  if (!['active', 'inactive'].includes(status)) throw new DemoError('BAD_REQUEST', 'Invalid status.');
-  if (student.account_status === status) throw new DemoError('NO_CHANGE', `This student is already ${status}.`);
+  if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
+  if (student.account_status === status) throw new AppError('NO_CHANGE', `This student is already ${status}.`);
   const cleanReason = cleanText(reason);
   if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
 
@@ -270,7 +270,7 @@ export function setStudentStatus(db, { student_id, status, reason }, session) {
 export function assignCard(db, { student_id, rfid_uid, replace_reason = '', note = '' }, session) {
   const student = findStudent(db, student_id);
   if (student.account_status !== 'active') {
-    throw new DemoError('STUDENT_INACTIVE', 'Activate this student before assigning a card.');
+    throw new AppError('STUDENT_INACTIVE', 'Activate this student before assigning a card.');
   }
   const uid = normalizeUid(rfid_uid);
   if (!UID_PATTERN.test(uid)) {
@@ -325,7 +325,7 @@ export function assignCard(db, { student_id, rfid_uid, replace_reason = '', note
 export function revokeCard(db, { student_id, reason }, session) {
   findStudent(db, student_id);
   const card = activeCardOf(db, student_id);
-  if (!card) throw new DemoError('NO_ACTIVE_CARD', 'This student has no active card.');
+  if (!card) throw new AppError('NO_ACTIVE_CARD', 'This student has no active card.');
   const cleanReason = cleanText(reason);
   if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
   card.status = 'revoked';

@@ -9,8 +9,8 @@
  *
  * Files in this project:
  *   Server.gs    - this file: routing, sign-in, reading/writing the Sheet (edit here)
- *   Bundle.gs    - portal actions, GENERATED from frontend/assets/js (do not edit)
- *   SeedData.gs  - FAKE test data for setupSheets(), GENERATED (do not edit)
+ *   Bundle.gs    - portal actions, GENERATED from backend/src (do not edit)
+ *   SeedData.gs  - FAKE test data for setupSheets() on a TEST Sheet, GENERATED (do not edit)
  *
  * Script properties (Project Settings > Script properties):
  *   GOOGLE_CLIENT_ID   OAuth Web client ID used by "Sign in with Google"

@@ -1,7 +1,6 @@
 // Every portal action (admin, instructor, student) and which role may call it.
-// Shared by the in-browser demo (demo-api.js) and the real Apps Script
-// backend (backend/apps-script, built by tools/build_apps_script.mjs),
-// so both behave the same way.
+// Server.gs (backend/apps-script) looks actions up here; the code is bundled
+// into Bundle.gs by tools/build_apps_script.mjs.
 import { getAdminDashboard } from './handlers/dashboard.js';
 import {
   getStudentOptions, listStudents, getStudent, createStudent, updateStudent,

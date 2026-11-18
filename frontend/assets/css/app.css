@@ -75,16 +75,6 @@ body {
   box-shadow: 0 0 0 0.2rem var(--bs-focus-ring-color);
 }
 
-/* ---------- Demo banner ---------- */
-.demo-banner {
-  background: var(--gold-100);
-  color: #5a3f06;
-  border-bottom: 1px solid #f0d99d;
-  font-size: 0.8125rem;
-  padding: 0.4rem 1rem;
-  text-align: center;
-}
-
 /* ---------- App shell ---------- */
 .app-layout {
   display: flex;
@@ -1490,7 +1480,7 @@ body {
 
 /* Printing a class report: only the report itself */
 @media print {
-  .demo-banner, .app-sidebar, .app-topbar, .d-print-none, .toast-container { display: none !important; }
+  .app-sidebar, .app-topbar, .d-print-none, .toast-container { display: none !important; }
   .app-layout, .app-main, .app-content { display: block !important; margin: 0 !important; padding: 0 !important; }
   body { background: #fff; }
   .card { break-inside: avoid; box-shadow: none !important; }

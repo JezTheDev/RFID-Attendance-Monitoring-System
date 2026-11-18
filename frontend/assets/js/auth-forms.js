@@ -1,6 +1,6 @@
 // Login page: sign in and forgot-password views, and their forms.
-// There is no sign-up: only the administrator creates accounts. Works alongside login.js (which still fills
-// #signInArea with the demo button) and does not touch it.
+// There is no sign-up: only the administrator creates accounts. Works alongside login.js (which fills
+// #signInArea with the temporary test sign-in buttons) and does not touch it.
 (function () {
   'use strict';
 
@@ -196,7 +196,7 @@
   window.showAuthSplash = showSplash;
   window.hideAuthSplash = hideSplash;
 
-  // Demo button (rendered by login.js): show the screen first, then let
+  // Test sign-in buttons (rendered by login.js): show the screen first, then let
   // login.js handle the click as usual.
   document.addEventListener('click', function (event) {
     var button = event.target.closest('#signInArea .btn');

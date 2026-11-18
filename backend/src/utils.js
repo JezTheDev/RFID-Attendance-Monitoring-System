@@ -1,9 +1,9 @@
-import { CONFIG } from '../config.js';
+import { TIMEZONE } from './config.js';
 
 const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-export class DemoError extends Error {
+export class AppError extends Error {
   constructor(code, message, fields = null) {
     super(message);
     this.code = code;
@@ -12,7 +12,7 @@ export class DemoError extends Error {
 }
 
 export function validationError(fields) {
-  return new DemoError('VALIDATION_ERROR', 'Please correct the highlighted fields.', fields);
+  return new AppError('VALIDATION_ERROR', 'Please correct the highlighted fields.', fields);
 }
 
 export function setting(db, key, fallback) {
@@ -24,13 +24,13 @@ export function manilaNow() {
   // On the Apps Script server, use its own date formatter (always available there).
   if (typeof Utilities !== 'undefined') {
     const now = new Date();
-    const date = Utilities.formatDate(now, CONFIG.TIMEZONE, 'yyyy-MM-dd');
-    const time = Utilities.formatDate(now, CONFIG.TIMEZONE, 'HH:mm');
-    return { date, time, iso: `${date}T${Utilities.formatDate(now, CONFIG.TIMEZONE, 'HH:mm:ss')}+08:00` };
+    const date = Utilities.formatDate(now, TIMEZONE, 'yyyy-MM-dd');
+    const time = Utilities.formatDate(now, TIMEZONE, 'HH:mm');
+    return { date, time, iso: `${date}T${Utilities.formatDate(now, TIMEZONE, 'HH:mm:ss')}+08:00` };
   }
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-CA', {
-      timeZone: CONFIG.TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
+      timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
       hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
     }).formatToParts(new Date()).map((part) => [part.type, part.value]),
   );

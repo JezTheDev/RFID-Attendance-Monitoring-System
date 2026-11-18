@@ -14,9 +14,7 @@ export async function callApi(action, payload = {}) {
   const session = getSession();
   const request = { action, session_token: session?.token ?? null, ...payload };
 
-  const response = CONFIG.MODE === 'demo'
-    ? await sendToDemo(request)
-    : await sendToServer(request);
+  const response = await sendToServer(request);
 
   if (!response || response.ok !== true) {
     throw new ApiError(
@@ -26,11 +24,6 @@ export async function callApi(action, payload = {}) {
     );
   }
   return response.data;
-}
-
-async function sendToDemo(request) {
-  const { handleDemoRequest } = await import('./demo/demo-api.js');
-  return handleDemoRequest(request);
 }
 
 async function sendToServer(request) {

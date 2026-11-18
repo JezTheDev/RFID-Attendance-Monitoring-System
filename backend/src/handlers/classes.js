@@ -2,8 +2,8 @@
 // and which students are enrolled. The Instructor and Student portals and the
 // RFID session lookup all read from these three tables.
 import {
-  DemoError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId,
-} from '../demo-utils.js';
+  AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId,
+} from '../utils.js';
 
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -28,7 +28,7 @@ function sectionLabel(m, sectionId) {
 
 function findClass(db, classId) {
   const klass = db.Classes.find((row) => row.class_id === classId);
-  if (!klass) throw new DemoError('NOT_FOUND', 'Class not found.');
+  if (!klass) throw new AppError('NOT_FOUND', 'Class not found.');
   return klass;
 }
 
@@ -210,12 +210,12 @@ export function updateClass(db, input, session) {
 
 export function setClassStatus(db, { class_id: classId, status }, session) {
   const klass = findClass(db, classId);
-  if (!['active', 'inactive'].includes(status)) throw new DemoError('BAD_REQUEST', 'Invalid status.');
-  if (klass.status === status) throw new DemoError('NO_CHANGE', `This class is already ${status}.`);
+  if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
+  if (klass.status === status) throw new AppError('NO_CHANGE', `This class is already ${status}.`);
   if (status === 'active') {
     if (db.Classes.some((row) => row.class_id !== classId && row.term_id === klass.term_id && row.subject_id === klass.subject_id
       && row.section_id === klass.section_id && row.status === 'active')) {
-      throw new DemoError('IN_USE', 'Another active class already covers this subject and section.');
+      throw new AppError('IN_USE', 'Another active class already covers this subject and section.');
     }
   }
   const before = { status: klass.status };
@@ -252,7 +252,7 @@ function scheduleClash(db, m, { classId, termId, instructorId, sectionId, roomId
 export function addSchedule(db, input, session) {
   const m = maps(db);
   const klass = findClass(db, input.class_id);
-  if (klass.status !== 'active') throw new DemoError('CLASS_INACTIVE', 'Activate this class before adding a schedule.');
+  if (klass.status !== 'active') throw new AppError('CLASS_INACTIVE', 'Activate this class before adding a schedule.');
   const errors = {};
   const slot = {
     day_of_week: cleanText(input.day_of_week).toUpperCase(),
@@ -286,7 +286,7 @@ export function addSchedule(db, input, session) {
 
 export function removeSchedule(db, { schedule_id: scheduleId }, session) {
   const row = db.Schedules.find((item) => item.schedule_id === scheduleId);
-  if (!row || row.status !== 'active') throw new DemoError('NOT_FOUND', 'Schedule not found.');
+  if (!row || row.status !== 'active') throw new AppError('NOT_FOUND', 'Schedule not found.');
   // Kept as "inactive" so past sessions still point to a real schedule.
   row.status = 'inactive';
   writeAudit(db, session, { action: 'SCHEDULE_REMOVE', entityType: 'Schedules', entityId: scheduleId, before: { status: 'active' }, after: { status: 'inactive' } });
@@ -334,7 +334,7 @@ export function enrollStudents(db, input, session) {
 export function dropEnrollment(db, { class_id: classId, student_id: studentId, reason = '' }, session) {
   findClass(db, classId);
   const row = db.Enrollments.find((item) => item.class_id === classId && item.student_id === studentId && item.status === 'enrolled');
-  if (!row) throw new DemoError('NOT_FOUND', 'This student is not enrolled in the class.');
+  if (!row) throw new AppError('NOT_FOUND', 'This student is not enrolled in the class.');
   const cleanReason = cleanText(reason);
   if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
   row.status = 'dropped';

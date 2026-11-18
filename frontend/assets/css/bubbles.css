@@ -26,7 +26,6 @@
 }
 
 /* Keep the page content above the bubbles and the haze */
-.login-page > #demoBanner,
 .login-page > .login-wrap,
 .login-page > .login-footer {
   position: relative;
