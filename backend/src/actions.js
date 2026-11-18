@@ -9,6 +9,7 @@ import {
   PUBLIC, ANY, PASSWORD_CHANGE_ALLOWED, authorize,
 } from './auth/session.js';
 import * as account from './auth/account.js';
+import * as adminUsers from './auth/admin-users.js';
 import { getAdminDashboard } from './handlers/dashboard.js';
 import {
   getStudentOptions, listStudents, getStudent, createStudent, updateStudent,
@@ -66,6 +67,8 @@ export const ACTIONS = Object.freeze({
   'admin.createAdmin': { run: admins.createAdmin, mode: WRITE, role: 'admin' },
   'admin.updateAdmin': { run: admins.updateAdmin, mode: WRITE, role: 'admin' },
   'admin.setAdminStatus': { run: admins.setAdminStatus, mode: WRITE, role: 'admin' },
+  'admin.resetPassword': { run: adminUsers.resetPassword, mode: WRITE, role: 'admin' },
+  'admin.unlockUser': { run: adminUsers.unlockUser, mode: WRITE, role: 'admin' },
   'admin.getClassOptions': { run: classes.getClassOptions, mode: READ, role: 'admin' },
   'admin.listClasses': { run: classes.listClasses, mode: READ, role: 'admin' },
   'admin.getClass': { run: classes.getClass, mode: READ, role: 'admin' },

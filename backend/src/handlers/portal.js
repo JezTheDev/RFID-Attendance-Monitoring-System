@@ -600,7 +600,7 @@ export function studentGetProfile(db, _request, session) {
   const user = db.Users.find((row) => row.user_id === session.user_id);
   return {
     profile: studentProfile(db, maps, studentId),
-    account: { email: user?.email ?? '', last_login_at: user?.last_login_at || null, google_linked: Boolean(user?.google_sub) },
+    account: { username: user?.username ?? '', email: user?.email ?? '', last_login_at: user?.last_login_at || null },
     classes: myEnrolledClasses(db, studentId).map((klass) => classInfo(db, maps, klass)),
   };
 }

@@ -1,8 +1,10 @@
 // Admin accounts. Unlike students and instructors, an admin has no separate
 // record: the Users row is the whole account (name stored in display_name).
 import {
-  AppError, validationError, manilaNow, cleanText, writeAudit, nextId,
+  AppError, validationError, manilaNow, cleanText, writeAudit,
 } from '../utils.js';
+import { normalizeUsername } from '../auth/account.js';
+import { newUserRow, usernameProblem, accountSummary } from '../auth/admin-users.js';
 
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -20,22 +22,26 @@ function findAdmin(db, userId) {
 function validate(db, input, existing = null) {
   const errors = {};
   const value = {
+    username: normalizeUsername(input.username),
     display_name: cleanText(input.display_name),
     email: cleanText(input.email).toLowerCase(),
   };
+  const usernameError = usernameProblem(db, value.username, existing?.user_id ?? null);
+  if (usernameError) errors.username = usernameError;
   if (!value.display_name) errors.display_name = 'This field is required.';
   else if (value.display_name.length > 80) errors.display_name = 'Use 80 characters or fewer.';
   else if (!NAME_PATTERN.test(value.display_name)) errors.display_name = 'Use letters, spaces, periods, apostrophes, or hyphens only.';
-  if (!EMAIL_PATTERN.test(value.email) || value.email.length > 120) {
+  // Email is optional; when given it must be valid and not used by another account.
+  if (value.email && (!EMAIL_PATTERN.test(value.email) || value.email.length > 120)) {
     errors.email = 'Enter a valid email address.';
-  } else if (db.Users.some((row) => row.email.toLowerCase() === value.email && row.user_id !== existing?.user_id)) {
+  } else if (value.email && db.Users.some((row) => String(row.email).toLowerCase() === value.email && row.user_id !== existing?.user_id)) {
     errors.email = 'This email is already registered to another account.';
   }
   if (Object.keys(errors).length) throw validationError(errors);
   return value;
 }
 
-export function listAdmins(db, _request, session) {
+export function listAdmins(db, _request, session, ctx) {
   return {
     items: admins(db)
       .map((row) => ({
@@ -43,49 +49,32 @@ export function listAdmins(db, _request, session) {
         display_name: row.display_name || 'Administrator',
         email: row.email,
         status: row.account_status === 'active' ? 'active' : 'inactive',
-        google_linked: Boolean(row.google_sub),
-        last_login_at: row.last_login_at || null,
+        ...accountSummary(row, ctx),
         is_you: row.user_id === session.user_id,
       }))
       .sort((a, b) => a.display_name.localeCompare(b.display_name)),
   };
 }
 
-export function createAdmin(db, input, session) {
+export function createAdmin(db, input, session, ctx) {
   const value = validate(db, input);
-  const now = manilaNow().iso;
-  const row = {
-    user_id: nextId(db.Users, 'user_id', 'USR'),
-    email: value.email,
-    google_sub: '',
-    role: 'admin',
-    linked_id: '',
-    account_status: 'active',
-    created_by: session.user_id,
-    last_login_at: '',
-    created_at: now,
-    updated_at: now,
-    display_name: value.display_name,
-  };
+  // Password = DEFAULT_ADMIN_PASSWORD (must be changed at first sign-in).
+  const row = newUserRow(db, ctx, { username: value.username, email: value.email, role: 'admin', displayName: value.display_name }, session);
   db.Users.push(row);
-  writeAudit(db, session, { action: 'ADMIN_CREATE', entityType: 'Users', entityId: row.user_id, after: { email: row.email, display_name: row.display_name } });
+  writeAudit(db, session, { action: 'ADMIN_CREATE', entityType: 'Users', entityId: row.user_id, after: { username: row.username, email: row.email, display_name: row.display_name } });
   return { user_id: row.user_id };
 }
 
 export function updateAdmin(db, input, session) {
   const row = findAdmin(db, input.user_id);
   const value = validate(db, input, row);
-  const before = { email: row.email, display_name: row.display_name || '' };
-  let googleUnlinked = false;
-  if (row.email !== value.email) {
-    googleUnlinked = Boolean(row.google_sub);
-    row.google_sub = '';
-  }
+  const before = { username: row.username, email: row.email, display_name: row.display_name || '' };
+  row.username = value.username;
   row.email = value.email;
   row.display_name = value.display_name;
   row.updated_at = manilaNow().iso;
   writeAudit(db, session, { action: 'ADMIN_UPDATE', entityType: 'Users', entityId: row.user_id, before, after: value });
-  return { user_id: row.user_id, google_unlinked: googleUnlinked };
+  return { user_id: row.user_id };
 }
 
 export function setAdminStatus(db, { user_id: userId, status }, session) {

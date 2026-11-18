@@ -2,6 +2,7 @@ import {
   AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId,
 } from '../utils.js';
 import { enrollInSectionClasses } from './classes.js';
+import { newUserRow, usernameTaken, accountSummary } from '../auth/admin-users.js';
 
 const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
@@ -100,7 +101,7 @@ export function listStudents(db, { search = '', section_id = '', status = 'activ
   };
 }
 
-export function getStudent(db, { student_id }) {
+export function getStudent(db, { student_id }, _session, ctx) {
   const student = findStudent(db, student_id);
   const user = userOf(db, student_id);
   const classes = indexBy(db.Classes, 'class_id');
@@ -108,9 +109,7 @@ export function getStudent(db, { student_id }) {
   const attendance = db.Attendance.filter((row) => row.student_id === student_id);
   return {
     student: toListItem(db, student),
-    account: user
-      ? { email: user.email, account_status: user.account_status, google_linked: Boolean(user.google_sub), last_login_at: user.last_login_at || null }
-      : null,
+    account: user ? { ...accountSummary(user, ctx), email: user.email, account_status: user.account_status } : null,
     cards: db.RfidCards
       .filter((row) => row.student_id === student_id)
       .sort((a, b) => b.assigned_at.localeCompare(a.assigned_at))
@@ -136,6 +135,7 @@ export function getStudent(db, { student_id }) {
 
 function validateStudentInput(db, input, existing = null) {
   const errors = {};
+  const ownUserId = existing ? userOf(db, existing.student_id)?.user_id ?? null : null;
   const value = {
     student_number: cleanText(input.student_number),
     first_name: cleanText(input.first_name),
@@ -148,6 +148,9 @@ function validateStudentInput(db, input, existing = null) {
     errors.student_number = 'Student number must be exactly 10 digits.';
   } else if (db.Students.some((row) => row.student_number === value.student_number && row.student_id !== existing?.student_id)) {
     errors.student_number = 'Another student already uses this student number.';
+  } else if (usernameTaken(db, value.student_number, ownUserId)) {
+    // The student number is the student's username, and usernames are unique across all accounts.
+    errors.student_number = 'This student number is already used as a username by another account.';
   }
 
   for (const field of ['first_name', 'last_name']) {
@@ -160,10 +163,10 @@ function validateStudentInput(db, input, existing = null) {
     errors.section_id = 'Choose a section.';
   }
 
-  const ownUserId = existing ? userOf(db, existing.student_id)?.user_id : null;
-  if (!EMAIL_PATTERN.test(value.email) || value.email.length > 120) {
+  // Email is optional; when given it must be valid and not used by another account.
+  if (value.email && (!EMAIL_PATTERN.test(value.email) || value.email.length > 120)) {
     errors.email = 'Enter a valid email address.';
-  } else if (db.Users.some((row) => row.email === value.email && row.user_id !== ownUserId)) {
+  } else if (value.email && db.Users.some((row) => row.email === value.email && row.user_id !== ownUserId)) {
     errors.email = 'This email is already registered to another account.';
   }
 
@@ -171,9 +174,8 @@ function validateStudentInput(db, input, existing = null) {
   return value;
 }
 
-export function createStudent(db, input, session) {
+export function createStudent(db, input, session, ctx) {
   const value = validateStudentInput(db, input);
-  const now = manilaNow().iso;
   const section = db.Sections.find((row) => row.section_id === value.section_id);
   const student = {
     student_id: nextId(db.Students, 'student_id', 'STU'),
@@ -186,19 +188,10 @@ export function createStudent(db, input, session) {
     email: value.email,
     account_status: 'active',
   };
+  // Username = student number; password = DEFAULT_STUDENT_PASSWORD (must be changed at first sign-in).
+  const user = newUserRow(db, ctx, { username: value.student_number, email: value.email, role: 'student', linkedId: student.student_id }, session);
   db.Students.push(student);
-  db.Users.push({
-    user_id: nextId(db.Users, 'user_id', 'USR'),
-    email: value.email,
-    google_sub: '',
-    role: 'student',
-    linked_id: student.student_id,
-    account_status: 'active',
-    created_by: session.user_id,
-    last_login_at: '',
-    created_at: now,
-    updated_at: now,
-  });
+  db.Users.push(user);
   const classesJoined = enrollInSectionClasses(db, student.student_id, student.section_id);
   writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } });
   return { student_id: student.student_id, classes_joined: classesJoined };
@@ -220,16 +213,14 @@ export function updateStudent(db, input, session) {
   });
 
   const user = userOf(db, student.student_id);
-  let googleUnlinked = false;
-  if (user && user.email !== value.email) {
-    googleUnlinked = Boolean(user.google_sub);
+  if (user) {
+    user.username = value.student_number; // the username follows the student number
     user.email = value.email;
-    user.google_sub = '';
+    user.updated_at = manilaNow().iso;
   }
-  if (user) user.updated_at = manilaNow().iso;
 
   writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before, after: { ...student } });
-  return { student_id: student.student_id, google_unlinked: googleUnlinked };
+  return { student_id: student.student_id };
 }
 
 export function setStudentStatus(db, { student_id, status, reason }, session) {
