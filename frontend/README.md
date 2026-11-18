@@ -1,75 +1,68 @@
 # Frontend — RFID Attendance
 
 Static web app (HTML, CSS, JavaScript, Bootstrap 5.3) for GitHub Pages.
+It always talks to the **live** Apps Script backend — there is no demo mode.
 
 ## Status
 
 | Part | Status |
 |---|---|
 | Design system (PSU maroon/gold), app shell, responsive sidebar | Done |
-| Login page (demo sign-in only) | Done — Google Sign-In comes with the backend (Phase 1) |
-| Admin dashboard | Done, **demo data only** |
-| Admin: Students & RFID cards (add, edit, activate/deactivate, assign/replace/revoke card) | Done, **demo data only** |
-| Admin: Academic setup (terms, programs, sections, subjects, rooms) | Done, **demo data only** |
-| Admin: Instructors | Done, **demo data only** |
-| Other admin pages, Instructor portal, Student portal | Not started |
+| Admin portal: dashboard, students & RFID cards, instructors, admins, classes, academic setup | Done |
+| Instructor portal: dashboard, attendance (sessions + corrections), reports + CSV | Done |
+| Student portal: overview, history, profile | Done |
+| Login page | **Temporary** — only "Test as Admin / Instructor / Student" buttons (needs `ALLOW_TEST_LOGIN` on the server). The username/password form is not connected yet; the real login is the next step. Google Sign-In is no longer used. |
+| Settings / change password, Devices, System settings pages | Not started |
 
 ## Run it locally
 
 ES modules do not load from `file://`, so serve the folder:
 
-- **VS Code:** install the "Live Server" extension, right-click `frontend/index.html` → *Open with Live Server* (port 5500), or
+- **VS Code:** "Live Server" extension → right-click `frontend/index.html` → *Open with Live Server* (port 5500), or
 - **Terminal:** `cd frontend` then `python -m http.server 5500`, and open `http://localhost:5500`.
 
-An internet connection is needed because Bootstrap and Bootstrap Icons load from the jsDelivr CDN.
+An internet connection is needed (Bootstrap from the jsDelivr CDN, and the Apps Script backend).
 
-## Demo mode vs live mode
+## Configuration
 
-Set in `assets/js/config.js`:
+`assets/js/config.js`:
 
-| `MODE` | What happens |
+| Key | Meaning |
 |---|---|
-| `demo` (current) | Every API call is answered by `assets/js/demo/demo-api.js` using the **fake** test data. A "Demo mode" banner is always visible. Changes are kept in this browser tab only (sessionStorage) and disappear when the tab closes. "Reset demo data" in the user menu restores the original data. |
-| `live` | Calls go to `API_URL` (the Apps Script Web App). Not usable until the backend exists. |
+| `API_URL` | Apps Script Web App URL (ends in `/exec`). Every page calls it. |
+| `TIMEZONE` | `Asia/Manila`, for showing dates and times |
+| `GOOGLE_CLIENT_ID`, `TEST_LOGIN` | Old/temporary sign-in settings — removed with the new login |
 
-Pages never read the demo data directly. They only call `callApi(action, payload)` in `assets/js/api.js`, so switching to the real backend does not require changing any page.
+Pages never talk to the Sheet. They only call `callApi(action, payload)` in
+`assets/js/api.js`, which POSTs `text/plain` JSON to `API_URL` (no CORS preflight).
+**Access control is on the server**; role checks in the browser only decide which page to show.
 
 ## Folder structure
 
 ```
 frontend/
 ├── index.html                 Login
-├── admin/index.html           Admin dashboard
+├── admin/                     index, students, instructors, admins, classes, academic
+├── instructor/                index, attendance, reports
+├── student/                   index, history, profile
 └── assets/
-    ├── css/app.css            Design tokens + components
+    ├── css/                   app.css (design tokens + components), auth.css, bubbles.css
     └── js/
-        ├── config.js          MODE, API_URL, GOOGLE_CLIENT_ID (public), timezone
-        ├── api.js             callApi(): demo or live transport, error handling
+        ├── config.js          API_URL, timezone
+        ├── api.js             callApi(): sends requests to the backend, error handling
         ├── session.js         Session storage (sessionStorage)
         ├── auth.js            Sign-in/out, role guard, URLs
         ├── ui.js              App shell, formatters, states, toasts, form/confirm dialogs
-        ├── components/        Reusable widgets (resource-manager.js: list + search + form + status)
-        ├── pages/             One script per page
-        └── demo/
-            ├── demo-api.js    Router: role checks, write rollback, saving
-            ├── demo-store.js  Tab-scoped copy of the demo data
-            ├── demo-utils.js  Shared helpers (dates, validation errors, audit log)
-            ├── handlers/      One file per feature (dashboard, students)
-            └── demo-data.js   GENERATED from RFID_Test_Data.xlsx — do not edit
+        ├── auth-forms.js      Login page forms and animations
+        ├── components/        resource-manager.js (list + search + form + status), attendance-ui.js
+        └── pages/             One script per page
 ```
 
-To regenerate demo data after editing the workbook:
+The business logic behind every action lives in `backend/src/` (see `backend/README.md`).
 
-```
-python tools/xlsx_to_demo_data.py path/to/RFID_Test_Data.xlsx
-```
+## API actions (reference)
 
-## API actions used so far
-
-The Apps Script backend must implement these with the **same request and response shapes**.
-
-### `auth.demoSignIn` (demo only)
-Will be replaced by `auth.google` in Phase 1.
+The full list is in `backend/src/actions.js`. Fields named `google_*` below are left over from the old login and will be replaced by username/password fields in the next step.
 
 ### `auth.logout`
 Request: `{ session_token }` → `data: {}`
@@ -127,6 +120,6 @@ Validation rules: student number exactly 10 digits (assumption based on the curr
 
 ## Known limitations
 
-- Frontend role checks are for navigation only. Real access control will be enforced by the backend.
-- Demo "online" status uses the device `last_seen_at` in the test data, so all devices currently show **offline**. That is the correct result for that data.
+- Frontend role checks are for navigation only. Access control is enforced by the backend.
+- With the fake seed data, all devices show **offline** (their `last_seen_at` is old). That is the correct result for that data.
 - Bootstrap is loaded without Subresource Integrity hashes yet; add them before production.
