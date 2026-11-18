@@ -13,12 +13,13 @@
 // Node tests: tests/helpers/auth.js. Bytes may be signed or unsigned.
 import { AppError } from '../utils.js';
 
-// How this number was chosen: Apps Script's Utilities.computeDigest is a call
-// out of JavaScript into Google's Java runtime, so each call costs far more
-// than in Node (estimated 0.1-0.3 ms incl. byte-array conversion; NOT measured
-// here). 1500 calls ~ 150-450 ms per hash. Run benchmarkPasswordHash() in the
-// Apps Script editor and adjust so one hash takes about 200-500 ms.
-export const PASSWORD_HASH_ITERATIONS = 1500;
+// How this number was chosen: benchmarkPasswordHash() on the real Apps Script
+// project (2026-11-18) measured 1.197 ms per SHA-256 iteration (1500 iterations
+// took 1629 ms). 300 iterations ~ 360 ms per hash, inside the 200-500 ms target.
+// Re-run benchmarkPasswordHash() if Apps Script gets faster or slower.
+// Hashes made with the earlier value (1500) still verify: the count is stored
+// in each hash.
+export const PASSWORD_HASH_ITERATIONS = 300;
 
 const VERSION = 'v1';
 const SALT_BYTES = 16;

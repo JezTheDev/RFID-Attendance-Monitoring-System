@@ -149,6 +149,13 @@ describe('auth.login', () => {
     assert.equal(hashIterations(ana(db).password_hash), PASSWORD_HASH_ITERATIONS);
     assert.equal(login(db, ctx, 'ana', ANA_PW).user_id, 'USR-0002');
   });
+
+  it('still accepts a hash made with the old 1500-iteration constant', () => {
+    const { db, ctx } = setup();
+    ana(db).password_hash = hashPassword(nodeCrypto, TEST_PEPPER, ANA_PW, 1500);
+    assert.equal(login(db, ctx, 'ana', ANA_PW).user_id, 'USR-0002');
+    assert.throws(() => login(db, ctx, 'ana', 'WrongPass1'), withCode('INVALID_CREDENTIALS'));
+  });
 });
 
 describe('sessions and roles (runAction)', () => {

@@ -118,10 +118,13 @@ instructors with `instructor01.test` …, the admin with `admin.test`.
 Run **`checkSetup`** any time: records per tab, which properties are set (never their values),
 and warnings for leftovers.
 
-**Password hashing speed:** run **`benchmarkPasswordHash`** once. It logs how long one hash
-takes. Aim for 200–500 ms; if it is far off, change `PASSWORD_HASH_ITERATIONS` in
-`src/auth/passwords.js`, rebuild, redeploy. Old hashes keep working and are upgraded
-at the user's next sign-in.
+**Password hashing speed:** `PASSWORD_HASH_ITERATIONS` is **300**: `benchmarkPasswordHash`
+measured 1.197 ms per iteration on the real project, so one hash takes about 360 ms.
+Run **`benchmarkPasswordHash`** again if that changes, aim for 200–500 ms, then change the
+constant in `src/auth/passwords.js`, rebuild, redeploy. Every hash stores its own count,
+so old hashes keep working. A *higher* constant re-hashes users at their next sign-in;
+a *lower* one does not — hashes made with the earlier 1500 still verify (about 1.6 s per
+sign-in) until that user changes their password or an admin resets it.
 
 **Rules for editing the Sheet by hand**
 - Row 1 is the column names. Do not rename, reorder or delete them.

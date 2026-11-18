@@ -88,8 +88,10 @@ optional `SPREADSHEET_ID`. `GOOGLE_CLIENT_ID` / `ALLOW_TEST_LOGIN` are obsolete.
 ## Auth rules (backend/src/auth)
 
 - Hash: `v1$<iterations>$<salt>$<hash>`, salt per user + pepper, iterated
-  SHA-256 (`PASSWORD_HASH_ITERATIONS` in passwords.js; raising it re-hashes at
-  next login). Handlers hash through `ctx` (`ctx.hash`, `ctx.verify`,
+  SHA-256 (`PASSWORD_HASH_ITERATIONS` = 300 in passwords.js, measured
+  1.197 ms/iteration in Apps Script ≈ 360 ms/hash; raising it re-hashes at next
+  login, lowering it does not — higher-count hashes still verify, just slower,
+  until the password is changed or reset). Handlers hash through `ctx` (`ctx.hash`, `ctx.verify`,
   `ctx.defaultPassword(role)`, `ctx.now()`), never `Utilities` directly.
 - Handlers are `run(db, request, session, ctx)`. `session` has `user_id`,
   `role`, `username`, `must_change_password`, `token_hash` (server-only).

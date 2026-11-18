@@ -127,14 +127,14 @@ var RFID = (function () {
     // Web sessions (AuthSessions tab). Ported from Server.gs: a random token goes to
     // the browser, only its SHA-256 is stored, and every request is checked here.
     const { AppError, setting, toManilaIso, fullName } = __m["utils"];
-
+    
     const PUBLIC = 'public'; // no session needed
     const ANY = 'any'; // any signed-in role
     // While must_change_password is TRUE, only these actions are allowed.
     const PASSWORD_CHANGE_ALLOWED = Object.freeze(['auth.me', 'auth.changePassword', 'auth.logout']);
-
+    
     const isTrue = (value) => String(value).toUpperCase() === 'TRUE';
-
+    
     function displayName(db, user) {
       let person = null;
       if (user.role === 'instructor') person = db.Instructors.find((row) => row.instructor_id === user.linked_id);
@@ -143,7 +143,7 @@ var RFID = (function () {
       if (user.role === 'admin') return user.display_name || 'Administrator';
       return user.username;
     }
-
+    
     function startSession(db, user, ctx) {
       const token = ctx.newToken();
       const hours = Number(setting(db, 'session_token_hours', 8)) || 8;
@@ -161,7 +161,7 @@ var RFID = (function () {
       });
       return { token, expires_at: expiresAt };
     }
-
+    
     // Returns the session object handlers receive. token_hash stays on the server.
     function authorize(db, token, ctx) {
       const signedOut = new AppError('NOT_SIGNED_IN', 'Your session has ended. Please sign in again.');
@@ -181,7 +181,7 @@ var RFID = (function () {
         token_hash: tokenHash,
       };
     }
-
+    
     // Revokes the user's active sessions (except one token hash). Returns how many.
     function revokeSessions(db, userId, exceptTokenHash = '') {
       let count = 0;
@@ -212,41 +212,42 @@ var RFID = (function () {
     // randomHex(byteCount) -> string }. Apps Script: crypto-apps-script.js.
     // Node tests: tests/helpers/auth.js. Bytes may be signed or unsigned.
     const { AppError } = __m["utils"];
-
-    // How this number was chosen: Apps Script's Utilities.computeDigest is a call
-    // out of JavaScript into Google's Java runtime, so each call costs far more
-    // than in Node (estimated 0.1-0.3 ms incl. byte-array conversion; NOT measured
-    // here). 1500 calls ~ 150-450 ms per hash. Run benchmarkPasswordHash() in the
-    // Apps Script editor and adjust so one hash takes about 200-500 ms.
-    const PASSWORD_HASH_ITERATIONS = 1500;
-
+    
+    // How this number was chosen: benchmarkPasswordHash() on the real Apps Script
+    // project (2026-11-18) measured 1.197 ms per SHA-256 iteration (1500 iterations
+    // took 1629 ms). 300 iterations ~ 360 ms per hash, inside the 200-500 ms target.
+    // Re-run benchmarkPasswordHash() if Apps Script gets faster or slower.
+    // Hashes made with the earlier value (1500) still verify: the count is stored
+    // in each hash.
+    const PASSWORD_HASH_ITERATIONS = 300;
+    
     const VERSION = 'v1';
     const SALT_BYTES = 16;
     const MAX_ITERATIONS = 1000000;
-
+    
     function toHex(bytes) {
       let hex = '';
       for (let i = 0; i < bytes.length; i += 1) hex += ((bytes[i] & 0xff) + 0x100).toString(16).slice(1);
       return hex;
     }
-
+    
     function requirePepper(pepper) {
       if (!pepper) throw new AppError('NOT_CONFIGURED', 'The server is missing PASSWORD_PEPPER. Ask the administrator to finish the setup.');
     }
-
+    
     function digest(crypto, pepper, password, salt, iterations) {
       const secret = crypto.utf8(`${pepper}\u0000${password}`);
       let hash = crypto.sha256(crypto.utf8(salt).concat(secret));
       for (let i = 1; i < iterations; i += 1) hash = crypto.sha256(Array.from(hash).concat(secret));
       return toHex(hash);
     }
-
+    
     function hashPassword(crypto, pepper, password, iterations = PASSWORD_HASH_ITERATIONS) {
       requirePepper(pepper);
       const salt = crypto.randomHex(SALT_BYTES);
       return `${VERSION}$${iterations}$${salt}$${digest(crypto, pepper, String(password), salt, iterations)}`;
     }
-
+    
     function parse(stored) {
       const parts = String(stored ?? '').split('$');
       if (parts.length !== 4 || parts[0] !== VERSION) return null;
@@ -255,18 +256,18 @@ var RFID = (function () {
       if (!/^[0-9a-f]+$/.test(parts[2]) || !/^[0-9a-f]{64}$/.test(parts[3])) return null;
       return { iterations, salt: parts[2], hash: parts[3] };
     }
-
+    
     function hashIterations(stored) {
       return parse(stored)?.iterations ?? 0;
     }
-
+    
     function verifyPassword(crypto, pepper, password, stored) {
       requirePepper(pepper);
       const parsed = parse(stored);
       if (!parsed) return false;
       return constantTimeEqual(digest(crypto, pepper, String(password ?? ''), parsed.salt, parsed.iterations), parsed.hash);
     }
-
+    
     // Compares every character, so the time does not show where the first difference is.
     function constantTimeEqual(a, b) {
       const left = String(a);
@@ -276,7 +277,7 @@ var RFID = (function () {
       for (let i = 0; i < length; i += 1) diff |= (left.charCodeAt(i) | 0) ^ (right.charCodeAt(i) | 0);
       return diff === 0;
     }
-
+    
     // Plain SHA-256 (hex) for session tokens: they are long and random, so no salt is needed.
     function sha256Hex(crypto, text) {
       return toHex(crypto.sha256(crypto.utf8(text)));
@@ -291,60 +292,60 @@ var RFID = (function () {
     const { AppError, validationError, setting, toManilaIso, writeAudit } = __m["utils"];
     const { hashIterations } = __m["auth/passwords"];
     const { startSession, displayName, revokeSessions, isTrue } = __m["auth/session"];
-
+    
     const MINUTE = 60000;
     const MIN_PASSWORD = 8;
     const MAX_PASSWORD = 128;
-
+    
     function normalizeUsername(value) {
       return String(value ?? '').trim().toLowerCase();
     }
-
+    
     function findUserByUsername(db, username) {
       const wanted = normalizeUsername(username);
       if (!wanted) return null;
       return db.Users.find((row) => normalizeUsername(row.username) === wanted) ?? null;
     }
-
+    
     function positiveSetting(db, key, fallback) {
       const value = Math.floor(Number(setting(db, key, fallback)));
       return value > 0 ? value : fallback;
     }
-
+    
     function invalidCredentials() {
       return new AppError('INVALID_CREDENTIALS', 'Incorrect username or password.');
     }
-
+    
     function accountLocked(minutes) {
       return new AppError('ACCOUNT_LOCKED', `Too many failed sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or ask the administrator to unlock your account.`);
     }
-
+    
     // Login failures change the Sheet (counter, lock, audit row), so Server.gs
     // must save them even though the request fails.
     function saved(error) {
       error.commit = true;
       return error;
     }
-
+    
     function audit(db, user, action, reason = '') {
       writeAudit(db, { user_id: user ? user.user_id : '', role: user ? user.role : '' }, {
         action, entityType: 'Users', entityId: user ? user.user_id : '', reason,
       });
     }
-
+    
     function login(db, request, _session, ctx) {
       ctx.pepper(); // fail with NOT_CONFIGURED before touching anything
       const password = String(request.password ?? '');
       const nowMs = ctx.now();
       const user = findUserByUsername(db, request.username);
-
+    
       if (!user) {
         ctx.hash(password); // same work as a real check, so timing does not reveal unknown usernames
         // The attempted username is NOT logged: people sometimes type their password there.
         audit(db, null, 'LOGIN_FAILED', 'unknown username');
         throw saved(invalidCredentials());
       }
-
+    
       const lockedUntil = Date.parse(user.locked_until);
       if (lockedUntil > nowMs) {
         audit(db, user, 'LOGIN_FAILED', 'account locked');
@@ -354,7 +355,7 @@ var RFID = (function () {
         user.locked_until = '';
         user.failed_attempts = '0';
       }
-
+    
       if (!user.password_hash || !ctx.verify(password, user.password_hash)) {
         if (!user.password_hash) ctx.hash(password);
         const attempts = (Number(user.failed_attempts) || 0) + 1;
@@ -368,13 +369,13 @@ var RFID = (function () {
         }
         throw saved(invalidCredentials());
       }
-
+    
       // Only someone with the right password learns that the account is disabled.
       if (user.account_status !== 'active') {
         audit(db, user, 'LOGIN_FAILED', 'account disabled');
         throw saved(new AppError('ACCOUNT_DISABLED', 'Your account is disabled. Contact the administrator.'));
       }
-
+    
       user.failed_attempts = '0';
       user.locked_until = '';
       if (hashIterations(user.password_hash) < ctx.iterations) user.password_hash = ctx.hash(password);
@@ -392,20 +393,20 @@ var RFID = (function () {
         expires_at: expiresAt,
       };
     }
-
+    
     function logout(db, request, _session, ctx) {
       if (!request.session_token) return {};
       const tokenHash = ctx.tokenHash(String(request.session_token));
       db.AuthSessions.forEach((row) => { if (row.token_hash === tokenHash) row.revoked = 'TRUE'; });
       return {};
     }
-
+    
     function currentUser(db, session) {
       const user = db.Users.find((row) => row.user_id === session.user_id);
       if (!user) throw new AppError('NOT_SIGNED_IN', 'Your session has ended. Please sign in again.');
       return user;
     }
-
+    
     function me(db, _request, session) {
       const user = currentUser(db, session);
       return {
@@ -419,7 +420,7 @@ var RFID = (function () {
         expires_at: session.expires_at,
       };
     }
-
+    
     // Throws VALIDATION_ERROR { new_password } if the new password breaks a rule.
     function validateNewPassword(ctx, role, oldPassword, newPassword) {
       let problem = '';
@@ -430,7 +431,7 @@ var RFID = (function () {
       else if (oldPassword !== null && newPassword === oldPassword) problem = 'Choose a password different from your current one.';
       if (problem) throw validationError({ new_password: problem });
     }
-
+    
     function changePassword(db, request, session, ctx) {
       const user = currentUser(db, session);
       const oldPassword = String(request.old_password ?? '');
@@ -440,7 +441,7 @@ var RFID = (function () {
         throw validationError({ old_password: 'Your current password is incorrect.' });
       }
       validateNewPassword(ctx, user.role, oldPassword, newPassword);
-
+    
       const now = toManilaIso(ctx.now());
       user.password_hash = ctx.hash(newPassword);
       user.must_change_password = 'FALSE';
@@ -462,22 +463,22 @@ var RFID = (function () {
     const { AppError, toManilaIso, writeAudit, nextId } = __m["utils"];
     const { normalizeUsername } = __m["auth/account"];
     const { revokeSessions, isTrue } = __m["auth/session"];
-
+    
     // Column order of the Users tab.
     const USER_COLUMNS = Object.freeze([
       'user_id', 'username', 'email', 'role', 'linked_id', 'account_status',
       'password_hash', 'must_change_password', 'failed_attempts', 'locked_until', 'password_changed_at',
       'created_by', 'last_login_at', 'created_at', 'updated_at', 'display_name',
     ]);
-
+    
     // Instructors and admins. Students use their 10-digit student number.
     const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/;
-
+    
     function usernameTaken(db, username, ownUserId = null) {
       const wanted = normalizeUsername(username);
       return db.Users.some((row) => normalizeUsername(row.username) === wanted && row.user_id !== ownUserId);
     }
-
+    
     // Returns '' when the username is fine, otherwise the message for the form.
     function usernameProblem(db, username, ownUserId = null) {
       if (!username) return 'This field is required.';
@@ -485,11 +486,11 @@ var RFID = (function () {
       if (usernameTaken(db, username, ownUserId)) return 'This username is already used by another account.';
       return '';
     }
-
+    
     function nowMs(ctx) {
       return ctx ? ctx.now() : Date.now();
     }
-
+    
     // What the admin pages may show about a login account (never the hash).
     function accountSummary(user, ctx) {
       if (!user) return null;
@@ -500,7 +501,7 @@ var RFID = (function () {
         last_login_at: user.last_login_at || null,
       };
     }
-
+    
     // Builds (does not save) a Users row whose password is the role's default.
     // Hashing happens first, so a missing Script Property stops before any change.
     function newUserRow(db, ctx, { username, email = '', role, linkedId = '', displayName = '' }, session) {
@@ -525,13 +526,13 @@ var RFID = (function () {
         display_name: displayName,
       };
     }
-
+    
     function findUser(db, userId) {
       const user = db.Users.find((row) => row.user_id === userId);
       if (!user) throw new AppError('NOT_FOUND', 'Account not found.');
       return user;
     }
-
+    
     function resetPassword(db, { user_id: userId }, session, ctx) {
       const user = findUser(db, userId);
       if (user.user_id === session.user_id) {
@@ -549,7 +550,7 @@ var RFID = (function () {
       });
       return { user_id: user.user_id, must_change_password: true, sessions_revoked: revoked };
     }
-
+    
     function unlockUser(db, { user_id: userId }, session, ctx) {
       const user = findUser(db, userId);
       if (!(Number(user.failed_attempts) > 0) && !user.locked_until) {
@@ -2765,17 +2766,17 @@ var RFID = (function () {
     // the clock, injected so the same code runs in Apps Script and in Node tests.
     const { AppError } = __m["utils"];
     const { PASSWORD_HASH_ITERATIONS, hashPassword, verifyPassword, sha256Hex } = __m["auth/passwords"];
-
+    
     const DEFAULT_PASSWORD_PROPERTY = Object.freeze({
       student: 'DEFAULT_STUDENT_PASSWORD',
       instructor: 'DEFAULT_INSTRUCTOR_PASSWORD',
       admin: 'DEFAULT_ADMIN_PASSWORD',
     });
-
+    
     function notConfigured(name) {
       return new AppError('NOT_CONFIGURED', `The server is missing the ${name} setting. Ask the administrator to finish the setup.`);
     }
-
+    
     // crypto: see passwords.js. getProperty(name) -> string|null. now() -> epoch ms.
     function createAuthContext({ crypto, getProperty, now, iterations = PASSWORD_HASH_ITERATIONS }) {
       const property = (name) => String(getProperty(name) ?? '');
@@ -2810,14 +2811,14 @@ var RFID = (function () {
     // Crypto adapter for the Apps Script server (see passwords.js for the shape).
     // Utilities works with Java bytes (-128..127), so bytes are converted to signed first.
     /* global Utilities */
-
+    
     function toSigned(bytes) {
       return Array.from(bytes, (b) => {
         const unsigned = b & 0xff;
         return unsigned > 127 ? unsigned - 256 : unsigned;
       });
     }
-
+    
     function appsScriptCrypto() {
       return {
         sha256: (bytes) => Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, toSigned(bytes)),

@@ -57,6 +57,10 @@ describe('hashPassword / verifyPassword', () => {
     assert.throws(() => hashPassword(nodeCrypto, '', 'Secret123'), (e) => e.code === 'NOT_CONFIGURED');
   });
 
+  it('uses 300 iterations (measured: 1.197 ms per iteration in Apps Script -> ~360 ms per hash)', () => {
+    assert.equal(PASSWORD_HASH_ITERATIONS, 300);
+  });
+
   it('one hash with the real constant is fast in Node (sanity, not the Apps Script timing)', () => {
     const start = Date.now();
     hashPassword(nodeCrypto, TEST_PEPPER, 'Secret123');
