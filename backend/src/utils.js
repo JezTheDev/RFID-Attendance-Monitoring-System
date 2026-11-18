@@ -42,6 +42,12 @@ export function manilaNow() {
   };
 }
 
+// Epoch ms -> "YYYY-MM-DDTHH:mm:ss+08:00". Manila has no daylight saving, so a
+// fixed +8 h offset is exact.
+export function toManilaIso(ms) {
+  return `${new Date(Number(ms) + 8 * 3600000).toISOString().slice(0, 19)}+08:00`;
+}
+
 export function dayCodeOf(dateString) {
   const [year, month, day] = dateString.split('-').map(Number);
   return DAY_CODES[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
