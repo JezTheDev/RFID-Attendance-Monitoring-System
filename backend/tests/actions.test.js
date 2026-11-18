@@ -2,13 +2,22 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIONS, READ, WRITE } from '../src/actions.js';
+import { PUBLIC, ANY } from '../src/auth/session.js';
 import { AppError, manilaNow, nextId } from '../src/utils.js';
 
 describe('action table', () => {
-  it('every action names exactly the role of its prefix (admin./instructor./student.)', () => {
+  it('every admin./instructor./student. action requires exactly that role', () => {
     for (const [name, action] of Object.entries(ACTIONS)) {
+      if (name.startsWith('auth.')) continue;
       assert.equal(action.role, name.split('.')[0], name);
     }
+  });
+
+  it('auth actions: only login and logout are public; me and changePassword need any session', () => {
+    const auth = Object.entries(ACTIONS).filter(([name]) => name.startsWith('auth.'));
+    assert.deepEqual(Object.fromEntries(auth.map(([name, a]) => [name, a.role])), {
+      'auth.login': PUBLIC, 'auth.logout': PUBLIC, 'auth.me': ANY, 'auth.changePassword': ANY,
+    });
   });
 
   it('every action has a handler and a read/write mode', () => {
@@ -18,8 +27,9 @@ describe('action table', () => {
     }
   });
 
-  it('has no demo-only or public actions', () => {
-    assert.ok(Object.keys(ACTIONS).every((name) => /^(admin|instructor|student)\./.test(name)));
+  it('has no Google, test or demo sign-in actions', () => {
+    assert.ok(Object.keys(ACTIONS).every((name) => /^(auth|admin|instructor|student)\./.test(name)));
+    for (const gone of ['auth.google', 'auth.testSignIn', 'auth.demoSignIn']) assert.equal(ACTIONS[gone], undefined);
   });
 });
 

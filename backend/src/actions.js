@@ -1,6 +1,14 @@
-// Every portal action (admin, instructor, student) and which role may call it.
-// Server.gs (backend/apps-script) looks actions up here; the code is bundled
-// into Bundle.gs by tools/build_apps_script.mjs.
+// Every action and which role may call it, plus runAction(), the gate every
+// request goes through. Server.gs (backend/apps-script) calls RFID.runAction;
+// the code is bundled into Bundle.gs by tools/build_apps_script.mjs.
+//
+// role: 'public' (no session), 'any' (any signed-in user), or an exact role.
+// Handlers are called as run(db, request, session, ctx).
+import { AppError } from './utils.js';
+import {
+  PUBLIC, ANY, PASSWORD_CHANGE_ALLOWED, authorize,
+} from './auth/session.js';
+import * as account from './auth/account.js';
 import { getAdminDashboard } from './handlers/dashboard.js';
 import {
   getStudentOptions, listStudents, getStudent, createStudent, updateStudent,
@@ -16,6 +24,10 @@ export const READ = 'read';
 export const WRITE = 'write';
 
 export const ACTIONS = Object.freeze({
+  'auth.login': { run: account.login, mode: WRITE, role: PUBLIC },
+  'auth.logout': { run: account.logout, mode: WRITE, role: PUBLIC },
+  'auth.me': { run: account.me, mode: READ, role: ANY },
+  'auth.changePassword': { run: account.changePassword, mode: WRITE, role: ANY },
   'admin.getDashboard': { run: getAdminDashboard, mode: READ, role: 'admin' },
   'admin.getStudentOptions': { run: getStudentOptions, mode: READ, role: 'admin' },
   'admin.listStudents': { run: listStudents, mode: READ, role: 'admin' },
@@ -75,3 +87,26 @@ export const ACTIONS = Object.freeze({
   'student.getHistory': { run: portal.studentHistory, mode: READ, role: 'student' },
   'student.getProfile': { run: portal.studentGetProfile, mode: READ, role: 'student' },
 });
+
+export function findAction(name) {
+  return Object.prototype.hasOwnProperty.call(ACTIONS, name) ? ACTIONS[name] : null;
+}
+
+// Looks the action up, checks the session, the role and the forced password
+// change, then runs it. Throws AppError; error.commit === true means the
+// changes made so far must still be saved (failed logins).
+export function runAction(db, request, ctx) {
+  const name = String(request.action || '');
+  const action = findAction(name);
+  if (!action) throw new AppError('UNKNOWN_ACTION', `Unknown action: ${name}`);
+  if (action.role === PUBLIC) return action.run(db, request, null, ctx);
+
+  const session = authorize(db, request.session_token, ctx);
+  if (action.role !== ANY && session.role !== action.role) {
+    throw new AppError('FORBIDDEN', 'You do not have access to this information.');
+  }
+  if (session.must_change_password && !PASSWORD_CHANGE_ALLOWED.includes(name)) {
+    throw new AppError('PASSWORD_CHANGE_REQUIRED', 'Please change your password before continuing.');
+  }
+  return action.run(db, request, session, ctx);
+}

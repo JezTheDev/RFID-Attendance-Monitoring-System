@@ -1,6 +1,7 @@
 // A small, fully FAKE in-memory db for handler tests. Same shape as what
 // Server.gs loadDb_() builds from the Sheet: { TabName: [ { column: 'text' } ] }.
 //
+//   Users:       USR-0001 admin, USR-0002 ana, USR-0003 ben, USR-0004 2024000001, USR-0005 2024000004
 //   Instructors: INS-0001 Ana Reyes (USR-0002), INS-0002 Ben Cruz (USR-0003)
 //   Students:    STU-0001..0003 in SEC-0001, STU-0004 in SEC-0002
 //   Classes:     CLS-0001 (INS-0001, SEC-0001, RM-0001, MON 08:00-10:00)
@@ -21,9 +22,12 @@ const student = (n, section, first, last) => ({
   program_id: 'PRG-0001', year_level: '3', section_id: section, email: `s${n}@example.com`, account_status: 'active',
 });
 
-const user = (id, role, linked) => ({
-  user_id: id, email: `${id.toLowerCase()}@example.com`, google_sub: '', role, linked_id: linked,
-  account_status: 'active', created_by: '', last_login_at: '', created_at: '', updated_at: '',
+// Users have no password yet (password_hash ''); auth tests set one with setPassword().
+const user = (id, username, role, linked) => ({
+  user_id: id, username, email: `${id.toLowerCase()}@example.com`, role, linked_id: linked,
+  account_status: 'active', password_hash: '', must_change_password: 'FALSE', failed_attempts: '0',
+  locked_until: '', password_changed_at: '', created_by: '', last_login_at: '', created_at: '', updated_at: '',
+  display_name: role === 'admin' ? 'Test Admin' : '',
 });
 
 export function makeDb() {
@@ -54,11 +58,11 @@ export function makeDb() {
       student(4, 'SEC-0002', 'Fe', 'Tan'),
     ],
     Users: [
-      user('USR-0001', 'admin', ''),
-      user('USR-0002', 'instructor', 'INS-0001'),
-      user('USR-0003', 'instructor', 'INS-0002'),
-      user('USR-0004', 'student', 'STU-0001'),
-      user('USR-0005', 'student', 'STU-0004'),
+      user('USR-0001', 'admin', 'admin', ''),
+      user('USR-0002', 'ana', 'instructor', 'INS-0001'),
+      user('USR-0003', 'ben', 'instructor', 'INS-0002'),
+      user('USR-0004', '2024000001', 'student', 'STU-0001'),
+      user('USR-0005', '2024000004', 'student', 'STU-0004'),
     ],
     RfidCards: [
       { card_id: 'CRD-0001', rfid_uid: 'A1B2C3D4', student_id: 'STU-0001', status: 'active', assigned_at: '2026-08-10T08:00:00+08:00', revoked_at: '', notes: '' },
@@ -93,6 +97,8 @@ export function makeDb() {
     Settings: [
       { key: 'roster_version', value: '1', description: '', source: '' },
       { key: 'session_token_hours', value: '8', description: '', source: '' },
+      { key: 'max_login_attempts', value: '5', description: '', source: '' },
+      { key: 'lockout_minutes', value: '15', description: '', source: '' },
     ],
   };
 }
