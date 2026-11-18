@@ -33,5 +33,5 @@ Server.gs does (only file names it mentions).
 - Frontend: `api.js` live only; `config.js` loses `MODE`; demo banner, "Reset
   demo data", `renderDemo`, `demo.reset`, `auth.demoSignIn` removed. Live
   test-login buttons + Google code stay untouched (next step removes them).
-- Tests: `backend/test/*.test.js` + `backend/test/helpers/db.js` (small
+- Tests: `backend/tests/*.test.js` + `backend/tests/helpers/db.js` (small
   in-memory db). Root `package.json`: `"type": "module"`, `"test": "node --test"`.

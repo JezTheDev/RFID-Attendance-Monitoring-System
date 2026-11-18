@@ -27,7 +27,7 @@ backend/
     config.js          TIMEZONE only
     handlers/          academic, admins, classes, dashboard, instructors, portal, students
   seed/seed-data.json  FAKE test data (for a TEST Sheet only)
-  test/                node:test unit tests (+ helpers/db.js in-memory db)
+  tests/               node:test unit tests (+ helpers/db.js in-memory db)
   apps-script/
     Server.gs          Hand-written: router, auth/sessions, Sheet read/write, setupSheets
     Bundle.gs          GENERATED from backend/src — do not edit
@@ -60,7 +60,7 @@ npm test            # same as: node --test
 ```
 
 No npm dependencies. Tests build a small in-memory db
-(`backend/test/helpers/db.js`) and call handlers directly.
+(`backend/tests/helpers/db.js`) and call handlers directly.
 Also run `node --check <file>` on changed JS files.
 
 ## Coding rules

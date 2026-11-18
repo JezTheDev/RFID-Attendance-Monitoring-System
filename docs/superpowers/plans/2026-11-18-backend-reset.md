@@ -40,7 +40,7 @@
 - [ ] Commit `refactor: move handlers to backend/src, remove demo mode`.
 
 ### Task 3: Tests
-**Files:** create `package.json`, `backend/test/helpers/db.js` (`makeDb(overrides)` returns all tables, `adminSession`, `sessionFor(userId, role)`), `backend/test/{portal,classes,students,utils}.test.js`.
+**Files:** create `package.json`, `backend/tests/helpers/db.js` (`makeDb(overrides)` returns all tables, `adminSession`, `sessionFor(userId, role)`), `backend/tests/{portal,classes,cards,actions}.test.js`.
 - [ ] Tests (each asserts thrown `code`):
   - student: `studentHistory` with another class → `FORBIDDEN`; `studentOverview` only own records.
   - instructor: `instructorGetSession` / `instructorCorrectAttendance` on another instructor's session → `FORBIDDEN`; `instructorClassRoster` other class → `FORBIDDEN`.
