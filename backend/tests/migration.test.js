@@ -79,6 +79,17 @@ describe('migrateUsersToPasswordLogin', () => {
     assert.equal(JSON.stringify(db), after);
   });
 
+  it('signs out old sessions (e.g. from the test sign-in) of users who got a default password', () => {
+    const db = googleEraDb();
+    db.AuthSessions = [
+      { token_hash: 'a', user_id: 'USR-0001', created_at: '', expires_at: '2099-01-01T00:00:00+08:00', revoked: 'FALSE' },
+      { token_hash: 'b', user_id: 'USR-0004', created_at: '', expires_at: '2099-01-01T00:00:00+08:00', revoked: 'FALSE' },
+    ];
+    const changes = migrateUsersToPasswordLogin(db, makeCtx());
+    assert.ok(db.AuthSessions.every((s) => s.revoked === 'TRUE'));
+    assert.match(changes.join('\n'), /USR-0001: 1 old session\(s\) signed out/);
+  });
+
   it('keeps passwords and usernames that already exist', () => {
     const db = googleEraDb();
     const ctx = makeCtx();

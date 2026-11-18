@@ -5,6 +5,7 @@
 import { AppError, validationError, writeAudit } from '../utils.js';
 import { normalizeUsername, validateNewPassword } from './account.js';
 import { USER_COLUMNS, newUserRow, usernameProblem } from './admin-users.js';
+import { revokeSessions } from './session.js';
 
 const LOGIN_SETTINGS = [
   { key: 'max_login_attempts', value: '5', description: 'Failed sign-ins in a row before the account is locked', source: 'Login design (Step 2)' },
@@ -89,6 +90,8 @@ export function migrateUsersToPasswordLogin(db, ctx) {
     user.failed_attempts = '0';
     user.locked_until = '';
     changes.push(`${user.user_id}: default ${user.role} password set, must change at first sign-in`);
+    const revoked = revokeSessions(db, user.user_id);
+    if (revoked) changes.push(`${user.user_id}: ${revoked} old session(s) signed out`);
   });
 
   // 4. Settings.

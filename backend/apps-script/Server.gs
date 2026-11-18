@@ -2,26 +2,32 @@
  * RFID Attendance — Apps Script Web App (the "server").
  *
  * The website sends every request here as a POST with a JSON body:
+ *   { "action": "auth.login", "username": "...", "password": "..." }
  *   { "action": "instructor.getSession", "session_token": "...", ...fields }
  * and always gets back:
  *   { "ok": true,  "server_time": "...", "data": {...} }
  *   { "ok": false, "server_time": "...", "error": { "code", "message", "fields"? } }
  *
  * Files in this project:
- *   Server.gs    - this file: routing, sign-in, reading/writing the Sheet (edit here)
- *   Bundle.gs    - portal actions, GENERATED from backend/src (do not edit)
+ *   Server.gs    - this file: routing, reading/writing the Sheet, editor-only jobs (edit here)
+ *   Bundle.gs    - all actions incl. login/sessions, GENERATED from backend/src (do not edit)
  *   SeedData.gs  - FAKE test data for setupSheets() on a TEST Sheet, GENERATED (do not edit)
  *
- * Script properties (Project Settings > Script properties):
- *   GOOGLE_CLIENT_ID   OAuth Web client ID used by "Sign in with Google"
- *   ALLOW_TEST_LOGIN   "true" to allow the "Test as Admin/Instructor/Student"
- *                      buttons. Development only — turn it OFF before real use.
- *   SPREADSHEET_ID     only if this script is NOT created from inside the Sheet
+ * Script properties (Project Settings > Script properties). Never commit their values.
+ *   PASSWORD_PEPPER              long random secret mixed into every password hash.
+ *                                Changing it later makes EVERY password invalid.
+ *   DEFAULT_STUDENT_PASSWORD     first password of new/reset student accounts
+ *   DEFAULT_INSTRUCTOR_PASSWORD  first password of new/reset instructor accounts
+ *   DEFAULT_ADMIN_PASSWORD       first password of new/reset admin accounts
+ *   BOOTSTRAP_ADMIN_USERNAME     only for createBootstrapAdmin()
+ *   BOOTSTRAP_ADMIN_PASSWORD     only for createBootstrapAdmin(); DELETE it afterwards
+ *   SPREADSHEET_ID               only if this script is NOT created from inside the Sheet
  */
 
 var AUTH_SESSION_HEADERS = ['token_hash', 'user_id', 'created_at', 'expires_at', 'revoked'];
 var LOCK_WAIT_MS = 20000;
 var VIEW_PREFIX = 'View - ';
+var REQUIRED_PROPERTIES = ['PASSWORD_PEPPER', 'DEFAULT_STUDENT_PASSWORD', 'DEFAULT_INSTRUCTOR_PASSWORD', 'DEFAULT_ADMIN_PASSWORD'];
 
 function isViewTab_(name) {
   return name.indexOf(VIEW_PREFIX) === 0;
@@ -59,39 +65,35 @@ function failure_(code, message, fields) {
 }
 
 /* ===================== Router ===================== */
-
-var PUBLIC_ACTIONS = {
-  'auth.google': { run: googleSignIn_, write: true },
-  'auth.testSignIn': { run: testSignIn_, write: true },
-  'auth.logout': { run: logout_, write: true },
-};
+// Every action (auth.*, admin.*, instructor.*, student.*) is in Bundle.gs:
+// RFID.runAction checks the session, the role and the forced password change.
 
 function handleRequest_(request) {
-  var action = String(request.action || '');
-  var publicAction = PUBLIC_ACTIONS[action];
-  var portalAction = RFID.ACTIONS[action];
-  if (!publicAction && !portalAction) return failure_('UNKNOWN_ACTION', 'Unknown action: ' + action);
+  var action = String((request && request.action) || '');
+  var entry = RFID.findAction(action);
+  if (!entry) return failure_('UNKNOWN_ACTION', 'Unknown action: ' + action);
 
-  var isWrite = publicAction ? publicAction.write : portalAction.mode === RFID.WRITE;
+  var isWrite = entry.mode === RFID.WRITE;
   var lock = null;
+  var db = null;
+  var before = null;
   try {
     if (isWrite) {
       lock = LockService.getScriptLock();
       if (!lock.tryLock(LOCK_WAIT_MS)) return failure_('BUSY', 'The server is busy. Please try again.');
     }
-    var db = loadDb_();
-    var before = isWrite ? snapshot_(db) : null;
-    var data;
-    if (publicAction) {
-      data = publicAction.run(db, request);
-    } else {
-      var session = authorize_(db, request.session_token, portalAction.role);
-      data = portalAction.run(db, request, session);
-    }
+    var ctx = authContext_();
+    db = loadDb_();
+    before = isWrite ? snapshot_(db) : null;
+    var data = RFID.runAction(db, request, ctx);
     if (isWrite) saveDb_(db, before);
     return success_(data);
   } catch (error) {
-    // Nothing is saved when an action fails, so the Sheet stays unchanged.
+    // Normally nothing is saved when an action fails. Exception: a failed
+    // sign-in (error.commit) must save the failure counter, lock and audit row.
+    if (error && error.commit === true && isWrite && db) {
+      try { saveDb_(db, before); } catch (saveError) { console.error(saveError && saveError.stack ? saveError.stack : saveError); }
+    }
     if (error && typeof error.code === 'string') return failure_(error.code, error.message, error.fields || null);
     console.error(error && error.stack ? error.stack : error);
     return failure_('SERVER_ERROR', 'Unexpected server error. Please try again.');
@@ -100,123 +102,115 @@ function handleRequest_(request) {
   }
 }
 
-function apiError_(code, message) {
-  var error = new Error(message);
-  error.code = code;
-  return error;
-}
-
-/* ===================== Sign-in and sessions ===================== */
+/* ===================== Auth wiring ===================== */
 
 function props_() {
   return PropertiesService.getScriptProperties();
 }
 
-function googleSignIn_(db, request) {
-  var clientId = props_().getProperty('GOOGLE_CLIENT_ID');
-  if (!clientId) throw apiError_('NOT_CONFIGURED', 'Google Sign-In is not set up on the server yet.');
-  if (!request.id_token) throw apiError_('BAD_REQUEST', 'Missing Google sign-in token.');
-
-  // Ask Google to check the token (signature, expiry) and give us its claims.
-  var response = UrlFetchApp.fetch(
-    'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(request.id_token),
-    { muteHttpExceptions: true }
-  );
-  if (response.getResponseCode() !== 200) throw apiError_('INVALID_TOKEN', 'Google sign-in failed. Please try again.');
-  var claims = JSON.parse(response.getContentText());
-  var issuerOk = claims.iss === 'accounts.google.com' || claims.iss === 'https://accounts.google.com';
-  if (claims.aud !== clientId || !issuerOk || Number(claims.exp) * 1000 < Date.now()) {
-    throw apiError_('INVALID_TOKEN', 'Google sign-in failed. Please try again.');
-  }
-  if (String(claims.email_verified) !== 'true') throw apiError_('EMAIL_NOT_VERIFIED', 'Your Google email is not verified.');
-
-  var email = String(claims.email || '').toLowerCase();
-  var user = db.Users.filter(function (row) { return String(row.email).toLowerCase() === email; })[0];
-  if (!user) throw apiError_('NOT_REGISTERED', 'This Google account (' + email + ') is not registered. Ask the administrator to add you.');
-  if (user.account_status !== 'active') throw apiError_('ACCOUNT_DISABLED', 'Your account is disabled. Contact the administrator.');
-
-  // Bind the Google account on first sign-in; afterwards it must match.
-  if (!user.google_sub) {
-    user.google_sub = String(claims.sub);
-  } else if (user.google_sub !== String(claims.sub)) {
-    throw apiError_('ACCOUNT_MISMATCH', 'This email is linked to a different Google account. Ask the administrator to reset it.');
-  }
-  return startSession_(db, user);
-}
-
-// Development helper: sign in as the first active user with a role.
-// Works only while the script property ALLOW_TEST_LOGIN is "true".
-function testSignIn_(db, request) {
-  if (props_().getProperty('ALLOW_TEST_LOGIN') !== 'true') {
-    throw apiError_('TEST_LOGIN_DISABLED', 'Test sign-in is turned off on the server.');
-  }
-  var role = String(request.role || '');
-  var user = db.Users.filter(function (row) { return row.role === role && row.account_status === 'active'; })[0];
-  if (!user) throw apiError_('NOT_REGISTERED', 'No active ' + role + ' account in the Users tab.');
-  return startSession_(db, user);
-}
-
-function startSession_(db, user) {
-  var token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
-  var hours = Number(RFID.setting(db, 'session_token_hours', 8));
-  var now = new Date();
-  var expires = new Date(now.getTime() + hours * 3600000);
-
-  // Drop sessions that ended more than a day ago so the tab stays small.
-  var cutoff = now.getTime() - 86400000;
-  db.AuthSessions = db.AuthSessions.filter(function (row) { return Date.parse(row.expires_at) > cutoff; });
-  db.AuthSessions.push({
-    token_hash: hash_(token),
-    user_id: user.user_id,
-    created_at: RFID.manilaNow().iso,
-    expires_at: expires.toISOString(),
-    revoked: 'FALSE',
+// Hashing (Utilities), Script Properties (read once per request) and the clock
+// for the shared auth code in Bundle.gs.
+function authContext_() {
+  var all = props_().getProperties();
+  return RFID.createAuthContext({
+    crypto: RFID.appsScriptCrypto(),
+    getProperty: function (name) { return all[name] || null; },
+    now: function () { return Date.now(); },
   });
-  user.last_login_at = RFID.manilaNow().iso;
-
-  return {
-    session_token: token,
-    user_id: user.user_id,
-    role: user.role,
-    display_name: displayName_(db, user),
-    email: user.email,
-    expires_at: expires.toISOString(),
-  };
 }
 
-function logout_(db, request) {
-  if (!request.session_token) return {};
-  var tokenHash = hash_(request.session_token);
-  db.AuthSessions.forEach(function (row) {
-    if (row.token_hash === tokenHash) row.revoked = 'TRUE';
+/* ===================== Editor-only account jobs ===================== */
+// Run these from the Apps Script editor (function dropdown > Run). They are
+// not Web App actions, so nobody can call them from the website.
+
+// Loads the Sheet, runs job(db, ctx) -> lines to log, and saves only if it worked.
+function runEditorJob_(job) {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_WAIT_MS)) throw new Error('The server is busy. Try again in a minute.');
+  try {
+    var db = loadDb_();
+    var before = snapshot_(db);
+    var lines = job(db, authContext_());
+    saveDb_(db, before);
+    console.log(lines.join('\n'));
+    return lines;
+  } catch (error) {
+    if (error && typeof error.code === 'string') {
+      throw new Error(error.code + ': ' + error.message + (error.fields ? ' ' + JSON.stringify(error.fields) : '') + ' (nothing was saved)');
+    }
+    throw error;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Creates the FIRST admin account from the Script Properties
+ * BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD.
+ * Refuses if an active admin already exists. The new admin must change the
+ * password at first sign-in. DELETE BOOTSTRAP_ADMIN_PASSWORD afterwards.
+ */
+function createBootstrapAdmin() {
+  runEditorJob_(function (db, ctx) {
+    var result = RFID.createBootstrapAdmin(db, ctx);
+    return [
+      'Created admin "' + result.username + '" (' + result.user_id + '). They must change the password at first sign-in.',
+      'NOW DELETE the BOOTSTRAP_ADMIN_PASSWORD Script Property (Project Settings > Script properties).',
+    ];
   });
-  return {};
 }
 
-function authorize_(db, token, role) {
-  var signedOut = apiError_('NOT_SIGNED_IN', 'Your session has ended. Please sign in again.');
-  if (!token) throw signedOut;
-  var tokenHash = hash_(token);
-  var row = db.AuthSessions.filter(function (s) { return s.token_hash === tokenHash; })[0];
-  if (!row || row.revoked === 'TRUE' || Date.parse(row.expires_at) <= Date.now()) throw signedOut;
-  var user = db.Users.filter(function (u) { return u.user_id === row.user_id; })[0];
-  if (!user || user.account_status !== 'active') throw signedOut;
-  if (user.role !== role) throw apiError_('FORBIDDEN', 'You do not have access to this information.');
-  return { user_id: user.user_id, role: user.role, email: user.email };
+/**
+ * Moves an existing (Google Sign-In era) Sheet to username + password login.
+ * MAKE A COPY OF THE SPREADSHEET FIRST (File > Make a copy).
+ * - adds the missing Users columns, removes google_sub
+ * - usernames: students = student number; instructors/admins = email local part
+ * - users without a password get their role's default password + must change
+ * - Settings: removes allowed_email_rule, adds max_login_attempts / lockout_minutes
+ * Safe to run again: the second run reports "nothing to change".
+ */
+function migrateUsersToPasswordLogin() {
+  runEditorJob_(function (db, ctx) {
+    var changes = RFID.migrateUsersToPasswordLogin(db, ctx);
+    return changes.length ? changes : ['Nothing to change: the Users tab is already migrated.'];
+  });
+  dropEmptyColumn_('Users', 'google_sub');
 }
 
-function displayName_(db, user) {
-  var person = null;
-  if (user.role === 'instructor') person = db.Instructors.filter(function (r) { return r.instructor_id === user.linked_id; })[0];
-  if (user.role === 'student') person = db.Students.filter(function (r) { return r.student_id === user.linked_id; })[0];
-  if (person) return person.first_name + ' ' + person.last_name;
-  if (user.role === 'admin') return user.display_name || 'Administrator';
-  return user.email;
+// Deletes a column by header name, but only if every value below the header is empty.
+function dropEmptyColumn_(tab, header) {
+  var sheet = spreadsheet_().getSheetByName(tab);
+  if (!sheet || sheet.getLastColumn() === 0) return;
+  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
+  var index = headers.indexOf(header);
+  if (index === -1) return;
+  if (sheet.getLastRow() > 1) {
+    var values = sheet.getRange(2, index + 1, sheet.getLastRow() - 1, 1).getDisplayValues();
+    if (values.some(function (row) { return row[0] !== ''; })) {
+      console.log(tab + '.' + header + ' still has values, column kept.');
+      return;
+    }
+  }
+  sheet.deleteColumn(index + 1);
+  console.log(tab + ': removed the empty "' + header + '" column.');
 }
 
-function hash_(text) {
-  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(text), Utilities.Charset.UTF_8);
-  return bytes.map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('');
+/**
+ * Times password hashing here in Apps Script, to choose PASSWORD_HASH_ITERATIONS
+ * (backend/src/auth/passwords.js). Aim for about 200-500 ms per hash.
+ */
+function benchmarkPasswordHash() {
+  var crypto = RFID.appsScriptCrypto();
+  var sample = 300;
+  var start = Date.now();
+  RFID.hashPassword(crypto, 'benchmark-only-pepper', 'Benchmark123', sample);
+  var perIteration = (Date.now() - start) / sample;
+  start = Date.now();
+  RFID.hashPassword(crypto, 'benchmark-only-pepper', 'Benchmark123');
+  var current = Date.now() - start;
+  console.log('One SHA-256 iteration: ' + perIteration.toFixed(3) + ' ms');
+  console.log('Current PASSWORD_HASH_ITERATIONS = ' + RFID.PASSWORD_HASH_ITERATIONS + ' -> one hash took ' + current + ' ms');
+  console.log('For ~300 ms per hash use about ' + Math.max(1, Math.round(300 / Math.max(perIteration, 0.001))) + ' iterations.');
 }
 
 /* ===================== Reading and writing the Sheet ===================== */
@@ -330,11 +324,19 @@ function defaultHeaders_(name) {
  * Creates every tab with its column names, formatted as plain text.
  * Tabs that are still EMPTY are filled with the FAKE test data, so the portals
  * have something to show. Tabs that already have records are never touched.
- * Safe to run more than once.
+ * The seed data has NO passwords: seeded users get their role's default
+ * password (from Script Properties) and must change it at first sign-in.
+ * Safe to run more than once. TEST spreadsheet only.
  */
 function setupSheets() {
   var ss = spreadsheet_();
   var report = [];
+  var usersSheet = ss.getSheetByName('Users');
+  var seedsUsers = !usersSheet || usersSheet.getLastRow() <= 1;
+  if (seedsUsers) {
+    var missing = REQUIRED_PROPERTIES.filter(function (name) { return !props_().getProperty(name); });
+    if (missing.length) throw new Error('Set these Script Properties first (seeded users need default passwords): ' + missing.join(', '));
+  }
   Object.keys(SEED_DATA).forEach(function (name) {
     var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
     var headers = defaultHeaders_(name);
@@ -353,6 +355,10 @@ function setupSheets() {
   var blank = ss.getSheetByName('Sheet1');
   if (blank && ss.getSheets().length > 1 && blank.getLastRow() === 0) ss.deleteSheet(blank);
   console.log(report.join('\n'));
+  if (seedsUsers) {
+    // Fill the password hashes of the seeded test users (same code as the migration).
+    runEditorJob_(function (db, ctx) { return RFID.migrateUsersToPasswordLogin(db, ctx); });
+  }
   setupViews();
 }
 
@@ -435,6 +441,13 @@ function buildView_(ss, name, columns, rowsExistColumn, note) {
 function checkSetup() {
   var db = loadDb_();
   console.log(Object.keys(db).map(function (name) { return name + ': ' + db[name].length; }).join('\n'));
-  console.log('GOOGLE_CLIENT_ID set: ' + Boolean(props_().getProperty('GOOGLE_CLIENT_ID')));
-  console.log('ALLOW_TEST_LOGIN: ' + (props_().getProperty('ALLOW_TEST_LOGIN') || 'false'));
+  var props = props_().getProperties();
+  // Only says whether each property is set, never its value.
+  REQUIRED_PROPERTIES.forEach(function (name) { console.log(name + ' set: ' + Boolean(props[name])); });
+  if (props.BOOTSTRAP_ADMIN_PASSWORD) console.warn('BOOTSTRAP_ADMIN_PASSWORD is still set. Delete it once the first admin exists.');
+  ['GOOGLE_CLIENT_ID', 'ALLOW_TEST_LOGIN'].forEach(function (name) {
+    if (props[name]) console.warn(name + ' is no longer used. Delete this Script Property.');
+  });
+  var noPassword = (db.Users || []).filter(function (u) { return !u.password_hash; }).length;
+  if (noPassword) console.warn(noPassword + ' user(s) have no password yet. Run migrateUsersToPasswordLogin.');
 }

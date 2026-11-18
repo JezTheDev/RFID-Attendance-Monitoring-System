@@ -18,7 +18,10 @@ const seedFile = resolve(root, 'backend/seed/seed-data.json');
 const outDir = resolve(root, 'backend/apps-script');
 
 // Modules the server needs: the action table, plus helpers Server.gs uses.
-const ENTRIES = ['actions.js', 'utils.js', 'config.js'];
+const ENTRIES = [
+  'actions.js', 'utils.js', 'config.js',
+  'auth/context.js', 'auth/crypto-apps-script.js', 'auth/passwords.js', 'auth/migration.js',
+];
 
 const IMPORT_RE = /import\s+([\s\S]*?)\s+from\s+['"](.+?)['"];?/g;
 const EXPORT_DECL_RE = /^export\s+(async\s+function|function|const|let|class)\s+([A-Za-z_$][\w$]*)/gm;
@@ -84,7 +87,8 @@ ${indent(mod.code)}
   })();`;
 }).join('\n')}
 
-  return Object.assign({}, __m['config'], __m['utils'], __m['actions']);
+  return Object.assign({}, __m['config'], __m['utils'], __m['actions'],
+    __m['auth/context'], __m['auth/crypto-apps-script'], __m['auth/passwords'], __m['auth/migration']);
 })();
 `;
 
