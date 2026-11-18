@@ -7,6 +7,8 @@
 | Type | Read-only audit. No source file was changed. |
 | Login model used as the reference | **New username/password model** (admin-created accounts, default passwords, forced first-login change). Google Sign-In is treated as **OUTDATED** everywhere. |
 
+> **Update (branch `login-backend`, same day):** the LOGIN rows in §3 and the Google Sign-In removal list in §4 are now done — `auth.login`, `auth.me`, `auth.changePassword`, `admin.resetPassword`, `admin.unlockUser`, salted+peppered hashing, lockout, forced change, migration and bootstrap admin (see `backend/README.md` → *Sign-in*). The CRITICAL test-login risk in §1 is removed from the code; it is only gone from the live site after redeploying and deleting `ALLOW_TEST_LOGIN`. The rest of this report is unchanged.
+
 Legend: **UNVERIFIED** = could not be confirmed from the repo or a safe local command (e.g., needs the live Google Sheet / Apps Script project).
 
 ---

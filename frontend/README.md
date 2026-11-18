@@ -11,8 +11,8 @@ It always talks to the **live** Apps Script backend — there is no demo mode.
 | Admin portal: dashboard, students & RFID cards, instructors, admins, classes, academic setup | Done |
 | Instructor portal: dashboard, attendance (sessions + corrections), reports + CSV | Done |
 | Student portal: overview, history, profile | Done |
-| Login page | **Temporary** — only "Test as Admin / Instructor / Student" buttons (needs `ALLOW_TEST_LOGIN` on the server). The username/password form is not connected yet; the real login is the next step. Google Sign-In is no longer used. |
-| Settings / change password, Devices, System settings pages | Not started |
+| Login page | Username / student number + password (`auth.login`), forced change-password step (`auth.changePassword`). Polish comes in Step 3. |
+| Account Settings page, admin reset/unlock buttons, Devices, System settings pages | Not started |
 
 ## Run it locally
 
@@ -31,7 +31,6 @@ An internet connection is needed (Bootstrap from the jsDelivr CDN, and the Apps 
 |---|---|
 | `API_URL` | Apps Script Web App URL (ends in `/exec`). Every page calls it. |
 | `TIMEZONE` | `Asia/Manila`, for showing dates and times |
-| `GOOGLE_CLIENT_ID`, `TEST_LOGIN` | Old/temporary sign-in settings — removed with the new login |
 
 Pages never talk to the Sheet. They only call `callApi(action, payload)` in
 `assets/js/api.js`, which POSTs `text/plain` JSON to `API_URL` (no CORS preflight).
@@ -62,10 +61,10 @@ The business logic behind every action lives in `backend/src/` (see `backend/REA
 
 ## API actions (reference)
 
-The full list is in `backend/src/actions.js`. Fields named `google_*` below are left over from the old login and will be replaced by username/password fields in the next step.
-
-### `auth.logout`
-Request: `{ session_token }` → `data: {}`
+The full list is in `backend/src/actions.js`. Sign-in actions (`auth.login`, `auth.me`,
+`auth.changePassword`, `auth.logout`, `admin.resetPassword`, `admin.unlockUser`) are
+described in `backend/README.md` → *Sign-in (auth API)*. Account fields in admin responses:
+`username`, `must_change_password`, `locked`, `last_login_at` (never a password or hash).
 
 ### `admin.getDashboard` (admin only)
 Request: `{ session_token, date: "YYYY-MM-DD" }`
@@ -91,9 +90,9 @@ Every write is recorded in AuditLog. Card changes increment the `roster_version`
 |---|---|---|
 | `admin.getStudentOptions` | — | `sections[]` (`section_id`, `label`, `year_level`) |
 | `admin.listStudents` | `search`, `section_id`, `status` (`active`/`inactive`/`all`), `card` (`all`/`with`/`without`), `page`, `page_size` (max 100) | `items[]`, `total`, `page`, `page_size`, `counts` (`active`, `inactive`, `without_card`) |
-| `admin.getStudent` | `student_id` | `student`, `account` (`email`, `account_status`, `google_linked`, `last_login_at`), `cards[]` (history), `enrollments[]`, `attendance` summary |
-| `admin.createStudent` | `student_number`, `first_name`, `last_name`, `section_id`, `email` | `student_id`. Also creates the student's Users row (role `student`) |
-| `admin.updateStudent` | `student_id` + the same fields | `student_id`, `google_unlinked` (true if the email changed on a linked account) |
+| `admin.getStudent` | `student_id` | `student`, `account` (`username`, `email`, `account_status`, `must_change_password`, `locked`, `last_login_at`), `cards[]` (history), `enrollments[]`, `attendance` summary |
+| `admin.createStudent` | `student_number`, `first_name`, `last_name`, `section_id`, `email` (optional) | `student_id`. Also creates the student's Users row (role `student`, username = student number, default student password, must change) |
+| `admin.updateStudent` | `student_id` + the same fields | `student_id` (the username follows the student number) |
 | `admin.setStudentStatus` | `student_id`, `status` (`active`/`inactive`), `reason` | `account_status`, `revoked_card_id`. Deactivation disables sign-in and revokes the active card |
 | `admin.assignCard` | `student_id`, `rfid_uid`, `replace_reason` (`lost`/`damaged`/`other`, required when replacing), `note` | `card_id`, `replaced_card_id` |
 | `admin.revokeCard` | `student_id`, `reason` | `card_id` |
@@ -112,11 +111,11 @@ Each list action returns `{ items }` (all rows; the page filters and searches th
 | Section | `admin.listSections` (also returns `programs` options), `createSection`, `updateSection`, `setSectionStatus` | `program_id`, `year_level` (1–5), `section_name` (stored uppercase) | Name unique within program; program/year locked while active students belong to it; cannot deactivate with active students or classes |
 | Subject | `admin.listSubjects`, `createSubject`, `updateSubject`, `setSubjectStatus` | `subject_code` (stored uppercase), `subject_title`, `units` (1–10) | Code unique; cannot deactivate while used by active classes |
 | Room | `admin.listRooms`, `createRoom`, `updateRoom`, `setRoomStatus` | `room_code` (uppercase, no spaces), `room_name`, `building` (optional) | Code unique; cannot deactivate with active schedules or an assigned device |
-| Instructor | `admin.listInstructors`, `createInstructor`, `updateInstructor`, `setInstructorStatus` | `first_name`, `last_name`, `email`, `department` | Creates the Users row (role `instructor`); email unique across users; email change unlinks Google; cannot deactivate with active classes |
+| Instructor | `admin.listInstructors`, `createInstructor`, `updateInstructor`, `setInstructorStatus` | `username`, `first_name`, `last_name`, `email` (optional), `department` | Creates the Users row (role `instructor`, default instructor password, must change); username unique across users; cannot deactivate with active classes |
 
 Blocked deactivations return `code: "IN_USE"` with a message listing what still depends on the record.
 
-Validation rules: student number exactly 10 digits (assumption based on the current PSU format — confirm); names up to 60 letters; email unique across all users; UID normalized to uppercase hex without separators and must be 8, 14, or 20 characters (4-, 7-, or 10-byte UIDs); a UID active for another student, or with history under another student, is refused.
+Validation rules: student number exactly 10 digits (assumption based on the current PSU format — confirm); names up to 60 letters; email optional, unique across all users when given; student number must not be used as another account's username; UID normalized to uppercase hex without separators and must be 8, 14, or 20 characters (4-, 7-, or 10-byte UIDs); a UID active for another student, or with history under another student, is refused.
 
 ## Known limitations
 

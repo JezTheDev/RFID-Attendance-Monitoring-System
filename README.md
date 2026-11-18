@@ -29,7 +29,7 @@ Website ──────┘
 | Instructor portal: dashboard, sessions, attendance corrections, roster, reports + CSV | Done |
 | Student portal: overview, history, profile | Done |
 | Unit tests for the business logic (`npm test`) | Done |
-| **Login: admin-created username/password accounts** | **Next step** — only a temporary test sign-in exists |
+| Login: admin-created username/password accounts | Done (backend + basic login page): lockout, forced first-login password change, admin reset/unlock actions. Login page polish, Settings page and admin reset/unlock buttons are next |
 | Device API (`device.submitScans`, heartbeat, roster) + session engine | Not started |
 | Firmware | Not in this repository yet |
 

@@ -12,13 +12,14 @@ Website ──POST──▶ Apps Script Web App ──▶ Google Sheet (one tab 
 
 | Path | What it is | Edit it? |
 |---|---|---|
-| `src/actions.js` | Table of every portal action: name → handler, read/write, required role | Yes |
+| `src/actions.js` | Table of every action (name → handler, read/write, role) and `runAction()`, the gate every request goes through | Yes |
+| `src/auth/*.js` | Login, sessions, password hashing, reset/unlock, migration, bootstrap admin | Yes |
 | `src/handlers/*.js` | Business logic (students, cards, classes, schedules, portals, …). Pure functions on a `db` object | Yes |
 | `src/utils.js` | `AppError`, validation helper, Manila time, audit log, ID numbers | Yes |
 | `src/config.js` | `TIMEZONE` (Asia/Manila) | Rarely |
 | `seed/seed-data.json` | **FAKE** test data for a TEST Sheet | Yes (or regenerate from the xlsx) |
 | `tests/` | Unit tests (`npm test`) + `helpers/db.js` small fake db | Yes |
-| `apps-script/Server.gs` | Routing, sign-in, sessions, reading/writing the Sheet, `setupSheets()` | Yes |
+| `apps-script/Server.gs` | Calls `RFID.runAction`, reads/writes the Sheet, editor-only jobs (`setupSheets`, `createBootstrapAdmin`, `migrateUsersToPasswordLogin`, `benchmarkPasswordHash`, `checkSetup`) | Yes |
 | `apps-script/Bundle.gs` | `src/` packed into one file for Apps Script. **Generated** | No — run the build |
 | `apps-script/SeedData.gs` | `seed/seed-data.json` as `SEED_DATA`. **Generated** | No — run the build |
 | `apps-script/appsscript.json` | Project settings (time zone, permissions, web app access) | Rarely |
@@ -69,34 +70,63 @@ In the Apps Script editor:
 4. Open `appsscript.json` → replace its contents with `apps-script/appsscript.json`.
 5. Save (Ctrl+S).
 
-### 3. Create the tabs
+### 3. Script Properties (secrets)
 
-1. In the function dropdown choose **`setupSheets`** → **Run**.
-2. The first time, Google asks for permission → **Review permissions** → choose the project account →
-   *"Google hasn't verified this app"* → **Advanced → Go to (project name)** → **Allow**.
-3. The Sheet now has 19 tabs (`Students`, `Attendance`, …).
+**Project Settings → Script properties → Add script property.** Values live only
+here — never in the repo, the Sheet, or chat.
+
+| Property | Needed for | Notes |
+|---|---|---|
+| `PASSWORD_PEPPER` | every login and password change | Long random text (40+ characters). **Never change it later**: every password would stop working. |
+| `DEFAULT_STUDENT_PASSWORD` | new / reset student accounts | Letters + numbers, 8+ characters. Tell students in person. |
+| `DEFAULT_INSTRUCTOR_PASSWORD` | new / reset instructor accounts | Same rules. |
+| `DEFAULT_ADMIN_PASSWORD` | new / reset admin accounts | Same rules. |
+| `BOOTSTRAP_ADMIN_USERNAME` | `createBootstrapAdmin()` only | e.g. `cpe.admin` |
+| `BOOTSTRAP_ADMIN_PASSWORD` | `createBootstrapAdmin()` only | **Delete it right after** the first admin exists. |
+| `SPREADSHEET_ID` | only if the script is not attached to the Sheet | |
+
+`GOOGLE_CLIENT_ID` and `ALLOW_TEST_LOGIN` are no longer used — delete them if they exist.
+If a needed property is missing, the action fails with `NOT_CONFIGURED` and nothing is saved.
+
+### 4. Create the tabs (TEST Sheet) — or migrate an existing Sheet
+
+**New TEST Sheet:** function dropdown → **`setupSheets`** → **Run**.
+The first time, Google asks for permission → **Review permissions** → project account →
+*"Google hasn't verified this app"* → **Advanced → Go to (project name)** → **Allow**.
 
 `setupSheets()` creates missing tabs and fills **only empty tabs** with the FAKE
-seed data. It never overwrites existing records. **Run it on a TEST spreadsheet
-only** — on a real one, empty tabs would be filled with fake people.
-Run **`checkSetup`** any time to log how many records each tab has.
+seed data. Seeded users get their role's default password (hashed) and must change
+it at first sign-in: students sign in with their student number (e.g. `9999000001`),
+instructors with `instructor01.test` …, the admin with `admin.test`.
+**TEST spreadsheet only** — on a real one, empty tabs would be filled with fake people.
+
+**Existing Sheet from the Google Sign-In version:**
+1. **File → Make a copy** of the spreadsheet first (backup).
+2. Set the Script Properties above (pepper + the three defaults).
+3. Run **`migrateUsersToPasswordLogin`**. It adds the new Users columns, gives every
+   user a username (students: student number; instructors/admins: the part of the email
+   before `@`, lowercase, `2`/`3`… added if taken), sets the role's default password with
+   *must change* on, signs out their old sessions, removes `google_sub`, and updates
+   Settings (`max_login_attempts`=5, `lockout_minutes`=15, removes `allowed_email_rule`).
+   The log lists every change. Running it again reports "Nothing to change".
+4. Check the log for `PROBLEM` lines (a student without a usable student number) and fix them by hand.
+
+**No admin yet?** Set `BOOTSTRAP_ADMIN_USERNAME` + `BOOTSTRAP_ADMIN_PASSWORD`, run
+**`createBootstrapAdmin`** (it refuses if an active admin exists), then **delete
+`BOOTSTRAP_ADMIN_PASSWORD`**.
+
+Run **`checkSetup`** any time: records per tab, which properties are set (never their values),
+and warnings for leftovers.
+
+**Password hashing speed:** run **`benchmarkPasswordHash`** once. It logs how long one hash
+takes. Aim for 200–500 ms; if it is far off, change `PASSWORD_HASH_ITERATIONS` in
+`src/auth/passwords.js`, rebuild, redeploy. Old hashes keep working and are upgraded
+at the user's next sign-in.
 
 **Rules for editing the Sheet by hand**
 - Row 1 is the column names. Do not rename, reorder or delete them.
 - All cells are plain text. Type dates as `2026-10-26` and times as `07:30` (24-hour).
 - Prefer the website for changes: it checks for mistakes and writes the audit log. The Sheet does not.
-
-### 4. Sign-in (temporary)
-
-The real login (admin-created username/password accounts) is the **next step**
-and is not built yet. Until then, only a **test sign-in** exists:
-Script property `ALLOW_TEST_LOGIN = true` lets anyone sign in as the first
-active admin/instructor/student in `Users` **without a password**.
-
-> ⚠️ Only turn it on for a TEST Sheet with fake data, and delete the property
-> when you are done. Never on a Sheet with real student data.
-
-Google Sign-In is no longer used.
 
 ### 5. Deploy as a Web App
 
@@ -115,16 +145,50 @@ Put the URL in `frontend/assets/js/config.js` → `API_URL`. See `frontend/READM
 
 ---
 
+## Sign-in (auth API)
+
+Accounts are created only by admins. Username: instructors/admins choose one
+(3–32 of `a-z 0-9 . _ -`), students use their 10-digit student number. Usernames are
+trimmed, lowercased and unique across all users. New and reset accounts get the role's
+default password and must change it.
+
+| Action | Who | Request | Response `data` |
+|---|---|---|---|
+| `auth.login` | anyone | `username`, `password` | `session_token`, `user_id`, `username`, `role`, `display_name`, `email`, `must_change_password`, `expires_at` |
+| `auth.me` | signed in | — | `user_id`, `username`, `role`, `display_name`, `email`, `must_change_password`, `last_login_at`, `expires_at` |
+| `auth.changePassword` | signed in | `old_password`, `new_password` | `must_change_password:false`, `other_sessions_revoked` |
+| `auth.logout` | anyone | (`session_token`) | `{}` |
+| `admin.resetPassword` | admin | `user_id` (not yourself) | `user_id`, `must_change_password:true`, `sessions_revoked` |
+| `admin.unlockUser` | admin | `user_id` | `user_id` (`NO_CHANGE` if not locked) |
+
+Rules:
+- Wrong username and wrong password give the same `INVALID_CREDENTIALS` error.
+- `max_login_attempts` (5) failures in a row → `ACCOUNT_LOCKED` for `lockout_minutes` (15).
+  While locked the password is not even checked. Success resets the counter.
+- `ACCOUNT_DISABLED` is shown only when the password was right.
+- While `must_change_password` is TRUE, every action except `auth.me`, `auth.changePassword`,
+  `auth.logout` fails with `PASSWORD_CHANGE_REQUIRED`.
+- New password: 8–128 characters, letters and numbers, not the role default, not the current one.
+  Changing it signs out your other sessions.
+- The last active admin cannot be deactivated; no action changes a user's role.
+- AuditLog: `LOGIN_SUCCESS`, `LOGIN_FAILED`, `ACCOUNT_LOCKED`, `PASSWORD_CHANGED`,
+  `PASSWORD_RESET`, `USER_UNLOCKED`, `BOOTSTRAP_ADMIN` — never a password or hash.
+
+**Password storage** (`Users.password_hash`): `v1$<iterations>$<salt>$<hash>` — per-user random
+salt, the `PASSWORD_PEPPER`, iterated SHA-256, constant-time comparison.
+
 ## How it works (short version)
 
-- **Every request** carries a session token. The server finds it (stored as a SHA-256 hash in
-  `AuthSessions`), checks it has not expired or been signed out, that the user is active and
-  has the exact role the action needs (`src/actions.js`).
+- **Every request** goes through `runAction()` (`src/actions.js`). Except `auth.login`/`auth.logout`,
+  it carries a session token. The server finds it (stored as a SHA-256 hash in `AuthSessions`),
+  checks it has not expired or been signed out, that the user is active, has the role the
+  action needs, and has no pending forced password change.
 - **Ownership:** instructor and student actions take the person's ID from the session
   (`Users.linked_id`), never from the request, and only return their own classes and records.
 - **Writes are locked** with `LockService`, so two saves at the same moment cannot overwrite each other.
 - **Nothing is half-saved.** If an action throws an `AppError`, no tab is changed and the
-  website gets `{ ok:false, error:{ code, message, fields } }`.
+  website gets `{ ok:false, error:{ code, message, fields } }`. Only exception: a failed
+  sign-in still saves the failure counter, lock and audit row (`error.commit`).
 - **Absent is not stored.** It is computed: enrolled students minus those with a Present/Late row.
 
 ## Limits to keep in mind
@@ -137,6 +201,6 @@ Put the URL in `frontend/assets/js/config.js` → `API_URL`. See `frontend/READM
 
 ## Not done yet
 
-- Username/password login (`auth.login`, change/reset password, lockout).
+- Admin buttons for reset password / unlock, and an account Settings page (Step 3).
 - RFID device endpoint (`device.submitScans`, `device.heartbeat`, `device.getRoster` in
   `docs/Device_API_Spec.md`) and the session engine (which class is in this room now, present vs late).

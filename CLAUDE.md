@@ -7,10 +7,12 @@ issues: `docs/AUDIT_REPORT.md`.
 
 ## Decisions (newer than any other doc in this repo)
 
-- **Google Sign-In is REMOVED.** New login = admin-created accounts with
-  username + password (instructor: username; student: student number).
-  Not built yet — until it is, the old `auth.testSignIn` / `auth.google` code
-  is still there and will be deleted when `auth.login` lands.
+- **Google Sign-In and test sign-in are REMOVED.** Login = admin-created
+  accounts with username + password (instructor/admin: username; student:
+  student number). Built in `backend/src/auth/` (Step 2). Login page polish,
+  account Settings page and admin reset/unlock buttons are Step 3.
+- **No sign-up, no email reset.** Admins create accounts and reset passwords
+  to the role default; the user must change it at the next sign-in.
 - **Demo mode is REMOVED.** No in-browser fake backend. The site talks to the
   live API only. Fake data exists only to fill a TEST Google Sheet.
 - **No full rewrite.** Keep the existing handler logic: role checks,
@@ -22,14 +24,23 @@ issues: `docs/AUDIT_REPORT.md`.
 ```
 backend/
   src/                 Business logic (ES modules, pure functions on a db object)
-    actions.js         Action table: name -> { run, mode: read|write, role }
+    actions.js         Action table: name -> { run, mode, role } + runAction() gate
+                       (role: 'public' | 'any' | 'admin' | 'instructor' | 'student')
+    auth/              passwords (hash/verify), context (ctx), session, account
+                       (login/me/changePassword/logout), admin-users (reset/unlock,
+                       new user rows), migration (migrate + bootstrap admin),
+                       crypto-apps-script (Utilities adapter)
     utils.js           AppError, validation, Manila time, audit log, ids
     config.js          TIMEZONE only
     handlers/          academic, admins, classes, dashboard, instructors, portal, students
   seed/seed-data.json  FAKE test data (for a TEST Sheet only)
-  tests/               node:test unit tests (+ helpers/db.js in-memory db)
+  tests/               node:test unit tests (+ helpers/db.js in-memory db, helpers/auth.js
+                       node:crypto adapter + fake-clock ctx); server-gs.test.js runs the
+                       real .gs files in a vm with a fake Sheet
   apps-script/
-    Server.gs          Hand-written: router, auth/sessions, Sheet read/write, setupSheets
+    Server.gs          Hand-written: calls RFID.runAction, Sheet read/write, editor-only
+                       jobs (setupSheets, createBootstrapAdmin, migrateUsersToPasswordLogin,
+                       benchmarkPasswordHash, checkSetup)
     Bundle.gs          GENERATED from backend/src — do not edit
     SeedData.gs        GENERATED from backend/seed/seed-data.json — do not edit
     appsscript.json    Manifest (Asia/Manila, V8)
@@ -52,6 +63,42 @@ Then in the Apps Script editor: paste `Server.gs`, `Bundle.gs`, `SeedData.gs`
 Edit → New version → Deploy**. Saving alone does not update the live Web App.
 `setupSheets()` creates missing tabs and fills only EMPTY tabs with the fake
 seed data — run it only on a TEST spreadsheet.
+
+### Script Properties (values never in the repo)
+
+`PASSWORD_PEPPER` (never change once set), `DEFAULT_STUDENT_PASSWORD`,
+`DEFAULT_INSTRUCTOR_PASSWORD`, `DEFAULT_ADMIN_PASSWORD`; only for the first
+admin: `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` (delete after);
+optional `SPREADSHEET_ID`. `GOOGLE_CLIENT_ID` / `ALLOW_TEST_LOGIN` are obsolete.
+
+### Moving a deployed Sheet to password login (in this order)
+
+1. `npm test` and `node tools/build_apps_script.mjs`.
+2. Google Sheets: **File → Make a copy** of the live spreadsheet (backup).
+3. Script Properties: add the pepper + three default passwords; delete
+   `GOOGLE_CLIENT_ID` and `ALLOW_TEST_LOGIN`.
+4. Paste `Server.gs`, `Bundle.gs`, `SeedData.gs`, `appsscript.json` → Save.
+5. Run `migrateUsersToPasswordLogin` (log lists every change; rerun = "Nothing to change").
+6. If there is no active admin: set the two `BOOTSTRAP_ADMIN_*` properties, run
+   `createBootstrapAdmin`, then delete `BOOTSTRAP_ADMIN_PASSWORD`.
+7. Run `benchmarkPasswordHash` and `checkSetup`.
+8. Deploy → Manage deployments → Edit → New version → Deploy.
+9. Publish the frontend (GitHub Pages) — the old site cannot sign in anymore.
+
+## Auth rules (backend/src/auth)
+
+- Hash: `v1$<iterations>$<salt>$<hash>`, salt per user + pepper, iterated
+  SHA-256 (`PASSWORD_HASH_ITERATIONS` in passwords.js; raising it re-hashes at
+  next login). Handlers hash through `ctx` (`ctx.hash`, `ctx.verify`,
+  `ctx.defaultPassword(role)`, `ctx.now()`), never `Utilities` directly.
+- Handlers are `run(db, request, session, ctx)`. `session` has `user_id`,
+  `role`, `username`, `must_change_password`, `token_hash` (server-only).
+- Same `INVALID_CREDENTIALS` for unknown user / wrong password; lockout after
+  `max_login_attempts` for `lockout_minutes` (Settings). Failed logins throw
+  with `error.commit = true` so Server.gs still saves the counter and audit row.
+- `must_change_password` TRUE → only `auth.me`, `auth.changePassword`,
+  `auth.logout` (`PASSWORD_CHANGE_REQUIRED` otherwise).
+- Never return or log a password or `password_hash`; tests check responses.
 
 ## Tests
 
