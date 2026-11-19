@@ -15,7 +15,7 @@ if (existing && !existing.must_change_password && homeForRole(existing.role)) {
     goHome(session) {
       window.location.replace(homeForRole(session.role));
     },
-    // Signed in but still has to change the default password (e.g. after a reload).
+    // Signed in but still has to change the temporary password (e.g. after a reload).
     pendingChange: existing && existing.must_change_password ? existing : null,
     cancelChange() {
       clearSession();

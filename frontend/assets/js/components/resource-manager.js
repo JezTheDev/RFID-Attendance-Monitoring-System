@@ -1,6 +1,6 @@
 import { callApi } from '../api.js';
 import {
-  escapeHtml, stateHtml, errorStateHtml, openFormModal, confirmAction, showToast,
+  escapeHtml, stateHtml, errorStateHtml, openFormModal, confirmAction, showToast, showTempPassword,
 } from '../ui.js';
 
 const HIDE_BELOW = { sm: 'd-none d-sm-table-cell', md: 'd-none d-md-table-cell', lg: 'd-none d-lg-table-cell' };
@@ -144,9 +144,12 @@ export function mountResourceManager(container, config) {
       title: row ? `Edit ${config.entity.toLowerCase()}` : `Add ${config.entity.toLowerCase()}`,
       bodyHtml: `<div class="row g-3">${fields.map(fieldHtml).join('')}</div>${row && config.editNotice ? config.editNotice(row) : ''}`,
       submitLabel: row ? 'Save changes' : `Add ${config.entity.toLowerCase()}`,
-      onSubmit: (values) => callApi(row ? config.updateAction : config.createAction, row ? { ...values, [config.idField]: row[config.idField] } : values),
+      onSubmit: async (values) => (row
+        ? callApi(config.updateAction, { ...values, [config.idField]: row[config.idField] })
+        : { ...await callApi(config.createAction, values), username: values.username }),
     });
     if (result) {
+      await showTempPassword(result); // new accounts only: shown once
       showToast(config.savedMessage?.(result, Boolean(row)) ?? `${config.entity} ${row ? 'saved' : 'added'}.`);
       await load();
     }

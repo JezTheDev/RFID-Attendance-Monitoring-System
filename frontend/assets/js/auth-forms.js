@@ -17,6 +17,9 @@
   }
 
   function errorResult(error) {
+    if (error && error.code === 'TEMP_PASSWORD_EXPIRED') {
+      return { tone: 'danger', icon: 'clock-history', message: 'Your temporary password has expired (they last 7 days). Ask the admin to reset your password; you will get a new one.' };
+    }
     var message = (error && error.message) || 'Something went wrong. Please try again.';
     if (error && error.fields) {
       var first = Object.keys(error.fields)[0];

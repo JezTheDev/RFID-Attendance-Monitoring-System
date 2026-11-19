@@ -2,7 +2,7 @@ import { callApi } from '../api.js';
 import { requireRole } from '../auth.js';
 import {
   renderShell, escapeHtml, formatDateTime, formatRelative, stateHtml, errorStateHtml,
-  openFormModal, confirmAction, showToast,
+  openFormModal, confirmAction, showToast, showTempPassword,
 } from '../ui.js';
 import { statusBadge } from '../components/resource-manager.js';
 
@@ -331,7 +331,7 @@ function studentFormHtml(sections, student = null) {
       <option value="">Choose a section</option>
       ${sections.map((s) => `<option value="${escapeHtml(s.section_id)}"${s.section_id === student?.section_id ? ' selected' : ''}>${escapeHtml(s.label)}</option>`).join('')}
     </select>`)}
-    ${field('email', 'Email (optional)', `<input type="email" class="form-control" id="f_email" name="email" maxlength="120" autocomplete="off" value="${value('email')}">`, 'The student signs in with their student number and the default student password, then chooses their own. There is no self-registration.')}`;
+    ${field('email', 'Email (optional)', `<input type="email" class="form-control" id="f_email" name="email" maxlength="120" autocomplete="off" value="${value('email')}">`, 'The student signs in with their student number and the temporary password shown once after saving, then chooses their own. There is no self-registration.')}`;
 }
 
 async function createStudentFlow(state, refresh) {
@@ -339,9 +339,10 @@ async function createStudentFlow(state, refresh) {
     title: 'Add student',
     bodyHtml: studentFormHtml(state.sections),
     submitLabel: 'Add student',
-    onSubmit: (values) => callApi('admin.createStudent', values),
+    onSubmit: async (values) => ({ ...await callApi('admin.createStudent', values), username: values.student_number }),
   });
   if (result) {
+    await showTempPassword(result); // shown once
     const joined = result.classes_joined
       ? ` Enrolled in ${result.classes_joined} class${result.classes_joined === 1 ? '' : 'es'} of their section.`
       : '';

@@ -91,7 +91,7 @@ Every write is recorded in AuditLog. Card changes increment the `roster_version`
 | `admin.getStudentOptions` | — | `sections[]` (`section_id`, `label`, `year_level`) |
 | `admin.listStudents` | `search`, `section_id`, `status` (`active`/`inactive`/`all`), `card` (`all`/`with`/`without`), `page`, `page_size` (max 100) | `items[]`, `total`, `page`, `page_size`, `counts` (`active`, `inactive`, `without_card`) |
 | `admin.getStudent` | `student_id` | `student`, `account` (`username`, `email`, `account_status`, `must_change_password`, `locked`, `last_login_at`), `cards[]` (history), `enrollments[]`, `attendance` summary |
-| `admin.createStudent` | `student_number`, `first_name`, `last_name`, `section_id`, `email` (optional) | `student_id`. Also creates the student's Users row (role `student`, username = student number, default student password, must change) |
+| `admin.createStudent` | `student_number`, `first_name`, `last_name`, `section_id`, `email` (optional) | `student_id`, `classes_joined`, `temp_password` (shown once), `temp_password_expires_at`. Also creates the student's Users row (role `student`, username = student number, random temporary password, must change) |
 | `admin.updateStudent` | `student_id` + the same fields | `student_id` (the username follows the student number) |
 | `admin.setStudentStatus` | `student_id`, `status` (`active`/`inactive`), `reason` | `account_status`, `revoked_card_id`. Deactivation disables sign-in and revokes the active card |
 | `admin.assignCard` | `student_id`, `rfid_uid`, `replace_reason` (`lost`/`damaged`/`other`, required when replacing), `note` | `card_id`, `replaced_card_id` |
@@ -111,7 +111,7 @@ Each list action returns `{ items }` (all rows; the page filters and searches th
 | Section | `admin.listSections` (also returns `programs` options), `createSection`, `updateSection`, `setSectionStatus` | `program_id`, `year_level` (1–5), `section_name` (stored uppercase) | Name unique within program; program/year locked while active students belong to it; cannot deactivate with active students or classes |
 | Subject | `admin.listSubjects`, `createSubject`, `updateSubject`, `setSubjectStatus` | `subject_code` (stored uppercase), `subject_title`, `units` (1–10) | Code unique; cannot deactivate while used by active classes |
 | Room | `admin.listRooms`, `createRoom`, `updateRoom`, `setRoomStatus` | `room_code` (uppercase, no spaces), `room_name`, `building` (optional) | Code unique; cannot deactivate with active schedules or an assigned device |
-| Instructor | `admin.listInstructors`, `createInstructor`, `updateInstructor`, `setInstructorStatus` | `username`, `first_name`, `last_name`, `email` (optional), `department` | Creates the Users row (role `instructor`, default instructor password, must change); username unique across users; cannot deactivate with active classes |
+| Instructor | `admin.listInstructors`, `createInstructor`, `updateInstructor`, `setInstructorStatus` | `username`, `first_name`, `last_name`, `email` (optional), `department` | Creates the Users row (role `instructor`, random temporary password returned once as `temp_password`, must change); username unique across users; cannot deactivate with active classes |
 
 Blocked deactivations return `code: "IN_USE"` with a message listing what still depends on the record.
 

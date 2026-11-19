@@ -380,6 +380,59 @@ export function confirmAction({ title, message, confirmLabel = 'Confirm', tone =
   }).then((result) => result ?? { confirmed: false });
 }
 
+// Shows a new account's temporary password ONCE. It lives only in this modal's
+// DOM (removed on close): never in storage, the URL, or a toast.
+export function showTempPassword({ username, temp_password: tempPassword }) {
+  if (!tempPassword) return Promise.resolve();
+  return new Promise((resolve) => {
+    const element = document.createElement('div');
+    element.className = 'modal fade';
+    element.tabIndex = -1;
+    element.setAttribute('aria-hidden', 'true');
+    element.setAttribute('data-bs-backdrop', 'static');
+    element.innerHTML = `
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h2 class="modal-title fs-5">Temporary password</h2>
+          </div>
+          <div class="modal-body">
+            ${username ? `<p class="mb-2">Username: <span class="font-monospace fw-semibold">${escapeHtml(username)}</span></p>` : ''}
+            <div class="d-flex align-items-center gap-2 border rounded p-3 bg-body-tertiary">
+              <output class="font-monospace fs-2 fw-bold flex-grow-1 text-break user-select-all" style="letter-spacing:0.08em" aria-label="Temporary password">${escapeHtml(tempPassword)}</output>
+              <button type="button" class="btn btn-outline-primary" data-role="copy"><i class="bi bi-clipboard me-1" aria-hidden="true"></i>Copy</button>
+            </div>
+            <div class="alert alert-warning small mt-3 mb-0" role="note">
+              Give this to the user. It will not be shown again. Expires in 7 days.
+              They type it exactly as shown (with the dash), then choose their own password.
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Done</button>
+          </div>
+        </div>
+      </div>`;
+    document.body.append(element);
+    const modal = new window.bootstrap.Modal(element);
+    const copy = element.querySelector('[data-role="copy"]');
+    copy.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(tempPassword);
+        copy.innerHTML = '<i class="bi bi-check2 me-1" aria-hidden="true"></i>Copied';
+      } catch {
+        window.getSelection()?.selectAllChildren(element.querySelector('output')); // let the admin press Ctrl+C
+      }
+    });
+    element.addEventListener('shown.bs.modal', () => copy.focus());
+    element.addEventListener('hidden.bs.modal', () => {
+      modal.dispose();
+      element.remove();
+      resolve();
+    });
+    modal.show();
+  });
+}
+
 export function stateHtml({ icon, title, message = '', action = '' }) {
   return `
     <div class="state-box">

@@ -11,7 +11,7 @@ function start() {
     <div class="page-header">
       <div>
         <h2 class="page-title">Instructors</h2>
-        <p class="page-subtitle">Instructors sign in with the username created here and the default instructor password, then choose their own. There is no self-registration.</p>
+        <p class="page-subtitle">Instructors sign in with the username created here and the temporary password shown once after you add them, then choose their own. There is no self-registration.</p>
       </div>
     </div>
     <div id="instructorManager"></div>`;
@@ -36,7 +36,7 @@ function start() {
       { label: 'Username', hideBelow: 'lg', html: (row) => `<span class="small font-monospace">${escapeHtml(row.username)}</span>` },
       { label: 'Department', hideBelow: 'md', html: (row) => escapeHtml(row.department) },
       { label: 'Classes', numeric: true, html: (row) => `<a class="text-decoration-none" href="${classesLink({ q: `${row.first_name} ${row.last_name}` })}" title="See this instructor's classes">${row.class_count}</a>` },
-      { label: 'Sign-in', hideBelow: 'lg', html: (row) => (row.locked ? '<span class="badge text-bg-danger">Locked</span>' : row.must_change_password ? '<span class="text-secondary">Default password</span>' : 'Active') },
+      { label: 'Sign-in', hideBelow: 'lg', html: (row) => (row.locked ? '<span class="badge text-bg-danger">Locked</span>' : row.must_change_password ? '<span class="text-secondary">Temporary password</span>' : 'Active') },
     ],
     formFields: (row) => [
       { name: 'first_name', label: 'First name', required: true, half: true, maxlength: 60, value: row?.first_name },
@@ -59,7 +59,7 @@ function start() {
     ],
     savedMessage: (_result, editing) => (editing
       ? 'Instructor saved.'
-      : 'Instructor created. They sign in with this username and the default instructor password. Use “Assign subject & section” next.'),
+      : 'Instructor created. Use “Assign subject & section” next.'),
   });
 }
 

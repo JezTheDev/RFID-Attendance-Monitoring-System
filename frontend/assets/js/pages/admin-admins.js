@@ -11,7 +11,7 @@ function start() {
     <div class="page-header">
       <div>
         <h2 class="page-title">Administrators</h2>
-        <p class="page-subtitle">People who can manage the whole system. They sign in with the username created here and the default admin password, then choose their own.</p>
+        <p class="page-subtitle">People who can manage the whole system. They sign in with the username created here and the temporary password shown once after you add them, then choose their own.</p>
       </div>
     </div>
     <div id="adminManager"></div>`;
@@ -35,7 +35,7 @@ function start() {
     columns: [
       { label: 'Name', html: (row) => `<div class="cell-main">${escapeHtml(row.display_name)}${row.is_you ? ' <span class="badge text-bg-light border ms-1">You</span>' : ''}</div><div class="cell-sub d-md-none text-break">${escapeHtml(row.username)}</div>` },
       { label: 'Username', hideBelow: 'md', html: (row) => `<span class="small font-monospace">${escapeHtml(row.username)}</span>` },
-      { label: 'Sign-in', hideBelow: 'lg', html: (row) => (row.locked ? '<span class="badge text-bg-danger">Locked</span>' : row.must_change_password ? '<span class="text-secondary">Default password</span>' : 'Active') },
+      { label: 'Sign-in', hideBelow: 'lg', html: (row) => (row.locked ? '<span class="badge text-bg-danger">Locked</span>' : row.must_change_password ? '<span class="text-secondary">Temporary password</span>' : 'Active') },
       { label: 'Last sign-in', hideBelow: 'lg', html: (row) => (row.last_login_at ? escapeHtml(formatDateTime(row.last_login_at)) : '<span class="text-secondary">—</span>') },
     ],
     formFields: (row) => [
@@ -45,6 +45,6 @@ function start() {
     ],
     savedMessage: (_result, editing) => (editing
       ? 'Administrator saved.'
-      : 'Administrator created. They sign in with this username and the default admin password.'),
+      : 'Administrator created.'),
   });
 }
