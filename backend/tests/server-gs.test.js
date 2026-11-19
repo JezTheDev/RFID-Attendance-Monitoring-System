@@ -5,6 +5,7 @@
 // Run `node tools/build_apps_script.mjs` first.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { makeServer, SEED, PROPS } from './helpers/fake-apps-script.js';
 
 describe('Server.gs in a fake Apps Script', () => {
@@ -169,5 +170,151 @@ describe('Server.gs in a fake Apps Script', () => {
     const reply = post({ action: 'auth.login', username: 'admin.test', password: 'wrong-pass1' });
     assert.equal(reply.error.code, 'BUSY');
     assert.equal(JSON.stringify(usersTab()), before);
+  });
+});
+
+/* ---------------- Step 4a: read only what is needed, write only what changed ---------------- */
+
+const allCells = (ss) => JSON.stringify(ss.getSheets().map((s) => [s.getName(), s.cells]));
+
+// A seeded server with a signed-in admin whose password is already changed.
+function ready() {
+  const server = makeServer();
+  server.context.setupSheets();
+  const login = (username, password = SEED) => server.post({ action: 'auth.login', username, password }).data.session_token;
+  const admin = login('admin.test');
+  server.post({ action: 'auth.changePassword', session_token: admin, old_password: SEED, new_password: 'NewAdmin99' });
+  server.resetStats();
+  return { ...server, admin, login };
+}
+
+describe('Server.gs reads only the declared tabs', () => {
+  it('auth.me reads exactly the session tabs + Instructors/Students (display name)', () => {
+    const { post, stats, admin } = ready();
+    assert.equal(post({ action: 'auth.me', session_token: admin }).ok, true);
+    assert.deepEqual([...stats.tabsRead].sort(), ['AuthSessions', 'Instructors', 'Students', 'Users']);
+  });
+
+  it('an unknown action reads nothing', () => {
+    const { post, stats } = ready();
+    assert.equal(post({ action: 'nope.nothing' }).error.code, 'UNKNOWN_ACTION');
+    assert.deepEqual(stats.tabsRead, []);
+  });
+
+  it('student.getHistory never reads AuditLog', () => {
+    const { post, stats, usersTab, login } = ready();
+    const student = usersTab().find((u) => u.role === 'student');
+    const token = login(student.username);
+    post({ action: 'auth.changePassword', session_token: token, old_password: SEED, new_password: 'MyOwnPass99' });
+    stats.tabsRead.length = 0;
+    assert.equal(post({ action: 'student.getHistory', session_token: token }).ok, true);
+    assert.ok(stats.tabsRead.length > 0 && !stats.tabsRead.some((t) => t.startsWith('AuditLog')), stats.tabsRead.join());
+  });
+
+  it('a write reads AuditLog as header + last row only, and appends the next id', () => {
+    const { post, stats, ss, tab } = ready();
+    const last = ss.getSheetByName('AuditLog').getLastRow();
+    assert.equal(post({ action: 'auth.login', username: 'admin.test', password: 'NewAdmin99' }).ok, true);
+    const auditReads = stats.tabsRead.filter((t) => t.startsWith('AuditLog'));
+    assert.deepEqual(auditReads, ['AuditLog rows 1-1', `AuditLog rows ${last}-${last}`]);
+    const ids = tab('AuditLog').map((r) => r.audit_id);
+    assert.equal(new Set(ids).size, ids.length, 'audit ids are unique');
+    assert.equal(ids.at(-1), `AUD-${String(last).padStart(4, '0')}`);
+  });
+
+  for (const bad of ['', 'junk', 'AUD-']) {
+    it(`a blank or malformed last AuditLog id (${JSON.stringify(bad)}) falls back to a full scan, no duplicate id`, () => {
+      const { post, stats, ss, tab, logs } = ready();
+      const sheet = ss.getSheetByName('AuditLog');
+      sheet.cells[sheet.getLastRow() - 1][0] = bad;
+      const highest = Math.max(...tab('AuditLog').map((r) => Number(r.audit_id.slice(4)) || 0));
+      assert.equal(post({ action: 'auth.login', username: 'admin.test', password: 'NewAdmin99' }).ok, true);
+      assert.ok(stats.tabsRead.includes('AuditLog'), 'full AuditLog read');
+      const ids = tab('AuditLog').map((r) => r.audit_id).filter(Boolean);
+      assert.equal(ids.at(-1), `AUD-${String(highest + 1).padStart(4, '0')}`);
+      assert.equal(new Set(ids).size, ids.length, 'no duplicate id');
+      assert.match(logs.join('\n'), /AuditLog: last row id .* full read/);
+    });
+  }
+
+  it('an undeclared tab is still loaded on the live site (slower, not broken) and logs a warning', () => {
+    const { post, context, admin, logs } = ready();
+    vm.runInContext(`(function () {
+      var original = RFID.tabsFor;
+      RFID.tabsFor = function (name) {
+        var spec = original(name);
+        if (spec) spec.read = spec.read.filter(function (t) { return t !== 'Settings'; });
+        return spec;
+      };
+    })();`, context);
+    const reply = post({ action: 'admin.createAdmin', session_token: admin, username: 'admin3', display_name: 'Third', email: '' });
+    assert.equal(reply.ok, true, JSON.stringify(reply.error));
+    assert.match(logs.join('\n'), /admin\.createAdmin read the undeclared tab Settings/);
+  });
+});
+
+describe('Server.gs saves in one all-or-nothing batchUpdate', () => {
+  it('a READ action writes nothing; a write action makes exactly one batchUpdate', () => {
+    const { post, stats, admin } = ready();
+    post({ action: 'admin.listStudents', session_token: admin });
+    assert.deepEqual([stats.batchUpdates, stats.rowsWritten], [0, 0]);
+    post({ action: 'auth.login', username: 'admin.test', password: 'NewAdmin99' });
+    assert.equal(stats.batchUpdates, 1);
+  });
+
+  it('login appends to AuditLog without touching its old rows', () => {
+    const { post, ss } = ready();
+    const sheet = ss.getSheetByName('AuditLog');
+    const before = JSON.stringify(sheet.cells.slice(0, sheet.getLastRow()));
+    post({ action: 'auth.login', username: 'admin.test', password: 'NewAdmin99' });
+    assert.equal(JSON.stringify(sheet.cells.slice(0, JSON.parse(before).length)), before);
+    assert.equal(sheet.getLastRow(), JSON.parse(before).length + 1);
+  });
+
+  it('a tab that shrinks blanks its old tail (no stale rows left behind)', () => {
+    const { post, ss, tab } = ready();
+    const sheet = ss.getSheetByName('AuthSessions');
+    const head = sheet.cells[0];
+    const old = head.map((h) => (h === 'expires_at' ? '2020-01-01T00:00:00+08:00' : h === 'revoked' ? 'FALSE' : `old-${h}`));
+    sheet.getRange(sheet.getLastRow() + 1, 1, 3, head.length).setValues([old, old, old]);
+    const live = tab('AuthSessions').length - 3;
+    post({ action: 'auth.login', username: 'admin.test', password: 'NewAdmin99' });
+    const rows = tab('AuthSessions');
+    assert.equal(rows.length, live + 1, 'expired sessions dropped, new one added');
+    assert.ok(!rows.some((r) => r.token_hash === 'old-token_hash'));
+  });
+
+  it('appending past the grid makes room in the same batch (real Apps Script: UNVERIFIED, task 4f)', () => {
+    const { post, ss, tab } = ready();
+    const sheet = ss.getSheetByName('AuditLog');
+    sheet.rowCount = sheet.getLastRow(); // grid exactly full
+    const count = tab('AuditLog').length;
+    assert.equal(post({ action: 'auth.login', username: 'admin.test', password: 'NewAdmin99' }).ok, true);
+    assert.equal(tab('AuditLog').length, count + 1);
+  });
+
+  it('if the batchUpdate fails, nothing changes and the reply is SERVER_ERROR', () => {
+    const { post, ss, stats, admin } = ready();
+    const before = allCells(ss);
+    stats.failNext = true;
+    const reply = post({ action: 'admin.createStudent', session_token: admin, student_number: '2024999002', first_name: 'No', last_name: 'Save', section_id: 'SEC-0001' });
+    assert.equal(reply.error.code, 'SERVER_ERROR');
+    assert.equal(allCells(ss), before);
+  });
+
+  it('a failed sign-in still saves the counter and audit row in one batch', () => {
+    const { post, stats, usersTab, tab } = ready();
+    const audits = tab('AuditLog').length;
+    assert.equal(post({ action: 'auth.login', username: 'admin.test', password: 'wrong-pass1' }).error.code, 'INVALID_CREDENTIALS');
+    assert.equal(stats.batchUpdates, 1);
+    assert.equal(usersTab().find((u) => u.username === 'admin.test').failed_attempts, '1');
+    assert.equal(tab('AuditLog').length, audits + 1);
+  });
+
+  it('cells stay plain text (leading zeros kept)', () => {
+    const { post, ss, admin } = ready();
+    const reply = post({ action: 'admin.createStudent', session_token: admin, student_number: '0024999003', first_name: 'Zero', last_name: 'Lead', section_id: 'SEC-0001' });
+    assert.equal(reply.ok, true, JSON.stringify(reply.error));
+    assert.ok(ss.getSheetByName('Students').cells.some((r) => r.includes('0024999003')));
   });
 });

@@ -76,24 +76,23 @@ function handleRequest_(request) {
 
   var isWrite = entry.mode === RFID.WRITE;
   var lock = null;
-  var db = null;
-  var before = null;
+  var state = null;
   try {
     if (isWrite) {
       lock = LockService.getScriptLock();
       if (!lock.tryLock(LOCK_WAIT_MS)) return failure_('BUSY', 'The server is busy. Please try again.');
     }
     var ctx = authContext_();
-    db = loadDb_();
-    before = isWrite ? snapshot_(db) : null;
-    var data = RFID.runAction(db, request, ctx);
-    if (isWrite) saveDb_(db, before);
+    // Only the tabs this action declares (actions.js); see loadDb_.
+    state = loadDb_(RFID.tabsFor(action), action, isWrite);
+    var data = RFID.runAction(state.db, request, ctx);
+    if (isWrite) saveDb_(state);
     return success_(data);
   } catch (error) {
     // Normally nothing is saved when an action fails. Exception: a failed
     // sign-in (error.commit) must save the failure counter, lock and audit row.
-    if (error && error.commit === true && isWrite && db) {
-      try { saveDb_(db, before); } catch (saveError) { console.error(saveError && saveError.stack ? saveError.stack : saveError); }
+    if (error && error.commit === true && isWrite && state) {
+      try { saveDb_(state); } catch (saveError) { console.error(saveError && saveError.stack ? saveError.stack : saveError); }
     }
     if (error && typeof error.code === 'string') return failure_(error.code, error.message, error.fields || null);
     console.error(error && error.stack ? error.stack : error);
@@ -129,10 +128,9 @@ function runEditorJob_(job) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(LOCK_WAIT_MS)) throw new Error('The server is busy. Try again in a minute.');
   try {
-    var db = loadDb_();
-    var before = snapshot_(db);
-    var lines = job(db, authContext_());
-    saveDb_(db, before);
+    var state = loadDb_(null, 'editor job', true);
+    var lines = job(state.db, authContext_());
+    saveDb_(state);
     console.log(lines.join('\n'));
     return lines;
   } catch (error) {
@@ -236,94 +234,204 @@ function spreadsheet_() {
   return id ? SpreadsheetApp.openById(id) : SpreadsheetApp.getActiveSpreadsheet();
 }
 
-function loadDb_() {
-  var db = {};
-  var headers = {};
+// Loads the tabs a request needs (spec = RFID.tabsFor(action)); spec null = every
+// tab (editor jobs). Returns the state saveDb_ needs:
+//   state.db    what handlers get (guarded: see RFID.guardDb)
+//   state.tabs  per tab: headers, lastRow (sheet row of the last record),
+//               width, count (rows loaded), mode 'full' | 'append', snapshot
+// Append tabs (spec.append) load only the header and the LAST row: enough for
+// the next id, because ids only grow and new rows go at the end. Do not sort
+// the raw tabs by hand (use the "View - …" tabs): "last row = highest id"
+// would break. A blank or malformed last id falls back to a full read.
+function loadDb_(spec, label, isWrite) {
   var ss = spreadsheet_();
-  var names = ss.getSheets()
-    .map(function (sheet) { return sheet.getName(); })
-    .filter(function (name) { return !isViewTab_(name); }); // "View - …" tabs are for people, not data
-  var tables = readAllTabs_(ss, names);
-  names.forEach(function (name, index) {
-    var values = tables[index] || [];
-    var cols = (values[0] || []).map(function (h) { return String(h).trim(); });
-    headers[name] = cols.filter(Boolean);
-    db[name] = values.slice(1)
-      .filter(function (row) { return row.some(function (cell) { return cell !== '' && cell !== undefined; }); })
-      .map(function (row) {
-        var record = {};
-        cols.forEach(function (col, i) { if (col) record[col] = row[i] === undefined ? '' : String(row[i]); });
-        return record;
-      });
+  var state = { ss: ss, raw: {}, tabs: {}, isWrite: isWrite, writable: spec ? spec.write.slice() : null };
+  var sheets = {};
+  ss.getSheets().forEach(function (sheet) {
+    if (!isViewTab_(sheet.getName())) sheets[sheet.getName()] = sheet; // "View - …" tabs are for people, not data
   });
-  // Every table the code expects exists, even if its tab is missing or empty.
-  Object.keys(SEED_DATA).forEach(function (name) { if (!db[name]) db[name] = []; });
-  Object.defineProperty(db, '__headers', { value: headers, enumerable: false });
-  return db;
+  state.sheets = sheets;
+  var full = spec ? spec.read : uniq_(Object.keys(sheets).concat(Object.keys(SEED_DATA)));
+  readTabs_(state, full, spec ? spec.append : []);
+  state.db = spec ? RFID.guardDb(state.raw, spec, function (name) {
+    // Lenient on the live site: slower, never broken. tabs.test.js fails instead.
+    console.warn(label + ' read the undeclared tab ' + name + ': add it to its reads in backend/src/actions.js');
+    if (isWrite) state.writable.push(name);
+    readTabs_(state, [name], []);
+    return state.raw[name];
+  }) : state.raw;
+  return state;
 }
 
-// Reads every tab in ONE request with the Sheets API (much faster than one
-// request per tab). The "Sheets" service is switched on in appsscript.json;
-// if it is missing, fall back to reading the tabs one by one.
-function readAllTabs_(ss, names) {
-  if (typeof Sheets !== 'undefined' && Sheets.Spreadsheets && Sheets.Spreadsheets.Values) {
-    var ranges = names.map(function (name) { return "'" + name.replace(/'/g, "''") + "'"; });
-    var response = Sheets.Spreadsheets.Values.batchGet(ss.getId(), { ranges: ranges, valueRenderOption: 'FORMATTED_VALUE' });
-    return (response.valueRanges || []).map(function (range) { return range.values || []; });
+function uniq_(list) {
+  return list.filter(function (item, i) { return list.indexOf(item) === i; });
+}
+
+function quoted_(name) {
+  return "'" + name.replace(/'/g, "''") + "'";
+}
+
+// ONE values.batchGet for every range (much faster than one call per tab).
+function batchGet_(ss, ranges) {
+  if (!ranges.length) return [];
+  if (typeof Sheets === 'undefined' || !Sheets.Spreadsheets) {
+    throw new Error('Turn on the Sheets advanced service (appsscript.json: enabledAdvancedServices Sheets v4).');
   }
-  return names.map(function (name) { return ss.getSheetByName(name).getDataRange().getDisplayValues(); });
+  var response = Sheets.Spreadsheets.Values.batchGet(ss.getId(), { ranges: ranges, valueRenderOption: 'FORMATTED_VALUE' });
+  return (response.valueRanges || []).map(function (range) { return range.values || []; });
 }
 
-function snapshot_(db) {
-  var copy = {};
-  Object.keys(db).forEach(function (name) {
-    copy[name] = db[name].map(function (row) { return JSON.stringify(row); });
+var ID_PATTERN = /^[A-Z]+-\d+$/;
+
+function readTabs_(state, fullNames, appendNames) {
+  var ranges = [];
+  var plan = [];
+  fullNames.forEach(function (name) {
+    if (!state.sheets[name]) return setTab_(state, name, 'full', [], [], 0);
+    ranges.push(quoted_(name));
+    plan.push({ name: name, kind: 'full' });
   });
-  return copy;
-}
-
-function saveDb_(db, before) {
-  var ss = spreadsheet_();
-  Object.keys(db).forEach(function (name) {
-    var rows = db[name];
-    var old = before[name] || [];
-    var now = rows.map(function (row) { return JSON.stringify(row); });
-    if (now.length === old.length && now.every(function (row, i) { return row === old[i]; })) return; // unchanged
-
-    var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
-    var headers = (db.__headers[name] || []).slice();
-    if (!headers.length) headers = defaultHeaders_(name);
-    var headersGrew = false;
-    rows.forEach(function (row) {
-      Object.keys(row).forEach(function (key) {
-        if (headers.indexOf(key) === -1) { headers.push(key); headersGrew = true; }
-      });
-    });
-    if (headersGrew || sheet.getLastRow() === 0) {
-      sheet.getRange(1, 1, 1, headers.length).setNumberFormat('@').setValues([headers]).setFontWeight('bold');
-      sheet.setFrozenRows(1);
+  appendNames.forEach(function (name) {
+    var sheet = state.sheets[name];
+    if (!sheet) return setTab_(state, name, 'append', [], [], 0);
+    var last = sheet.getLastRow();
+    ranges.push(quoted_(name) + '!1:1');
+    plan.push({ name: name, kind: 'head', last: last });
+    if (last > 1) {
+      ranges.push(quoted_(name) + '!' + last + ':' + last);
+      plan.push({ name: name, kind: 'tail', last: last });
     }
-
-    var toValues = function (list) {
-      return list.map(function (row) {
-        return headers.map(function (col) { return row[col] === undefined || row[col] === null ? '' : String(row[col]); });
-      });
-    };
-
-    // Common case (a new scan, a new student): rows were only added at the end.
-    var appendedOnly = now.length > old.length && old.every(function (row, i) { return row === now[i]; });
-    if (appendedOnly) {
-      var added = toValues(rows.slice(old.length));
-      var start = Math.max(sheet.getLastRow(), 1) + 1;
-      sheet.getRange(start, 1, added.length, headers.length).setNumberFormat('@').setValues(added);
+  });
+  var results = batchGet_(state.ss, ranges);
+  var heads = {};
+  var refetch = [];
+  plan.forEach(function (item, i) {
+    var values = results[i] || [];
+    if (item.kind === 'full') return setTab_(state, item.name, 'full', values[0] || [], values.slice(1), values.length);
+    if (item.kind === 'head') {
+      heads[item.name] = values[0] || [];
+      if (item.last <= 1) setTab_(state, item.name, 'append', heads[item.name], [], item.last);
       return;
     }
-
-    // Otherwise rewrite the table body.
-    var lastRow = sheet.getLastRow();
-    if (lastRow > 1) sheet.getRange(2, 1, lastRow - 1, Math.max(sheet.getLastColumn(), headers.length)).clearContent();
-    if (rows.length) sheet.getRange(2, 1, rows.length, headers.length).setNumberFormat('@').setValues(toValues(rows));
+    var row = values[0] || [];
+    var id = String(row[0] === undefined ? '' : row[0]).trim();
+    if (!ID_PATTERN.test(id)) {
+      console.warn(item.name + ': last row id "' + id + '" is blank or malformed, full read to find the highest id');
+      refetch.push(item.name);
+      return;
+    }
+    setTab_(state, item.name, 'append', heads[item.name], [row], item.last);
   });
+  if (refetch.length) {
+    batchGet_(state.ss, refetch.map(quoted_)).forEach(function (values, i) {
+      setTab_(state, refetch[i], 'append', values[0] || [], values.slice(1), values.length);
+    });
+  }
+}
+
+function setTab_(state, name, mode, headerRow, body, lastRow) {
+  var cols = headerRow.map(function (h) { return String(h).trim(); });
+  var records = body
+    .filter(function (row) { return row.some(function (cell) { return cell !== '' && cell !== undefined; }); })
+    .map(function (row) {
+      var record = {};
+      cols.forEach(function (col, i) { if (col) record[col] = row[i] === undefined ? '' : String(row[i]); });
+      return record;
+    });
+  var width = body.reduce(function (max, row) { return Math.max(max, row.length); }, cols.length);
+  var tracked = state.isWrite && mode === 'full' && (state.writable === null || state.writable.indexOf(name) !== -1);
+  state.raw[name] = records;
+  state.tabs[name] = {
+    headers: cols.filter(Boolean), lastRow: lastRow, width: width, count: records.length, mode: mode,
+    snapshot: tracked ? records.map(function (row) { return JSON.stringify(row); }) : null,
+  };
+}
+
+// Saves every change of the request in ONE spreadsheets.batchUpdate. Google
+// documents it as all-or-nothing ("if any request is not valid, no requests
+// will be applied") and applied in order. Not covered by that: a call that
+// times out after Google applied it (the user then sees an error although it
+// was saved), and edits by people working in the Sheet at the same moment.
+function saveDb_(state) {
+  var changes = [];
+  Object.keys(state.tabs).forEach(function (name) {
+    var change = tabChange_(name, state.tabs[name], state.raw[name]);
+    if (change) changes.push(change);
+  });
+  if (!changes.length) return;
+
+  changes.forEach(function (change) {
+    if (!state.sheets[change.name]) state.sheets[change.name] = state.ss.insertSheet(change.name); // empty new tab: harmless if the batch fails
+  });
+  var grid = {};
+  Sheets.Spreadsheets.get(state.ss.getId(), { fields: 'sheets.properties(sheetId,title,gridProperties(rowCount,columnCount))' })
+    .sheets.forEach(function (sheet) { grid[sheet.properties.title] = sheet.properties; });
+
+  var requests = [];
+  changes.forEach(function (change) {
+    var props = grid[change.name];
+    var sheetId = props.sheetId;
+    var rows = props.gridProperties.rowCount;
+    var cols = props.gridProperties.columnCount;
+    // Make room first, in the same batch (row/column limits of the grid).
+    if (change.rowsNeeded > rows) requests.push({ appendDimension: { sheetId: sheetId, dimension: 'ROWS', length: change.rowsNeeded - rows } });
+    if (change.width > cols) requests.push({ appendDimension: { sheetId: sheetId, dimension: 'COLUMNS', length: change.width - cols } });
+    if (change.header) requests.push({ updateCells: { start: { sheetId: sheetId, rowIndex: 0, columnIndex: 0 }, rows: [cellRow_(change.headers, change.width)], fields: 'userEnteredValue' } });
+    if (change.append) requests.push({ appendCells: { sheetId: sheetId, rows: change.append, fields: 'userEnteredValue' } });
+    if (change.rewrite) requests.push({ updateCells: { start: { sheetId: sheetId, rowIndex: 1, columnIndex: 0 }, rows: change.rewrite, fields: 'userEnteredValue' } });
+  });
+  Sheets.Spreadsheets.batchUpdate({ requests: requests }, state.ss.getId());
+}
+
+// What changed in one tab: null, or { header?, append? | rewrite?, rowsNeeded, width }.
+function tabChange_(name, tab, rows) {
+  var added;
+  var rewrite = false;
+  if (tab.mode === 'append') {
+    added = rows.slice(tab.count);
+  } else if (tab.snapshot) {
+    var now = rows.map(function (row) { return JSON.stringify(row); });
+    var old = tab.snapshot;
+    if (now.length === old.length && now.every(function (row, i) { return row === old[i]; })) return null;
+    var appendedOnly = now.length > old.length && old.every(function (row, i) { return row === now[i]; });
+    if (appendedOnly) added = rows.slice(old.length);
+    else rewrite = true;
+  } else {
+    return null; // read-only for this request (guardDb froze it)
+  }
+  if (!rewrite && !added.length) return null;
+
+  var headers = tab.headers.length ? tab.headers.slice() : defaultHeaders_(name);
+  var header = tab.headers.length === 0 || tab.lastRow === 0;
+  (rewrite ? rows : added).forEach(function (row) {
+    Object.keys(row).forEach(function (key) {
+      if (headers.indexOf(key) === -1) { headers.push(key); header = true; }
+    });
+  });
+  var width = Math.max(headers.length, tab.width);
+  var change = { name: name, headers: headers, header: header, width: width };
+  var toRows = function (list) { return list.map(function (row) { return cellRow_(headers.map(function (col) { return row[col]; }), width); }); };
+  if (rewrite) {
+    // Overwrite in place and blank the old tail: never "clear, then write".
+    var body = toRows(rows);
+    while (body.length < tab.lastRow - 1) body.push(cellRow_([], width));
+    change.rewrite = body;
+    change.rowsNeeded = 1 + body.length;
+  } else {
+    change.append = toRows(added);
+    change.rowsNeeded = Math.max(tab.lastRow, 1) + added.length;
+  }
+  return change;
+}
+
+// Plain text cells: stringValue is stored as typed ("07:30", "0024…").
+function cellRow_(values, width) {
+  var cells = [];
+  for (var i = 0; i < width; i += 1) {
+    var value = values[i];
+    cells.push(value === undefined || value === null || value === '' ? {} : { userEnteredValue: { stringValue: String(value) } });
+  }
+  return { values: cells };
 }
 
 function defaultHeaders_(name) {
@@ -453,7 +561,7 @@ function buildView_(ss, name, columns, rowsExistColumn, note) {
 
 /** Quick check from the editor: lists each tab and how many records it has. */
 function checkSetup() {
-  var db = loadDb_();
+  var db = loadDb_(null, 'checkSetup', false).db;
   console.log(Object.keys(db).map(function (name) { return name + ': ' + db[name].length; }).join('\n'));
   var props = props_().getProperties();
   // Only says whether each property is set, never its value.
