@@ -189,6 +189,18 @@ function backfillOverrideReasons() {
   runEditorJob_(function (db) { return RFID.backfillOverrideReasons(db); });
 }
 
+/**
+ * Lists ACTIVE classes (same term) that share a room, an instructor or a
+ * section at the same day and time. Read-only: no lock, nothing is saved.
+ * Fix each clash in the Admin portal (move or deactivate a schedule).
+ */
+function listScheduleClashes() {
+  var spec = { read: ['Classes', 'Schedules', 'Rooms', 'Instructors', 'Sections'], write: [], append: [] };
+  var lines = RFID.findScheduleClashes(loadDb_(spec, 'listScheduleClashes', false).db);
+  console.log(lines.length ? lines.length + ' schedule clash(es):\n' + lines.join('\n') : 'No schedule clashes between active classes.');
+  return lines;
+}
+
 // Deletes a column by header name, but only if every value below the header is empty.
 function dropEmptyColumn_(tab, header) {
   var sheet = spreadsheet_().getSheetByName(tab);

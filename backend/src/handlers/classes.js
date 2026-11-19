@@ -235,7 +235,7 @@ export function setClassStatus(db, { class_id: classId, status }, session) {
 
 /* ---------------- schedules ---------------- */
 
-function overlaps(a, b) {
+export function overlaps(a, b) {
   return a.day_of_week === b.day_of_week && a.start_time < b.end_time && b.start_time < a.end_time;
 }
 

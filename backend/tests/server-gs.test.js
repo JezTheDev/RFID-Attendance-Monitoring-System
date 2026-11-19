@@ -318,3 +318,35 @@ describe('Server.gs saves in one all-or-nothing batchUpdate', () => {
     assert.ok(ss.getSheetByName('Students').cells.some((r) => r.includes('0024999003')));
   });
 });
+
+describe('listScheduleClashes (editor only)', () => {
+  it('logs clashes, reads only the schedule tabs, takes no lock and writes nothing', () => {
+    const { context, ss, logs, stats, resetStats, locks, tab } = makeServer();
+    context.setupSheets();
+    const schedules = tab('Schedules');
+    const sheet = ss.getSheetByName('Schedules');
+    const head = sheet.cells[0];
+    const first = schedules.find((s) => s.status === 'active');
+    const other = schedules.find((s) => s.status === 'active' && s.class_id !== first.class_id);
+    const row = sheet.cells.findIndex((r) => r[0] === other.schedule_id);
+    ['day_of_week', 'start_time', 'end_time', 'room_id'].forEach((col) => { sheet.cells[row][head.indexOf(col)] = first[col]; });
+    resetStats();
+    logs.length = 0;
+    const lockCount = locks.taken;
+    context.listScheduleClashes();
+    assert.match(logs.join('\n'), new RegExp(`${first.schedule_id}.*${other.schedule_id}|${other.schedule_id}.*${first.schedule_id}`));
+    assert.match(logs.join('\n'), /share room/);
+    assert.deepEqual([...stats.tabsRead].sort(), ['Classes', 'Instructors', 'Rooms', 'Schedules', 'Sections']);
+    assert.deepEqual([stats.batchUpdates, stats.rowsWritten, locks.taken], [0, 0, lockCount]);
+  });
+
+  it('says so when there are no clashes', () => {
+    const { context, ss, logs } = makeServer();
+    context.setupSheets();
+    const sheet = ss.getSheetByName('Schedules');
+    sheet.cells.length = 1; // header only
+    logs.length = 0;
+    context.listScheduleClashes();
+    assert.match(logs.join('\n'), /No schedule clashes/);
+  });
+});
