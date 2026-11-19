@@ -11,8 +11,10 @@ issues: `docs/AUDIT_REPORT.md`.
   accounts with username + password (instructor/admin: username; student:
   student number). Built in `backend/src/auth/` (Step 2). Login page polish,
   account Settings page and admin reset/unlock buttons are Step 3.
-- **No sign-up, no email reset.** Admins create accounts and reset passwords
-  to the role default; the user must change it at the next sign-in.
+- **No sign-up, no email reset.** Admins create accounts and reset passwords;
+  each gets a random **temporary password** (returned once as `temp_password`,
+  never stored or logged, expires after `temp_password_days` = 7). The user
+  must change it at the next sign-in. There are NO shared default passwords.
 - **Demo mode is REMOVED.** No in-browser fake backend. The site talks to the
   live API only. Fake data exists only to fill a TEST Google Sheet.
 - **No full rewrite.** Keep the existing handler logic: role checks,
@@ -66,19 +68,21 @@ seed data — run it only on a TEST spreadsheet.
 
 ### Script Properties (values never in the repo)
 
-`PASSWORD_PEPPER` (never change once set), `DEFAULT_STUDENT_PASSWORD`,
-`DEFAULT_INSTRUCTOR_PASSWORD`, `DEFAULT_ADMIN_PASSWORD`; only for the first
-admin: `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` (delete after);
-optional `SPREADSHEET_ID`. `GOOGLE_CLIENT_ID` / `ALLOW_TEST_LOGIN` are obsolete.
+`PASSWORD_PEPPER` (never change once set; the only required one); only for the
+first admin: `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` (delete after);
+TEST Sheet only: `TEST_SEED_PASSWORD` (password of the fake seeded users);
+optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
+`ALLOW_TEST_LOGIN`, `DEFAULT_STUDENT_PASSWORD`, `DEFAULT_INSTRUCTOR_PASSWORD`,
+`DEFAULT_ADMIN_PASSWORD`.
 
 ### Moving a deployed Sheet to password login (in this order)
 
 1. `npm test` and `node tools/build_apps_script.mjs`.
 2. Google Sheets: **File → Make a copy** of the live spreadsheet (backup).
-3. Script Properties: add the pepper + three default passwords; delete
-   `GOOGLE_CLIENT_ID` and `ALLOW_TEST_LOGIN`.
+3. Script Properties: add the pepper; delete `GOOGLE_CLIENT_ID` and `ALLOW_TEST_LOGIN`.
 4. Paste `Server.gs`, `Bundle.gs`, `SeedData.gs`, `appsscript.json` → Save.
 5. Run `migrateUsersToPasswordLogin` (log lists every change; rerun = "Nothing to change").
+   Users without a password get none; an admin resets each (temporary password).
 6. If there is no active admin: set the two `BOOTSTRAP_ADMIN_*` properties, run
    `createBootstrapAdmin`, then delete `BOOTSTRAP_ADMIN_PASSWORD`.
 7. Run `benchmarkPasswordHash` and `checkSetup`.
@@ -92,7 +96,10 @@ optional `SPREADSHEET_ID`. `GOOGLE_CLIENT_ID` / `ALLOW_TEST_LOGIN` are obsolete.
   1.197 ms/iteration in Apps Script ≈ 360 ms/hash; raising it re-hashes at next
   login, lowering it does not — higher-count hashes still verify, just slower,
   until the password is changed or reset). Handlers hash through `ctx` (`ctx.hash`, `ctx.verify`,
-  `ctx.defaultPassword(role)`, `ctx.now()`), never `Utilities` directly.
+  `ctx.newTempPassword()`, `ctx.now()`), never `Utilities` directly. New/reset
+  accounts go through `issueTempPassword(db, ctx, user)` (admin-users.js).
+- Login with an expired temporary password → `TEMP_PASSWORD_EXPIRED` (checked
+  only after the password is right). changePassword clears `temp_password_expires_at`.
 - Handlers are `run(db, request, session, ctx)`. `session` has `user_id`,
   `role`, `username`, `must_change_password`, `token_hash` (server-only).
 - Same `INVALID_CREDENTIALS` for unknown user / wrong password; lockout after
@@ -101,6 +108,7 @@ optional `SPREADSHEET_ID`. `GOOGLE_CLIENT_ID` / `ALLOW_TEST_LOGIN` are obsolete.
 - `must_change_password` TRUE → only `auth.me`, `auth.changePassword`,
   `auth.logout` (`PASSWORD_CHANGE_REQUIRED` otherwise).
 - Never return or log a password or `password_hash`; tests check responses.
+  Only exception: `temp_password` in the create/reset response data.
 
 ## Tests
 

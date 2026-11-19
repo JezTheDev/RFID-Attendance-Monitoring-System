@@ -78,14 +78,14 @@ here — never in the repo, the Sheet, or chat.
 | Property | Needed for | Notes |
 |---|---|---|
 | `PASSWORD_PEPPER` | every login and password change | Long random text (40+ characters). **Never change it later**: every password would stop working. |
-| `DEFAULT_STUDENT_PASSWORD` | new / reset student accounts | Letters + numbers, 8+ characters. Tell students in person. |
-| `DEFAULT_INSTRUCTOR_PASSWORD` | new / reset instructor accounts | Same rules. |
-| `DEFAULT_ADMIN_PASSWORD` | new / reset admin accounts | Same rules. |
+| `TEST_SEED_PASSWORD` | `setupSheets()` on a **TEST** Sheet only | Password of the FAKE seeded users (must change at first sign-in). Never used for real people. |
 | `BOOTSTRAP_ADMIN_USERNAME` | `createBootstrapAdmin()` only | e.g. `cpe.admin` |
 | `BOOTSTRAP_ADMIN_PASSWORD` | `createBootstrapAdmin()` only | **Delete it right after** the first admin exists. |
 | `SPREADSHEET_ID` | only if the script is not attached to the Sheet | |
 
-`GOOGLE_CLIENT_ID` and `ALLOW_TEST_LOGIN` are no longer used — delete them if they exist.
+`GOOGLE_CLIENT_ID`, `ALLOW_TEST_LOGIN`, `DEFAULT_STUDENT_PASSWORD`, `DEFAULT_INSTRUCTOR_PASSWORD`
+and `DEFAULT_ADMIN_PASSWORD` are no longer used — safe to delete (`checkSetup` warns about them).
+New and reset accounts get a random temporary password instead (see **Temporary passwords** below).
 If a needed property is missing, the action fails with `NOT_CONFIGURED` and nothing is saved.
 
 ### 4. Create the tabs (TEST Sheet) — or migrate an existing Sheet
@@ -95,19 +95,20 @@ The first time, Google asks for permission → **Review permissions** → projec
 *"Google hasn't verified this app"* → **Advanced → Go to (project name)** → **Allow**.
 
 `setupSheets()` creates missing tabs and fills **only empty tabs** with the FAKE
-seed data. Seeded users get their role's default password (hashed) and must change
-it at first sign-in: students sign in with their student number (e.g. `9999000001`),
+seed data. The fake seeded users all get `TEST_SEED_PASSWORD` (hashed) and must change
+it at first sign-in (if the property is missing, `setupSheets` stops before creating anything): students sign in with their student number (e.g. `9999000001`),
 instructors with `instructor01.test` …, the admin with `admin.test`.
 **TEST spreadsheet only** — on a real one, empty tabs would be filled with fake people.
 
 **Existing Sheet from the Google Sign-In version:**
 1. **File → Make a copy** of the spreadsheet first (backup).
-2. Set the Script Properties above (pepper + the three defaults).
+2. Set `PASSWORD_PEPPER`.
 3. Run **`migrateUsersToPasswordLogin`**. It adds the new Users columns, gives every
    user a username (students: student number; instructors/admins: the part of the email
-   before `@`, lowercase, `2`/`3`… added if taken), sets the role's default password with
-   *must change* on, signs out their old sessions, removes `google_sub`, and updates
-   Settings (`max_login_attempts`=5, `lockout_minutes`=15, removes `allowed_email_rule`).
+   before `@`, lowercase, `2`/`3`… added if taken), signs out old sessions, removes
+   `google_sub`, and updates Settings (`max_login_attempts`=5, `lockout_minutes`=15,
+   `temp_password_days`=7, removes `allowed_email_rule`). Users **without a password get
+   none** (no shared default): the log warns, and an admin must reset each one.
    The log lists every change. Running it again reports "Nothing to change".
 4. Check the log for `PROBLEM` lines (a student without a usable student number) and fix them by hand.
 
@@ -148,12 +149,25 @@ Put the URL in `frontend/assets/js/config.js` → `API_URL`. See `frontend/READM
 
 ---
 
+## Temporary passwords (how admins hand them out)
+
+- `admin.createStudent` / `createInstructor` / `createAdmin` and `admin.resetPassword` make a
+  random 10-character password like `k7Pmx-92Qwa` (no `0 O o 1 l I`; the dash is part of it).
+- The response `data.temp_password` is the **only** place it ever appears. Only its hash is
+  stored; it is never written to the Sheet, the AuditLog, or a log. The website shows it once
+  in a box with a **Copy** button.
+- Give it to the person directly (in person, or a private message to them only). They sign in
+  with it and must choose their own password. It expires after 7 days
+  (`Users.temp_password_expires_at`, setting `temp_password_days`).
+- Lost or expired? Reset the password again; the old temporary password stops working.
+- Existing password hashes are unaffected (no migration needed).
+
 ## Sign-in (auth API)
 
 Accounts are created only by admins. Username: instructors/admins choose one
 (3–32 of `a-z 0-9 . _ -`), students use their 10-digit student number. Usernames are
-trimmed, lowercased and unique across all users. New and reset accounts get the role's
-default password and must change it.
+trimmed, lowercased and unique across all users. New and reset accounts get a random
+temporary password and must change it.
 
 | Action | Who | Request | Response `data` |
 |---|---|---|---|
@@ -161,7 +175,7 @@ default password and must change it.
 | `auth.me` | signed in | — | `user_id`, `username`, `role`, `display_name`, `email`, `must_change_password`, `last_login_at`, `expires_at` |
 | `auth.changePassword` | signed in | `old_password`, `new_password` | `must_change_password:false`, `other_sessions_revoked` |
 | `auth.logout` | anyone | (`session_token`) | `{}` |
-| `admin.resetPassword` | admin | `user_id` (not yourself) | `user_id`, `must_change_password:true`, `sessions_revoked` |
+| `admin.resetPassword` | admin | `user_id` (not yourself) | `user_id`, `must_change_password:true`, `sessions_revoked`, `temp_password`, `temp_password_expires_at` |
 | `admin.unlockUser` | admin | `user_id` | `user_id` (`NO_CHANGE` if not locked) |
 
 Rules:
@@ -171,7 +185,10 @@ Rules:
 - `ACCOUNT_DISABLED` is shown only when the password was right.
 - While `must_change_password` is TRUE, every action except `auth.me`, `auth.changePassword`,
   `auth.logout` fails with `PASSWORD_CHANGE_REQUIRED`.
-- New password: 8–128 characters, letters and numbers, not the role default, not the current one.
+- A temporary password older than `temp_password_days` (7) → `TEMP_PASSWORD_EXPIRED`
+  ("Ask the admin to reset your password"). Checked only after the password is right.
+- New password: 8–128 characters, letters and numbers, not the current one.
+  Setting it clears `temp_password_expires_at`.
   Changing it signs out your other sessions.
 - The last active admin cannot be deactivated; no action changes a user's role.
 - AuditLog: `LOGIN_SUCCESS`, `LOGIN_FAILED`, `ACCOUNT_LOCKED`, `PASSWORD_CHANGED`,
