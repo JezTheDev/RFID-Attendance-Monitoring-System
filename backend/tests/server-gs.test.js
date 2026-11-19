@@ -1,98 +1,11 @@
 // Runs the REAL Server.gs + Bundle.gs + SeedData.gs inside a Node vm with a
-// small fake of the Apps Script services (in-memory spreadsheet). Checks the
+// small fake of the Apps Script services (helpers/fake-apps-script.js). Checks the
 // wiring that unit tests cannot: routing, saving failed logins, setupSheets,
-// the editor-only jobs. Run `node tools/build_apps_script.mjs` first.
+// the editor-only jobs, and how many tabs/rows each request reads and writes.
+// Run `node tools/build_apps_script.mjs` first.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { createHash, randomUUID } from 'node:crypto';
-import vm from 'node:vm';
-
-const dir = new URL('../apps-script/', import.meta.url);
-const source = ['SeedData.gs', 'Bundle.gs', 'Server.gs'].map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n');
-
-const SEED = 'Seed2026x'; // FAKE TEST_SEED_PASSWORD
-const PROPS = { PASSWORD_PEPPER: 'vm-test-pepper', TEST_SEED_PASSWORD: SEED };
-
-function fakeSheet(name) {
-  const cells = [];
-  const sheet = {
-    cells,
-    getName: () => name,
-    getLastRow: () => { for (let r = cells.length; r > 0; r -= 1) if ((cells[r - 1] || []).some((v) => v !== '')) return r; return 0; },
-    getLastColumn: () => cells.reduce((max, row) => { for (let c = row.length; c > max; c -= 1) if (row[c - 1] !== '') return c; return max; }, 0),
-    getMaxRows: () => Math.max(cells.length, 1000),
-    clear: () => { cells.length = 0; },
-    setFrozenRows: () => {}, setTabColor: () => {},
-    deleteColumn: (col) => cells.forEach((row) => row.splice(col - 1, 1)),
-    getDataRange: () => sheet.getRange(1, 1, Math.max(sheet.getLastRow(), 1), Math.max(sheet.getLastColumn(), 1)),
-    getRange(row, col, numRows = 1, numCols = 1) {
-      const range = {
-        setNumberFormat: () => range, setFontWeight: () => range, setBackground: () => range, setNote: () => range, setFormula: () => range,
-        setValues(values) {
-          values.forEach((vals, i) => {
-            const r = row - 1 + i;
-            while (cells.length <= r) cells.push([]);
-            vals.forEach((v, j) => { cells[r][col - 1 + j] = String(v); });
-          });
-          return range;
-        },
-        clearContent() {
-          for (let i = 0; i < numRows; i += 1) for (let j = 0; j < numCols; j += 1) if (cells[row - 1 + i]) cells[row - 1 + i][col - 1 + j] = '';
-          return range;
-        },
-        getDisplayValues: () => Array.from({ length: numRows }, (_, i) => Array.from({ length: numCols }, (_, j) => {
-          const v = (cells[row - 1 + i] || [])[col - 1 + j];
-          return v === undefined ? '' : v;
-        })),
-      };
-      return range;
-    },
-  };
-  return sheet;
-}
-
-function makeServer(props = PROPS) {
-  const locks = { taken: 0, released: 0, available: true };
-  const sheets = [fakeSheet('Sheet1')];
-  const ss = {
-    getId: () => 'fake', getSheets: () => sheets.slice(),
-    getSheetByName: (n) => sheets.find((s) => s.getName() === n) || null,
-    insertSheet: (n) => { const s = fakeSheet(n); sheets.push(s); return s; },
-    deleteSheet: (s) => sheets.splice(sheets.indexOf(s), 1),
-  };
-  const toSigned = (buf) => Array.from(buf, (b) => (b > 127 ? b - 256 : b));
-  const logs = [];
-  const fmt = (date, pattern) => {
-    const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(date).map((x) => [x.type, x.value]));
-    return pattern.replace('yyyy', p.year).replace('MM', p.month).replace('dd', p.day).replace('HH', p.hour).replace('mm', p.minute).replace('ss', p.second);
-  };
-  const context = vm.createContext({
-    console: { log: (m) => logs.push(String(m)), warn: (m) => logs.push(String(m)), error: (m) => logs.push(String(m)) },
-    SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: (n) => props[n] ?? null, getProperties: () => ({ ...props }) }) },
-    LockService: { getScriptLock: () => ({ tryLock: () => { locks.taken += 1; return locks.available; }, releaseLock: () => { locks.released += 1; } }) },
-    ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (text) => ({ setMimeType: () => ({ text }) }) },
-    Utilities: {
-      DigestAlgorithm: { SHA_256: 'SHA_256' }, Charset: { UTF_8: 'UTF_8' },
-      computeDigest: (alg, bytes) => {
-        bytes.forEach((b) => { if (b < -128 || b > 127) throw new Error('not a Java byte'); });
-        return toSigned(createHash('sha256').update(Buffer.from(bytes.map((b) => b & 0xff))).digest());
-      },
-      newBlob: (text) => ({ getBytes: () => toSigned(Buffer.from(String(text), 'utf8')) }),
-      getUuid: () => randomUUID(),
-      formatDate: fmt,
-    },
-  });
-  vm.runInContext(source, context);
-  vm.runInContext('setupViews = function () {};', context); // formulas are not under test
-  const post = (body) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify(body) } }).text);
-  const usersTab = () => {
-    const [head, ...rows] = ss.getSheetByName('Users').cells;
-    return rows.filter((r) => r.some((v) => v !== '')).map((r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ''])));
-  };
-  return { context, ss, post, logs, usersTab, locks };
-}
+import { makeServer, SEED, PROPS } from './helpers/fake-apps-script.js';
 
 describe('Server.gs in a fake Apps Script', () => {
   it('setupSheets seeds users with TEST_SEED_PASSWORD hashes, no google_sub', () => {

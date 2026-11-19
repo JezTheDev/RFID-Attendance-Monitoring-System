@@ -16,10 +16,10 @@ var RFID = (function () {
   // ---- utils.js ----
   __m["utils"] = (function () {
     const { TIMEZONE } = __m["config"];
-    
+
     const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-    
+
     class AppError extends Error {
       constructor(code, message, fields = null) {
         super(message);
@@ -27,16 +27,16 @@ var RFID = (function () {
         this.fields = fields;
       }
     }
-    
+
     function validationError(fields) {
       return new AppError('VALIDATION_ERROR', 'Please correct the highlighted fields.', fields);
     }
-    
+
     function setting(db, key, fallback) {
       const row = db.Settings.find((item) => item.key === key);
       return row ? row.value : fallback;
     }
-    
+
     function manilaNow() {
       // On the Apps Script server, use its own date formatter (always available there).
       if (typeof Utilities !== 'undefined') {
@@ -58,47 +58,47 @@ var RFID = (function () {
         iso: `${date}T${parts.hour}:${parts.minute}:${parts.second}+08:00`,
       };
     }
-    
+
     // Epoch ms -> "YYYY-MM-DDTHH:mm:ss+08:00". Manila has no daylight saving, so a
     // fixed +8 h offset is exact.
     function toManilaIso(ms) {
       return `${new Date(Number(ms) + 8 * 3600000).toISOString().slice(0, 19)}+08:00`;
     }
-    
+
     function dayCodeOf(dateString) {
       const [year, month, day] = dateString.split('-').map(Number);
       return DAY_CODES[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
     }
-    
+
     function isValidDate(dateString) {
       if (!DATE_PATTERN.test(dateString ?? '')) return false;
       const [year, month, day] = dateString.split('-').map(Number);
       const parsed = new Date(Date.UTC(year, month - 1, day));
       return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
     }
-    
+
     function shiftDate(dateString, days) {
       const [year, month, day] = dateString.split('-').map(Number);
       return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
     }
-    
+
     function indexBy(rows, key) {
       return new Map(rows.map((row) => [row[key], row]));
     }
-    
+
     function fullName(person) {
       return person ? `${person.first_name} ${person.last_name}` : '';
     }
-    
+
     // An instructor correction sets override_status; the device's own status is never changed.
     function effectiveStatus(row) {
       return row.override_status || row.status;
     }
-    
+
     function cleanText(value) {
       return String(value ?? '').trim().replace(/\s+/g, ' ');
     }
-    
+
     function writeAudit(db, session, { action, entityType, entityId, before = null, after = null, reason = '' }) {
       db.AuditLog.push({
         audit_id: nextId(db.AuditLog, 'audit_id', 'AUD'),
@@ -113,7 +113,7 @@ var RFID = (function () {
         reason,
       });
     }
-    
+
     function nextId(rows, key, prefix, width = 4) {
       const highest = rows.reduce((max, row) => {
         const number = Number(String(row[key]).slice(prefix.length + 1));
@@ -129,14 +129,14 @@ var RFID = (function () {
     // Web sessions (AuthSessions tab). Ported from Server.gs: a random token goes to
     // the browser, only its SHA-256 is stored, and every request is checked here.
     const { AppError, setting, toManilaIso, fullName } = __m["utils"];
-    
+
     const PUBLIC = 'public'; // no session needed
     const ANY = 'any'; // any signed-in role
     // While must_change_password is TRUE, only these actions are allowed.
     const PASSWORD_CHANGE_ALLOWED = Object.freeze(['auth.me', 'auth.changePassword', 'auth.logout']);
-    
+
     const isTrue = (value) => String(value).toUpperCase() === 'TRUE';
-    
+
     function displayName(db, user) {
       let person = null;
       if (user.role === 'instructor') person = db.Instructors.find((row) => row.instructor_id === user.linked_id);
@@ -145,7 +145,7 @@ var RFID = (function () {
       if (user.role === 'admin') return user.display_name || 'Administrator';
       return user.username;
     }
-    
+
     function startSession(db, user, ctx) {
       const token = ctx.newToken();
       const hours = Number(setting(db, 'session_token_hours', 8)) || 8;
@@ -163,7 +163,7 @@ var RFID = (function () {
       });
       return { token, expires_at: expiresAt };
     }
-    
+
     // Returns the session object handlers receive. token_hash stays on the server.
     function authorize(db, token, ctx) {
       const signedOut = new AppError('NOT_SIGNED_IN', 'Your session has ended. Please sign in again.');
@@ -183,7 +183,7 @@ var RFID = (function () {
         token_hash: tokenHash,
       };
     }
-    
+
     // Revokes the user's active sessions (except one token hash). Returns how many.
     function revokeSessions(db, userId, exceptTokenHash = '') {
       let count = 0;
@@ -214,7 +214,7 @@ var RFID = (function () {
     // randomHex(byteCount) -> string }. Apps Script: crypto-apps-script.js.
     // Node tests: tests/helpers/auth.js. Bytes may be signed or unsigned.
     const { AppError } = __m["utils"];
-    
+
     // How this number was chosen: benchmarkPasswordHash() on the real Apps Script
     // project (2026-11-18) measured 1.197 ms per SHA-256 iteration (1500 iterations
     // took 1629 ms). 300 iterations ~ 360 ms per hash, inside the 200-500 ms target.
@@ -222,34 +222,34 @@ var RFID = (function () {
     // Hashes made with the earlier value (1500) still verify: the count is stored
     // in each hash.
     const PASSWORD_HASH_ITERATIONS = 300;
-    
+
     const VERSION = 'v1';
     const SALT_BYTES = 16;
     const MAX_ITERATIONS = 1000000;
-    
+
     function toHex(bytes) {
       let hex = '';
       for (let i = 0; i < bytes.length; i += 1) hex += ((bytes[i] & 0xff) + 0x100).toString(16).slice(1);
       return hex;
     }
-    
+
     function requirePepper(pepper) {
       if (!pepper) throw new AppError('NOT_CONFIGURED', 'The server is missing PASSWORD_PEPPER. Ask the administrator to finish the setup.');
     }
-    
+
     function digest(crypto, pepper, password, salt, iterations) {
       const secret = crypto.utf8(`${pepper}\u0000${password}`);
       let hash = crypto.sha256(crypto.utf8(salt).concat(secret));
       for (let i = 1; i < iterations; i += 1) hash = crypto.sha256(Array.from(hash).concat(secret));
       return toHex(hash);
     }
-    
+
     function hashPassword(crypto, pepper, password, iterations = PASSWORD_HASH_ITERATIONS) {
       requirePepper(pepper);
       const salt = crypto.randomHex(SALT_BYTES);
       return `${VERSION}$${iterations}$${salt}$${digest(crypto, pepper, String(password), salt, iterations)}`;
     }
-    
+
     function parse(stored) {
       const parts = String(stored ?? '').split('$');
       if (parts.length !== 4 || parts[0] !== VERSION) return null;
@@ -258,18 +258,18 @@ var RFID = (function () {
       if (!/^[0-9a-f]+$/.test(parts[2]) || !/^[0-9a-f]{64}$/.test(parts[3])) return null;
       return { iterations, salt: parts[2], hash: parts[3] };
     }
-    
+
     function hashIterations(stored) {
       return parse(stored)?.iterations ?? 0;
     }
-    
+
     function verifyPassword(crypto, pepper, password, stored) {
       requirePepper(pepper);
       const parsed = parse(stored);
       if (!parsed) return false;
       return constantTimeEqual(digest(crypto, pepper, String(password ?? ''), parsed.salt, parsed.iterations), parsed.hash);
     }
-    
+
     // Compares every character, so the time does not show where the first difference is.
     function constantTimeEqual(a, b) {
       const left = String(a);
@@ -279,17 +279,17 @@ var RFID = (function () {
       for (let i = 0; i < length; i += 1) diff |= (left.charCodeAt(i) | 0) ^ (right.charCodeAt(i) | 0);
       return diff === 0;
     }
-    
+
     // Plain SHA-256 (hex) for session tokens: they are long and random, so no salt is needed.
     function sha256Hex(crypto, text) {
       return toHex(crypto.sha256(crypto.utf8(text)));
     }
-    
+
     // Temporary passwords (new account / admin reset): 10 characters without the
     // look-alikes 0 O o 1 l I, shown and typed as two groups: "k7Pmx-92Qwa".
     const TEMP_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz'; // 56 characters
     const TEMP_PASSWORD_PATTERN = /^[2-9A-HJ-NP-Za-km-np-z]{5}-[2-9A-HJ-NP-Za-km-np-z]{5}$/;
-    
+
     function generateTempPassword(crypto) {
       let chars = '';
       while (chars.length < 10) {
@@ -312,67 +312,67 @@ var RFID = (function () {
     const { AppError, validationError, setting, toManilaIso, writeAudit } = __m["utils"];
     const { hashIterations } = __m["auth/passwords"];
     const { startSession, displayName, revokeSessions, isTrue } = __m["auth/session"];
-    
+
     const MINUTE = 60000;
     const MIN_PASSWORD = 8;
     const MAX_PASSWORD = 128;
-    
+
     function normalizeUsername(value) {
       return String(value ?? '').trim().toLowerCase();
     }
-    
+
     function findUserByUsername(db, username) {
       const wanted = normalizeUsername(username);
       if (!wanted) return null;
       return db.Users.find((row) => normalizeUsername(row.username) === wanted) ?? null;
     }
-    
+
     function positiveSetting(db, key, fallback) {
       const value = Math.floor(Number(setting(db, key, fallback)));
       return value > 0 ? value : fallback;
     }
-    
+
     // While the account is on a temporary password ("k7Pmx-92Qwa", hashed without
     // the dash), "-" and spaces are optional. User-chosen passwords are exact.
     function typedPassword(user, value) {
       const password = String(value ?? '');
       return user && user.temp_password_expires_at ? password.replace(/[-\s]/g, '') : password;
     }
-    
+
     function invalidCredentials() {
       return new AppError('INVALID_CREDENTIALS', 'Incorrect username or password.');
     }
-    
+
     function accountLocked(minutes) {
       return new AppError('ACCOUNT_LOCKED', `Too many failed sign-in attempts. Try again in ${minutes} minute${minutes === 1 ? '' : 's'}, or ask the administrator to unlock your account.`);
     }
-    
+
     // Login failures change the Sheet (counter, lock, audit row), so Server.gs
     // must save them even though the request fails.
     function saved(error) {
       error.commit = true;
       return error;
     }
-    
+
     function audit(db, user, action, reason = '') {
       writeAudit(db, { user_id: user ? user.user_id : '', role: user ? user.role : '' }, {
         action, entityType: 'Users', entityId: user ? user.user_id : '', reason,
       });
     }
-    
+
     function login(db, request, _session, ctx) {
       ctx.pepper(); // fail with NOT_CONFIGURED before touching anything
       const nowMs = ctx.now();
       const user = findUserByUsername(db, request.username);
       const password = typedPassword(user, request.password);
-    
+
       if (!user) {
         ctx.hash(password); // same work as a real check, so timing does not reveal unknown usernames
         // The attempted username is NOT logged: people sometimes type their password there.
         audit(db, null, 'LOGIN_FAILED', 'unknown username');
         throw saved(invalidCredentials());
       }
-    
+
       const lockedUntil = Date.parse(user.locked_until);
       if (lockedUntil > nowMs) {
         audit(db, user, 'LOGIN_FAILED', 'account locked');
@@ -382,7 +382,7 @@ var RFID = (function () {
         user.locked_until = '';
         user.failed_attempts = '0';
       }
-    
+
       if (!user.password_hash || !ctx.verify(password, user.password_hash)) {
         if (!user.password_hash) ctx.hash(password);
         const attempts = (Number(user.failed_attempts) || 0) + 1;
@@ -396,19 +396,19 @@ var RFID = (function () {
         }
         throw saved(invalidCredentials());
       }
-    
+
       // Only someone with the right password learns that the account is disabled.
       if (user.account_status !== 'active') {
         audit(db, user, 'LOGIN_FAILED', 'account disabled');
         throw saved(new AppError('ACCOUNT_DISABLED', 'Your account is disabled. Contact the administrator.'));
       }
-    
+
       // Checked only after the right password, so a guesser learns nothing.
       if (Date.parse(user.temp_password_expires_at) <= nowMs) {
         audit(db, user, 'LOGIN_FAILED', 'temporary password expired');
         throw saved(new AppError('TEMP_PASSWORD_EXPIRED', 'Your temporary password has expired. Ask the admin to reset your password.'));
       }
-    
+
       user.failed_attempts = '0';
       user.locked_until = '';
       if (hashIterations(user.password_hash) < ctx.iterations) user.password_hash = ctx.hash(password);
@@ -426,20 +426,20 @@ var RFID = (function () {
         expires_at: expiresAt,
       };
     }
-    
+
     function logout(db, request, _session, ctx) {
       if (!request.session_token) return {};
       const tokenHash = ctx.tokenHash(String(request.session_token));
       db.AuthSessions.forEach((row) => { if (row.token_hash === tokenHash) row.revoked = 'TRUE'; });
       return {};
     }
-    
+
     function currentUser(db, session) {
       const user = db.Users.find((row) => row.user_id === session.user_id);
       if (!user) throw new AppError('NOT_SIGNED_IN', 'Your session has ended. Please sign in again.');
       return user;
     }
-    
+
     function me(db, _request, session) {
       const user = currentUser(db, session);
       return {
@@ -453,7 +453,7 @@ var RFID = (function () {
         expires_at: session.expires_at,
       };
     }
-    
+
     // Throws VALIDATION_ERROR { new_password } if the new password breaks a rule.
     function validateNewPassword(oldPassword, newPassword) {
       let problem = '';
@@ -463,7 +463,7 @@ var RFID = (function () {
       else if (oldPassword !== null && newPassword === oldPassword) problem = 'Choose a password different from your current one.';
       if (problem) throw validationError({ new_password: problem });
     }
-    
+
     function changePassword(db, request, session, ctx) {
       const user = currentUser(db, session);
       const oldPassword = typedPassword(user, request.old_password);
@@ -476,7 +476,7 @@ var RFID = (function () {
       if (typedPassword(user, newPassword) === oldPassword) { // the temp password again, just typed with its dash
         throw validationError({ new_password: 'Choose a password different from your current one.' });
       }
-    
+
       const now = toManilaIso(ctx.now());
       user.password_hash = ctx.hash(newPassword);
       user.must_change_password = 'FALSE';
@@ -499,7 +499,7 @@ var RFID = (function () {
     const { AppError, toManilaIso, writeAudit, nextId } = __m["utils"];
     const { normalizeUsername, positiveSetting } = __m["auth/account"];
     const { revokeSessions, isTrue } = __m["auth/session"];
-    
+
     // Column order of the Users tab.
     const USER_COLUMNS = Object.freeze([
       'user_id', 'username', 'email', 'role', 'linked_id', 'account_status',
@@ -507,17 +507,17 @@ var RFID = (function () {
       'created_by', 'last_login_at', 'created_at', 'updated_at', 'display_name',
       'temp_password_expires_at',
     ]);
-    
+
     const DAY = 24 * 60 * 60000;
-    
+
     // Instructors and admins. Students use their 10-digit student number.
     const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/;
-    
+
     function usernameTaken(db, username, ownUserId = null) {
       const wanted = normalizeUsername(username);
       return db.Users.some((row) => normalizeUsername(row.username) === wanted && row.user_id !== ownUserId);
     }
-    
+
     // Returns '' when the username is fine, otherwise the message for the form.
     function usernameProblem(db, username, ownUserId = null) {
       if (!username) return 'This field is required.';
@@ -525,11 +525,11 @@ var RFID = (function () {
       if (usernameTaken(db, username, ownUserId)) return 'This username is already used by another account.';
       return '';
     }
-    
+
     function nowMs(ctx) {
       return ctx ? ctx.now() : Date.now();
     }
-    
+
     // What the admin pages may show about a login account (never the hash).
     function accountSummary(user, ctx) {
       if (!user) return null;
@@ -540,7 +540,7 @@ var RFID = (function () {
         last_login_at: user.last_login_at || null,
       };
     }
-    
+
     // Gives the user a new random temporary password: stores only its hash, forces
     // a change, starts the expiry. Returns the plain value ONCE, for the admin's
     // response only; never write it to the Sheet, the AuditLog or a log.
@@ -551,7 +551,7 @@ var RFID = (function () {
       user.temp_password_expires_at = toManilaIso(ctx.now() + positiveSetting(db, 'temp_password_days', 7) * DAY);
       return { temp_password: tempPassword, temp_password_expires_at: user.temp_password_expires_at };
     }
-    
+
     // Builds (does not save) a Users row with no password yet: the caller gives it
     // one with issueTempPassword() before saving it.
     function newUserRow(db, ctx, { username, email = '', role, linkedId = '', displayName = '' }, session) {
@@ -576,13 +576,13 @@ var RFID = (function () {
         temp_password_expires_at: '',
       };
     }
-    
+
     function findUser(db, userId) {
       const user = db.Users.find((row) => row.user_id === userId);
       if (!user) throw new AppError('NOT_FOUND', 'Account not found.');
       return user;
     }
-    
+
     function resetPassword(db, { user_id: userId }, session, ctx) {
       const user = findUser(db, userId);
       if (user.user_id === session.user_id) {
@@ -599,7 +599,7 @@ var RFID = (function () {
       });
       return { user_id: user.user_id, must_change_password: true, sessions_revoked: revoked, ...issued };
     }
-    
+
     function unlockUser(db, { user_id: userId }, session, ctx) {
       const user = findUser(db, userId);
       if (!(Number(user.failed_attempts) > 0) && !user.locked_until) {
@@ -621,10 +621,10 @@ var RFID = (function () {
   // ---- handlers/dashboard.js ----
   __m["handlers/dashboard"] = (function () {
     const { AppError, setting, manilaNow, dayCodeOf, isValidDate, shiftDate, indexBy, fullName, effectiveStatus } = __m["utils"];
-    
+
     function getAdminDashboard(db, { date }) {
       if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
-    
+
       const now = manilaNow();
       const classes = indexBy(db.Classes, 'class_id');
       const subjects = indexBy(db.Subjects, 'subject_id');
@@ -634,10 +634,10 @@ var RFID = (function () {
       const devicesById = indexBy(db.Devices, 'device_id');
       const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
       const inTerm = Boolean(activeTerm) && date >= activeTerm.start_date && date <= activeTerm.end_date;
-    
+
       const enrolledCount = (classId) => db.Enrollments.filter((row) => row.class_id === classId
         && row.status === 'enrolled' && students.get(row.student_id)?.account_status === 'active').length;
-    
+
       const describe = ({ classId, roomId, start, end, status, sessionId, source }) => {
         const klass = classes.get(classId);
         const records = sessionId ? db.Attendance.filter((row) => row.session_id === sessionId) : [];
@@ -662,12 +662,12 @@ var RFID = (function () {
           absent: counted ? Math.max(enrolled - present - late, 0) : null,
         };
       };
-    
+
       const dayCode = dayCodeOf(date);
       const scheduled = inTerm
         ? db.Schedules.filter((row) => row.status === 'active' && row.day_of_week === dayCode && classes.get(row.class_id)?.status === 'active')
         : [];
-    
+
       const sessions = scheduled.map((slot) => {
         const session = db.ClassSessions.find((row) => row.schedule_id === slot.schedule_id && row.session_date === date);
         let status;
@@ -680,23 +680,23 @@ var RFID = (function () {
           status, sessionId: session?.session_id, source: 'auto',
         });
       });
-    
+
       db.ClassSessions
         .filter((row) => row.source === 'manual' && row.session_date === date)
         .forEach((row) => sessions.push(describe({
           classId: row.class_id, roomId: row.room_id, start: row.scheduled_start, end: row.scheduled_end,
           status: row.status, sessionId: row.session_id, source: 'manual',
         })));
-    
+
       sessions.sort((a, b) => a.start_time.localeCompare(b.start_time) || a.room_code.localeCompare(b.room_code));
-    
+
       const countedSessions = sessions.filter((row) => row.present !== null);
       const expected = countedSessions.reduce((sum, row) => sum + row.enrolled, 0);
       const attended = countedSessions.reduce((sum, row) => sum + row.present + row.late, 0);
       const studentsPresent = new Set(
         db.Attendance.filter((row) => row.scanned_at.slice(0, 10) === date && effectiveStatus(row) !== 'absent').map((row) => row.student_id),
       ).size;
-    
+
       const lowBatteryVoltage = Number(setting(db, 'low_battery_voltage', 3.5));
       const offlineAfterMs = Number(setting(db, 'device_offline_after_minutes', 10)) * 60000;
       const devices = db.Devices.filter((row) => row.status !== 'retired').map((row) => {
@@ -713,7 +713,7 @@ var RFID = (function () {
           queue_count: Number(row.queue_count || 0),
         };
       });
-    
+
       const activeCardsByUid = new Map(db.RfidCards.filter((row) => row.status === 'active').map((row) => [row.rfid_uid, row]));
       const recentScans = db.ScanLog
         .filter((row) => row.scanned_at.slice(0, 10) === date)
@@ -732,14 +732,14 @@ var RFID = (function () {
             sync_mode: row.sync_mode,
           };
         });
-    
+
       const activeStudents = db.Students.filter((row) => row.account_status === 'active');
       const studentsWithCard = new Set(db.RfidCards.filter((row) => row.status === 'active').map((row) => row.student_id));
       const withoutCard = activeStudents.filter((row) => !studentsWithCard.has(row.student_id)).length;
       const weekStart = shiftDate(date, -6);
       const unregisteredThisWeek = db.ScanLog.filter((row) => row.result === 'UNREGISTERED'
         && row.scanned_at.slice(0, 10) >= weekStart && row.scanned_at.slice(0, 10) <= date).length;
-    
+
       const alerts = [];
       devices.filter((d) => d.low_battery).forEach((d) => alerts.push({
         level: 'danger', icon: 'battery-half', message: `${d.device_name} (${d.room_code}) battery is low at ${d.battery_voltage.toFixed(2)} V.`,
@@ -760,7 +760,7 @@ var RFID = (function () {
       if (withoutCard > 0) alerts.push({
         level: 'info', icon: 'person-exclamation', message: `${withoutCard} active student(s) do not have an RFID card assigned.`,
       });
-    
+
       return {
         date,
         today: now.date,
@@ -791,10 +791,10 @@ var RFID = (function () {
     // and which students are enrolled. The Instructor and Student portals and the
     // RFID session lookup all read from these three tables.
     const { AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId } = __m["utils"];
-    
+
     const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
-    
+
     function maps(db) {
       return {
         subjects: indexBy(db.Subjects, 'subject_id'),
@@ -806,29 +806,29 @@ var RFID = (function () {
         terms: indexBy(db.Terms, 'term_id'),
       };
     }
-    
+
     function sectionLabel(m, sectionId) {
       const section = m.sections.get(sectionId);
       if (!section) return '';
       return `${m.programs.get(section.program_id)?.program_code ?? ''} ${section.section_name}`.trim();
     }
-    
+
     function findClass(db, classId) {
       const klass = db.Classes.find((row) => row.class_id === classId);
       if (!klass) throw new AppError('NOT_FOUND', 'Class not found.');
       return klass;
     }
-    
+
     function activeSchedules(db, classId) {
       return db.Schedules
         .filter((row) => row.class_id === classId && row.status === 'active')
         .sort((a, b) => DAYS.indexOf(a.day_of_week) - DAYS.indexOf(b.day_of_week) || a.start_time.localeCompare(b.start_time));
     }
-    
+
     function enrolledIds(db, classId) {
       return db.Enrollments.filter((row) => row.class_id === classId && row.status === 'enrolled').map((row) => row.student_id);
     }
-    
+
     function scheduleView(m, row) {
       return {
         schedule_id: row.schedule_id,
@@ -839,7 +839,7 @@ var RFID = (function () {
         room_code: m.rooms.get(row.room_id)?.room_code ?? '',
       };
     }
-    
+
     function classRow(db, m, klass) {
       const subject = m.subjects.get(klass.subject_id);
       return {
@@ -860,9 +860,9 @@ var RFID = (function () {
         schedules: activeSchedules(db, klass.class_id).map((row) => scheduleView(m, row)),
       };
     }
-    
+
     /* ---------------- read ---------------- */
-    
+
     function getClassOptions(db) {
       const m = maps(db);
       return {
@@ -882,7 +882,7 @@ var RFID = (function () {
           .map((row) => ({ value: row.room_id, label: `${row.room_code} — ${row.room_name}` })),
       };
     }
-    
+
     function listClasses(db, { term_id: termId = '' } = {}) {
       const m = maps(db);
       const activeTerm = db.Terms.find((row) => row.is_active === 'TRUE');
@@ -895,7 +895,7 @@ var RFID = (function () {
           .sort((a, b) => a.class_label.localeCompare(b.class_label)),
       };
     }
-    
+
     function getClass(db, { class_id: classId }) {
       const m = maps(db);
       const klass = findClass(db, classId);
@@ -919,9 +919,9 @@ var RFID = (function () {
           .sort((a, b) => Number(b.section_id === klass.section_id) - Number(a.section_id === klass.section_id) || byName(a, b)),
       };
     }
-    
+
     /* ---------------- classes ---------------- */
-    
+
     function graceValue(errors, value) {
       const text = cleanText(value);
       if (text === '') return '';
@@ -931,7 +931,7 @@ var RFID = (function () {
       }
       return String(number);
     }
-    
+
     function createClass(db, input, session) {
       const m = maps(db);
       const errors = {};
@@ -951,7 +951,7 @@ var RFID = (function () {
         errors.section_id = 'This section already has an active class for this subject in this term.';
       }
       if (Object.keys(errors).length) throw validationError(errors);
-    
+
       const klass = {
         class_id: nextId(db.Classes, 'class_id', 'CLS'),
         term_id: value.term_id,
@@ -963,15 +963,15 @@ var RFID = (function () {
         status: 'active',
       };
       db.Classes.push(klass);
-    
+
       // Default: the whole section is enrolled. The admin can adjust afterwards.
       const sectionStudents = db.Students.filter((row) => row.section_id === value.section_id && row.account_status === 'active');
       sectionStudents.forEach((student) => enroll(db, klass.class_id, student.student_id));
-    
+
       writeAudit(db, session, { action: 'CLASS_CREATE', entityType: 'Classes', entityId: klass.class_id, after: { ...klass, enrolled: sectionStudents.length } });
       return { class_id: klass.class_id, class_label: klass.class_label, enrolled: sectionStudents.length };
     }
-    
+
     function updateClass(db, input, session) {
       const m = maps(db);
       const klass = findClass(db, input.class_id);
@@ -987,14 +987,14 @@ var RFID = (function () {
         if (clash) errors.instructor_id = clash;
       }
       if (Object.keys(errors).length) throw validationError(errors);
-    
+
       const before = { instructor_id: klass.instructor_id, late_grace_minutes: klass.late_grace_minutes };
       klass.instructor_id = instructorId;
       klass.late_grace_minutes = lateGrace;
       writeAudit(db, session, { action: 'CLASS_UPDATE', entityType: 'Classes', entityId: klass.class_id, before, after: { instructor_id: instructorId, late_grace_minutes: lateGrace } });
       return { class_id: klass.class_id };
     }
-    
+
     function setClassStatus(db, { class_id: classId, status }, session) {
       const klass = findClass(db, classId);
       if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
@@ -1019,13 +1019,13 @@ var RFID = (function () {
       writeAudit(db, session, { action: status === 'active' ? 'CLASS_ACTIVATE' : 'CLASS_DEACTIVATE', entityType: 'Classes', entityId: classId, before, after: { status } });
       return { class_id: classId, status };
     }
-    
+
     /* ---------------- schedules ---------------- */
-    
+
     function overlaps(a, b) {
       return a.day_of_week === b.day_of_week && a.start_time < b.end_time && b.start_time < a.end_time;
     }
-    
+
     // Returns a message if the room, the instructor or the section is already busy.
     function scheduleClash(db, m, { classId, termId, instructorId, sectionId, roomId, slots, ignoreScheduleId = '' }) {
       const otherClasses = new Map(db.Classes
@@ -1044,7 +1044,7 @@ var RFID = (function () {
       }
       return '';
     }
-    
+
     function addSchedule(db, input, session) {
       const m = maps(db);
       const klass = findClass(db, input.class_id);
@@ -1073,13 +1073,13 @@ var RFID = (function () {
         if (clash) errors.start_time = clash;
       }
       if (Object.keys(errors).length) throw validationError(errors);
-    
+
       const row = { schedule_id: nextId(db.Schedules, 'schedule_id', 'SCH'), class_id: klass.class_id, ...slot, status: 'active' };
       db.Schedules.push(row);
       writeAudit(db, session, { action: 'SCHEDULE_CREATE', entityType: 'Schedules', entityId: row.schedule_id, after: row });
       return { schedule_id: row.schedule_id };
     }
-    
+
     function removeSchedule(db, { schedule_id: scheduleId }, session) {
       const row = db.Schedules.find((item) => item.schedule_id === scheduleId);
       if (!row || row.status !== 'active') throw new AppError('NOT_FOUND', 'Schedule not found.');
@@ -1088,9 +1088,9 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'SCHEDULE_REMOVE', entityType: 'Schedules', entityId: scheduleId, before: { status: 'active' }, after: { status: 'inactive' } });
       return { schedule_id: scheduleId };
     }
-    
+
     /* ---------------- enrollments ---------------- */
-    
+
     function enroll(db, classId, studentId) {
       const existing = db.Enrollments.find((row) => row.class_id === classId && row.student_id === studentId);
       if (existing) {
@@ -1107,7 +1107,7 @@ var RFID = (function () {
       });
       return true;
     }
-    
+
     function enrollStudents(db, input, session) {
       const klass = findClass(db, input.class_id);
       const m = maps(db);
@@ -1119,14 +1119,14 @@ var RFID = (function () {
       if (!ids.length) throw validationError({ student_ids: 'Choose at least one student.' });
       const invalid = ids.find((id) => m.students.get(id)?.account_status !== 'active');
       if (invalid) throw validationError({ student_ids: 'Only active students can be enrolled.' });
-    
+
       const added = [...new Set(ids)].filter((id) => enroll(db, klass.class_id, id));
       if (added.length) {
         writeAudit(db, session, { action: 'ENROLL_ADD', entityType: 'Enrollments', entityId: klass.class_id, after: { student_ids: added } });
       }
       return { class_id: klass.class_id, added: added.length };
     }
-    
+
     function dropEnrollment(db, { class_id: classId, student_id: studentId, reason = '' }, session) {
       findClass(db, classId);
       const row = db.Enrollments.find((item) => item.class_id === classId && item.student_id === studentId && item.status === 'enrolled');
@@ -1140,7 +1140,7 @@ var RFID = (function () {
       });
       return { class_id: classId, student_id: studentId };
     }
-    
+
     // Used when a new student is added: join every active class of their section
     // in the active term, so they show up in their instructors' rosters at once.
     function enrollInSectionClasses(db, studentId, sectionId) {
@@ -1157,47 +1157,47 @@ var RFID = (function () {
     const { AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus } = __m["utils"];
     const { enrollInSectionClasses } = __m["handlers/classes"];
     const { newUserRow, issueTempPassword, usernameTaken, accountSummary } = __m["auth/admin-users"];
-    
+
     const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
     const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
     const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const UID_PATTERN = /^(?:[0-9A-F]{8}|[0-9A-F]{14}|[0-9A-F]{20})$/;
     const REPLACE_REASONS = { lost: 'lost', damaged: 'revoked', other: 'revoked' };
-    
+
     function normalizeUid(value) {
       return String(value ?? '').toUpperCase().replace(/[\s:-]/g, '');
     }
-    
+
     function sectionLabel(db, sectionId) {
       const section = db.Sections.find((row) => row.section_id === sectionId);
       if (!section) return '';
       const program = db.Programs.find((row) => row.program_id === section.program_id);
       return `${program?.program_code ?? ''} ${section.section_name}`.trim();
     }
-    
+
     function activeCardOf(db, studentId) {
       return db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active') ?? null;
     }
-    
+
     function userOf(db, studentId) {
       return db.Users.find((row) => row.role === 'student' && row.linked_id === studentId) ?? null;
     }
-    
+
     function findStudent(db, studentId) {
       const student = db.Students.find((row) => row.student_id === studentId);
       if (!student) throw new AppError('NOT_FOUND', 'Student not found.');
       return student;
     }
-    
+
     function bumpRosterVersion(db) {
       const row = db.Settings.find((item) => item.key === 'roster_version');
       if (row) row.value = String(Number(row.value || 0) + 1);
     }
-    
+
     function cardSummary(card) {
       return card ? { card_id: card.card_id, rfid_uid: card.rfid_uid, status: card.status, assigned_at: card.assigned_at } : null;
     }
-    
+
     function toListItem(db, student) {
       return {
         student_id: student.student_id,
@@ -1212,7 +1212,7 @@ var RFID = (function () {
         card: cardSummary(activeCardOf(db, student.student_id)),
       };
     }
-    
+
     function getStudentOptions(db) {
       return {
         sections: db.Sections
@@ -1221,7 +1221,7 @@ var RFID = (function () {
           .sort((a, b) => a.label.localeCompare(b.label)),
       };
     }
-    
+
     function listStudents(db, { search = '', section_id = '', status = 'active', card = 'all', page = 1, page_size = 20 }) {
       if (!['active', 'inactive', 'all'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status filter.');
       if (!['all', 'with', 'without'].includes(card)) throw new AppError('BAD_REQUEST', 'Invalid card filter.');
@@ -1229,7 +1229,7 @@ var RFID = (function () {
       const pageSize = Math.min(100, Math.max(1, Math.floor(Number(page_size)) || 20));
       const term = cleanText(search).toLowerCase();
       const uidTerm = normalizeUid(search);
-    
+
       const matches = db.Students.filter((student) => {
         if (status !== 'all' && student.account_status !== status) return false;
         if (section_id && student.section_id !== section_id) return false;
@@ -1240,7 +1240,7 @@ var RFID = (function () {
         const haystack = `${student.first_name} ${student.last_name} ${student.last_name} ${student.first_name} ${student.student_number} ${student.email}`.toLowerCase();
         return haystack.includes(term) || (uidTerm.length >= 4 && activeCard?.rfid_uid.includes(uidTerm));
       }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-    
+
       const activeStudents = db.Students.filter((row) => row.account_status === 'active');
       return {
         items: matches.slice((pageNumber - 1) * pageSize, pageNumber * pageSize).map((row) => toListItem(db, row)),
@@ -1254,7 +1254,7 @@ var RFID = (function () {
         },
       };
     }
-    
+
     function getStudent(db, { student_id }, _session, ctx) {
       const student = findStudent(db, student_id);
       const user = userOf(db, student_id);
@@ -1286,7 +1286,7 @@ var RFID = (function () {
         },
       };
     }
-    
+
     function validateStudentInput(db, input, existing = null) {
       const errors = {};
       const ownUserId = existing ? userOf(db, existing.student_id)?.user_id ?? null : null;
@@ -1297,7 +1297,7 @@ var RFID = (function () {
         section_id: cleanText(input.section_id),
         email: cleanText(input.email).toLowerCase(),
       };
-    
+
       if (!STUDENT_NUMBER_PATTERN.test(value.student_number)) {
         errors.student_number = 'Student number must be exactly 10 digits.';
       } else if (db.Students.some((row) => row.student_number === value.student_number && row.student_id !== existing?.student_id)) {
@@ -1306,28 +1306,28 @@ var RFID = (function () {
         // The student number is the student's username, and usernames are unique across all accounts.
         errors.student_number = 'This student number is already used as a username by another account.';
       }
-    
+
       for (const field of ['first_name', 'last_name']) {
         if (!value[field]) errors[field] = 'This field is required.';
         else if (value[field].length > 60) errors[field] = 'Use 60 characters or fewer.';
         else if (!NAME_PATTERN.test(value[field])) errors[field] = 'Use letters, spaces, periods, apostrophes, or hyphens only.';
       }
-    
+
       if (!db.Sections.some((row) => row.section_id === value.section_id && row.status === 'active')) {
         errors.section_id = 'Choose a section.';
       }
-    
+
       // Email is optional; when given it must be valid and not used by another account.
       if (value.email && (!EMAIL_PATTERN.test(value.email) || value.email.length > 120)) {
         errors.email = 'Enter a valid email address.';
       } else if (value.email && db.Users.some((row) => row.email === value.email && row.user_id !== ownUserId)) {
         errors.email = 'This email is already registered to another account.';
       }
-    
+
       if (Object.keys(errors).length) throw validationError(errors);
       return value;
     }
-    
+
     function createStudent(db, input, session, ctx) {
       const value = validateStudentInput(db, input);
       const section = db.Sections.find((row) => row.section_id === value.section_id);
@@ -1351,7 +1351,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } });
       return { student_id: student.student_id, classes_joined: classesJoined, ...issued };
     }
-    
+
     function updateStudent(db, input, session) {
       const student = findStudent(db, input.student_id);
       const value = validateStudentInput(db, input, student);
@@ -1366,25 +1366,25 @@ var RFID = (function () {
         section_id: section.section_id,
         email: value.email,
       });
-    
+
       const user = userOf(db, student.student_id);
       if (user) {
         user.username = value.student_number; // the username follows the student number
         user.email = value.email;
         user.updated_at = manilaNow().iso;
       }
-    
+
       writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before, after: { ...student } });
       return { student_id: student.student_id };
     }
-    
+
     function setStudentStatus(db, { student_id, status, reason }, session) {
       const student = findStudent(db, student_id);
       if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
       if (student.account_status === status) throw new AppError('NO_CHANGE', `This student is already ${status}.`);
       const cleanReason = cleanText(reason);
       if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
-    
+
       const now = manilaNow().iso;
       const user = userOf(db, student_id);
       const before = { account_status: student.account_status };
@@ -1393,7 +1393,7 @@ var RFID = (function () {
         user.account_status = status === 'active' ? 'active' : 'disabled';
         user.updated_at = now;
       }
-    
+
       let revokedCard = null;
       if (status === 'inactive') {
         const card = activeCardOf(db, student_id);
@@ -1405,14 +1405,14 @@ var RFID = (function () {
           bumpRosterVersion(db);
         }
       }
-    
+
       writeAudit(db, session, {
         action: status === 'active' ? 'STUDENT_ACTIVATE' : 'STUDENT_DEACTIVATE',
         entityType: 'Students', entityId: student_id, before, after: { account_status: status, revoked_card: revokedCard }, reason: cleanReason,
       });
       return { student_id, account_status: status, revoked_card_id: revokedCard };
     }
-    
+
     function assignCard(db, { student_id, rfid_uid, replace_reason = '', note = '' }, session) {
       const student = findStudent(db, student_id);
       if (student.account_status !== 'active') {
@@ -1422,7 +1422,7 @@ var RFID = (function () {
       if (!UID_PATTERN.test(uid)) {
         throw validationError({ rfid_uid: 'UID must be 8, 14, or 20 hexadecimal characters (0–9, A–F).' });
       }
-    
+
       const activeWithUid = db.RfidCards.find((row) => row.rfid_uid === uid && row.status === 'active');
       if (activeWithUid && activeWithUid.student_id === student_id) {
         throw validationError({ rfid_uid: 'This card is already the student\'s active card.' });
@@ -1435,7 +1435,7 @@ var RFID = (function () {
       if (otherHistory) {
         throw validationError({ rfid_uid: `This card was previously registered to another student and is marked ${otherHistory.status}. Use a different card.` });
       }
-    
+
       const current = activeCardOf(db, student_id);
       const now = manilaNow().iso;
       const cleanNote = cleanText(note).slice(0, 200);
@@ -1445,7 +1445,7 @@ var RFID = (function () {
         current.revoked_at = now;
         current.notes = cleanText(`${current.notes} Replaced (${replace_reason}).`);
       }
-    
+
       const card = {
         card_id: nextId(db.RfidCards, 'card_id', 'CRD'),
         rfid_uid: uid,
@@ -1467,7 +1467,7 @@ var RFID = (function () {
       });
       return { card_id: card.card_id, replaced_card_id: current?.card_id ?? null };
     }
-    
+
     function revokeCard(db, { student_id, reason }, session) {
       findStudent(db, student_id);
       const card = activeCardOf(db, student_id);
@@ -1484,7 +1484,7 @@ var RFID = (function () {
       });
       return { card_id: card.card_id };
     }
-    
+
     function listUnregisteredUids(db) {
       const knownUids = new Set(db.RfidCards.map((row) => row.rfid_uid));
       const rooms = indexBy(db.Rooms, 'room_id');
@@ -1509,11 +1509,11 @@ var RFID = (function () {
   // ---- handlers/academic.js ----
   __m["handlers/academic"] = (function () {
     const { AppError, validationError, isValidDate, cleanText, writeAudit, nextId } = __m["utils"];
-    
+
     const CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9 -]*$/;
     const ROOM_CODE_PATTERN = /^[A-Za-z0-9-]+$/;
     const STATUSES = ['active', 'inactive'];
-    
+
     function text(errors, value, field, { required = true, max = 80, pattern = null, patternMessage = '' } = {}) {
       const clean = cleanText(value);
       if (!clean) {
@@ -1525,7 +1525,7 @@ var RFID = (function () {
       }
       return clean;
     }
-    
+
     function integer(errors, value, field, min, max) {
       const number = Number(value);
       if (!Number.isInteger(number) || number < min || number > max) {
@@ -1533,17 +1533,17 @@ var RFID = (function () {
       }
       return number;
     }
-    
+
     function find(rows, key, id, label) {
       const row = rows.find((item) => item[key] === id);
       if (!row) throw new AppError('NOT_FOUND', `${label} not found.`);
       return row;
     }
-    
+
     function failIfErrors(errors) {
       if (Object.keys(errors).length) throw validationError(errors);
     }
-    
+
     function changeStatus(db, session, { rows, key, id, status, label, entityType, blockers }) {
       if (!STATUSES.includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
       const row = find(rows, key, id, label);
@@ -1560,17 +1560,17 @@ var RFID = (function () {
       });
       return { [key]: id, status };
     }
-    
+
     function countLabel(count, singular, plural = `${singular}s`) {
       return count ? `${count} ${count === 1 ? singular : plural}` : '';
     }
-    
+
     function programLabel(db, programId) {
       return db.Programs.find((row) => row.program_id === programId)?.program_code ?? '';
     }
-    
+
     // ---------- Terms ----------
-    
+
     function listTerms(db) {
       return {
         items: [...db.Terms]
@@ -1582,7 +1582,7 @@ var RFID = (function () {
           })),
       };
     }
-    
+
     function validateTerm(db, input, existing = null) {
       const errors = {};
       const value = {
@@ -1611,7 +1611,7 @@ var RFID = (function () {
       failIfErrors(errors);
       return value;
     }
-    
+
     function createTerm(db, input, session) {
       const value = validateTerm(db, input);
       const row = { term_id: nextId(db.Terms, 'term_id', 'TRM'), ...value, is_active: 'FALSE' };
@@ -1619,7 +1619,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'TERM_CREATE', entityType: 'Terms', entityId: row.term_id, after: row });
       return { term_id: row.term_id };
     }
-    
+
     function updateTerm(db, input, session) {
       const row = find(db.Terms, 'term_id', input.term_id, 'Term');
       const value = validateTerm(db, input, row);
@@ -1628,7 +1628,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'TERM_UPDATE', entityType: 'Terms', entityId: row.term_id, before, after: { ...row } });
       return { term_id: row.term_id };
     }
-    
+
     function setActiveTerm(db, { term_id }, session) {
       const row = find(db.Terms, 'term_id', term_id, 'Term');
       if (row.is_active === 'TRUE') throw new AppError('NO_CHANGE', 'This term is already the active term.');
@@ -1640,9 +1640,9 @@ var RFID = (function () {
       });
       return { term_id };
     }
-    
+
     // ---------- Programs ----------
-    
+
     function listPrograms(db) {
       return {
         items: [...db.Programs]
@@ -1654,7 +1654,7 @@ var RFID = (function () {
           })),
       };
     }
-    
+
     function validateProgram(db, input, existing = null) {
       const errors = {};
       const value = {
@@ -1667,7 +1667,7 @@ var RFID = (function () {
       failIfErrors(errors);
       return value;
     }
-    
+
     function createProgram(db, input, session) {
       const value = validateProgram(db, input);
       const row = { program_id: nextId(db.Programs, 'program_id', 'PRG'), ...value, status: 'active' };
@@ -1675,7 +1675,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'PROGRAM_CREATE', entityType: 'Programs', entityId: row.program_id, after: row });
       return { program_id: row.program_id };
     }
-    
+
     function updateProgram(db, input, session) {
       const row = find(db.Programs, 'program_id', input.program_id, 'Program');
       const value = validateProgram(db, input, row);
@@ -1684,7 +1684,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'PROGRAM_UPDATE', entityType: 'Programs', entityId: row.program_id, before, after: { ...row } });
       return { program_id: row.program_id };
     }
-    
+
     function setProgramStatus(db, { program_id, status }, session) {
       return changeStatus(db, session, {
         rows: db.Programs, key: 'program_id', id: program_id, status, label: 'Program', entityType: 'Programs',
@@ -1694,9 +1694,9 @@ var RFID = (function () {
         ],
       });
     }
-    
+
     // ---------- Sections ----------
-    
+
     function listSections(db) {
       return {
         items: [...db.Sections]
@@ -1712,7 +1712,7 @@ var RFID = (function () {
         programs: db.Programs.filter((row) => row.status === 'active').map((row) => ({ value: row.program_id, label: `${row.program_code} — ${row.program_name}` })),
       };
     }
-    
+
     function validateSection(db, input, existing = null) {
       const errors = {};
       const value = {
@@ -1733,7 +1733,7 @@ var RFID = (function () {
       failIfErrors(errors);
       return { ...value, year_level: String(value.year_level) };
     }
-    
+
     function createSection(db, input, session) {
       const value = validateSection(db, input);
       const row = { section_id: nextId(db.Sections, 'section_id', 'SEC'), ...value, status: 'active' };
@@ -1741,7 +1741,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'SECTION_CREATE', entityType: 'Sections', entityId: row.section_id, after: row });
       return { section_id: row.section_id };
     }
-    
+
     function updateSection(db, input, session) {
       const row = find(db.Sections, 'section_id', input.section_id, 'Section');
       const value = validateSection(db, input, row);
@@ -1750,7 +1750,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'SECTION_UPDATE', entityType: 'Sections', entityId: row.section_id, before, after: { ...row } });
       return { section_id: row.section_id };
     }
-    
+
     function setSectionStatus(db, { section_id, status }, session) {
       return changeStatus(db, session, {
         rows: db.Sections, key: 'section_id', id: section_id, status, label: 'Section', entityType: 'Sections',
@@ -1760,9 +1760,9 @@ var RFID = (function () {
         ],
       });
     }
-    
+
     // ---------- Subjects ----------
-    
+
     function listSubjects(db) {
       return {
         items: [...db.Subjects]
@@ -1774,7 +1774,7 @@ var RFID = (function () {
           })),
       };
     }
-    
+
     function validateSubject(db, input, existing = null) {
       const errors = {};
       const value = {
@@ -1788,7 +1788,7 @@ var RFID = (function () {
       failIfErrors(errors);
       return { ...value, units: String(value.units) };
     }
-    
+
     function createSubject(db, input, session) {
       const value = validateSubject(db, input);
       const row = { subject_id: nextId(db.Subjects, 'subject_id', 'SUB'), ...value, status: 'active' };
@@ -1796,7 +1796,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'SUBJECT_CREATE', entityType: 'Subjects', entityId: row.subject_id, after: row });
       return { subject_id: row.subject_id };
     }
-    
+
     function updateSubject(db, input, session) {
       const row = find(db.Subjects, 'subject_id', input.subject_id, 'Subject');
       const value = validateSubject(db, input, row);
@@ -1805,16 +1805,16 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'SUBJECT_UPDATE', entityType: 'Subjects', entityId: row.subject_id, before, after: { ...row } });
       return { subject_id: row.subject_id };
     }
-    
+
     function setSubjectStatus(db, { subject_id, status }, session) {
       return changeStatus(db, session, {
         rows: db.Subjects, key: 'subject_id', id: subject_id, status, label: 'Subject', entityType: 'Subjects',
         blockers: (row) => [countLabel(db.Classes.filter((c) => c.subject_id === row.subject_id && c.status === 'active').length, 'active class', 'active classes')],
       });
     }
-    
+
     // ---------- Rooms ----------
-    
+
     function listRooms(db) {
       return {
         items: [...db.Rooms]
@@ -1829,7 +1829,7 @@ var RFID = (function () {
           }),
       };
     }
-    
+
     function validateRoom(db, input, existing = null) {
       const errors = {};
       const value = {
@@ -1843,7 +1843,7 @@ var RFID = (function () {
       failIfErrors(errors);
       return value;
     }
-    
+
     function createRoom(db, input, session) {
       const value = validateRoom(db, input);
       const row = { room_id: nextId(db.Rooms, 'room_id', 'ROM'), ...value, status: 'active' };
@@ -1851,7 +1851,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'ROOM_CREATE', entityType: 'Rooms', entityId: row.room_id, after: row });
       return { room_id: row.room_id };
     }
-    
+
     function updateRoom(db, input, session) {
       const row = find(db.Rooms, 'room_id', input.room_id, 'Room');
       const value = validateRoom(db, input, row);
@@ -1860,7 +1860,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'ROOM_UPDATE', entityType: 'Rooms', entityId: row.room_id, before, after: { ...row } });
       return { room_id: row.room_id };
     }
-    
+
     function setRoomStatus(db, { room_id, status }, session) {
       return changeStatus(db, session, {
         rows: db.Rooms, key: 'room_id', id: room_id, status, label: 'Room', entityType: 'Rooms',
@@ -1878,24 +1878,24 @@ var RFID = (function () {
     const { AppError, validationError, manilaNow, cleanText, writeAudit, nextId } = __m["utils"];
     const { normalizeUsername } = __m["auth/account"];
     const { newUserRow, issueTempPassword, usernameProblem, accountSummary } = __m["auth/admin-users"];
-    
+
     const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
     const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    
+
     function userOf(db, instructorId) {
       return db.Users.find((row) => row.role === 'instructor' && row.linked_id === instructorId) ?? null;
     }
-    
+
     function findInstructor(db, instructorId) {
       const row = db.Instructors.find((item) => item.instructor_id === instructorId);
       if (!row) throw new AppError('NOT_FOUND', 'Instructor not found.');
       return row;
     }
-    
+
     function activeClassCount(db, instructorId) {
       return db.Classes.filter((row) => row.instructor_id === instructorId && row.status === 'active').length;
     }
-    
+
     function listInstructors(db, _request, _session, ctx) {
       return {
         items: [...db.Instructors]
@@ -1911,7 +1911,7 @@ var RFID = (function () {
           }),
       };
     }
-    
+
     function validateInstructor(db, input, existing = null) {
       const errors = {};
       const ownUserId = existing ? userOf(db, existing.instructor_id)?.user_id ?? null : null;
@@ -1929,7 +1929,7 @@ var RFID = (function () {
       }
       if (!value.department) errors.department = 'This field is required.';
       else if (value.department.length > 80) errors.department = 'Use 80 characters or fewer.';
-    
+
       const usernameError = usernameProblem(db, username, ownUserId);
       if (usernameError) errors.username = usernameError;
       // Email is optional; when given it must be valid and not used by another account.
@@ -1941,7 +1941,7 @@ var RFID = (function () {
       if (Object.keys(errors).length) throw validationError(errors);
       return { value, username };
     }
-    
+
     function createInstructor(db, input, session, ctx) {
       const { value, username } = validateInstructor(db, input);
       const instructor = { instructor_id: nextId(db.Instructors, 'instructor_id', 'INS'), ...value, account_status: 'active' };
@@ -1953,7 +1953,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'INSTRUCTOR_CREATE', entityType: 'Instructors', entityId: instructor.instructor_id, after: instructor });
       return { instructor_id: instructor.instructor_id, ...issued };
     }
-    
+
     function updateInstructor(db, input, session) {
       const instructor = findInstructor(db, input.instructor_id);
       const { value, username } = validateInstructor(db, input, instructor);
@@ -1968,7 +1968,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'INSTRUCTOR_UPDATE', entityType: 'Instructors', entityId: instructor.instructor_id, before, after: { ...instructor, username } });
       return { instructor_id: instructor.instructor_id };
     }
-    
+
     function setInstructorStatus(db, { instructor_id, status }, session) {
       const instructor = findInstructor(db, instructor_id);
       if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
@@ -2000,13 +2000,13 @@ var RFID = (function () {
     // instructor_id / student_id sent by the browser. It reads linked_id from the
     // signed-in user and only returns rows that belong to that person.
     const { AppError, validationError, manilaNow, dayCodeOf, isValidDate, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus } = __m["utils"];
-    
+
     const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     const CORRECTABLE = ['present', 'late', 'absent'];
     const CORRECTION_ACTION = 'ATTENDANCE_CORRECT';
-    
+
     /* ---------------- shared helpers ---------------- */
-    
+
     function linkedId(db, session, role) {
       const user = db.Users.find((row) => row.user_id === session.user_id);
       if (!user || user.role !== role || !user.linked_id) {
@@ -2014,7 +2014,7 @@ var RFID = (function () {
       }
       return user.linked_id;
     }
-    
+
     function lookups(db) {
       return {
         classes: indexBy(db.Classes, 'class_id'),
@@ -2026,14 +2026,14 @@ var RFID = (function () {
         programs: indexBy(db.Programs, 'program_id'),
       };
     }
-    
+
     function sectionLabel(maps, sectionId) {
       const section = maps.sections.get(sectionId);
       if (!section) return '';
       const program = maps.programs.get(section.program_id);
       return `${program?.program_code ?? ''} ${section.section_name}`.trim();
     }
-    
+
     function schedulesOf(db, maps, classId) {
       return db.Schedules
         .filter((row) => row.class_id === classId && row.status === 'active')
@@ -2045,29 +2045,29 @@ var RFID = (function () {
           room_code: maps.rooms.get(row.room_id)?.room_code ?? '',
         }));
     }
-    
+
     function rosterIds(db, maps, classId) {
       return db.Enrollments
         .filter((row) => row.class_id === classId && row.status === 'enrolled'
           && maps.students.get(row.student_id)?.account_status === 'active')
         .map((row) => row.student_id);
     }
-    
+
     // Sessions that count toward attendance: held (closed) or currently open.
     function countedSessions(db, classId) {
       return db.ClassSessions
         .filter((row) => row.class_id === classId && (row.status === 'closed' || row.status === 'open'))
         .sort((a, b) => a.session_date.localeCompare(b.session_date) || a.scheduled_start.localeCompare(b.scheduled_start));
     }
-    
+
     function recordOf(db, sessionId, studentId) {
       return db.Attendance.find((row) => row.session_id === sessionId && row.student_id === studentId) ?? null;
     }
-    
+
     function correctionKey(sessionId, studentId) {
       return `${sessionId}:${studentId}`;
     }
-    
+
     function correctionsFor(db, sessionId) {
       const map = new Map();
       db.AuditLog
@@ -2075,16 +2075,16 @@ var RFID = (function () {
         .forEach((row) => map.set(row.entity_id, { reason: row.reason, at: row.timestamp }));
       return map;
     }
-    
+
     function statusOf(record, session) {
       if (record) return effectiveStatus(record);
       return session.status === 'open' ? 'not_scanned' : 'absent';
     }
-    
+
     function rate(present, late, total) {
       return total > 0 ? (present + late) / total : null;
     }
-    
+
     function summarize(statuses) {
       const present = statuses.filter((s) => s === 'present').length;
       const late = statuses.filter((s) => s === 'late').length;
@@ -2092,7 +2092,7 @@ var RFID = (function () {
       const total = present + late + absent;
       return { present, late, absent, total, rate: rate(present, late, total) };
     }
-    
+
     function sessionCounts(db, session, roster) {
       const records = db.Attendance.filter((row) => row.session_id === session.session_id && roster.includes(row.student_id));
       const present = records.filter((row) => effectiveStatus(row) === 'present').length;
@@ -2105,7 +2105,7 @@ var RFID = (function () {
         absent: counted ? Math.max(roster.length - present - late, 0) : null,
       };
     }
-    
+
     function describeSession(db, maps, session, roster) {
       return {
         session_id: session.session_id,
@@ -2121,7 +2121,7 @@ var RFID = (function () {
         ...sessionCounts(db, session, roster),
       };
     }
-    
+
     function ownClass(db, instructorId, classId) {
       const klass = db.Classes.find((row) => row.class_id === classId);
       if (!klass || klass.instructor_id !== instructorId) {
@@ -2129,7 +2129,7 @@ var RFID = (function () {
       }
       return klass;
     }
-    
+
     function classInfo(db, maps, klass) {
       const subject = maps.subjects.get(klass.subject_id);
       return {
@@ -2142,15 +2142,15 @@ var RFID = (function () {
         schedules: schedulesOf(db, maps, klass.class_id),
       };
     }
-    
+
     /* ---------------- Instructor ---------------- */
-    
+
     function myClasses(db, instructorId) {
       return db.Classes
         .filter((row) => row.instructor_id === instructorId && row.status === 'active')
         .sort((a, b) => a.class_label.localeCompare(b.class_label));
     }
-    
+
     function classSummary(db, maps, klass) {
       const roster = rosterIds(db, maps, klass.class_id);
       const sessions = countedSessions(db, klass.class_id);
@@ -2169,7 +2169,7 @@ var RFID = (function () {
         totals,
       };
     }
-    
+
     function instructorDashboard(db, { date }, session) {
       if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
       const instructorId = linkedId(db, session, 'instructor');
@@ -2180,7 +2180,7 @@ var RFID = (function () {
       const classIds = new Set(classes.map((row) => row.class_id));
       const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
       const inTerm = Boolean(activeTerm) && date >= activeTerm.start_date && date <= activeTerm.end_date;
-    
+
       // Sessions on the chosen date: every scheduled slot + manual sessions
       const dayCode = dayCodeOf(date);
       const sessions = [];
@@ -2220,7 +2220,7 @@ var RFID = (function () {
         .filter((row) => row.source === 'manual' && row.session_date === date && classIds.has(row.class_id))
         .forEach((row) => sessions.push(describeSession(db, maps, row, rosterIds(db, maps, row.class_id))));
       sessions.sort((a, b) => a.start_time.localeCompare(b.start_time));
-    
+
       const summaries = classes.map((klass) => classSummary(db, maps, klass));
       const all = summaries.reduce((acc, row) => ({
         present: acc.present + row.totals.present,
@@ -2228,7 +2228,7 @@ var RFID = (function () {
         total: acc.total + row.totals.total,
       }), { present: 0, late: 0, total: 0 });
       const uniqueStudents = new Set(classes.flatMap((klass) => rosterIds(db, maps, klass.class_id)));
-    
+
       // Students who need follow-up: below 80% in any class with at least 2 sessions
       const watchlist = [];
       classes.forEach((klass) => {
@@ -2250,7 +2250,7 @@ var RFID = (function () {
         });
       });
       watchlist.sort((a, b) => a.rate - b.rate || b.absent - a.absent);
-    
+
       return {
         date,
         today: now.date,
@@ -2268,7 +2268,7 @@ var RFID = (function () {
         watchlist: watchlist.slice(0, 8),
       };
     }
-    
+
     function instructorListSessions(db, { class_id: classId }, session) {
       const instructorId = linkedId(db, session, 'instructor');
       const maps = lookups(db);
@@ -2282,7 +2282,7 @@ var RFID = (function () {
         .map((row) => describeSession(db, maps, row, roster));
       return { classes, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, sessions };
     }
-    
+
     function instructorGetSession(db, { session_id: sessionId }, session) {
       const instructorId = linkedId(db, session, 'instructor');
       const maps = lookups(db);
@@ -2291,7 +2291,7 @@ var RFID = (function () {
       const klass = ownClass(db, instructorId, classSession.class_id);
       const roster = rosterIds(db, maps, klass.class_id);
       const corrections = correctionsFor(db, sessionId);
-    
+
       const students = roster.map((studentId) => {
         const student = maps.students.get(studentId);
         const record = recordOf(db, sessionId, studentId);
@@ -2309,14 +2309,14 @@ var RFID = (function () {
           correction_reason: correction?.reason ?? '',
         };
       }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-    
+
       return {
         session: describeSession(db, maps, classSession, roster),
         class: classInfo(db, maps, klass),
         students,
       };
     }
-    
+
     function instructorCorrectAttendance(db, request, session) {
       const instructorId = linkedId(db, session, 'instructor');
       const maps = lookups(db);
@@ -2324,7 +2324,7 @@ var RFID = (function () {
       const studentId = request.student_id;
       const status = request.status;
       const reason = cleanText(request.reason);
-    
+
       const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
       if (!classSession) throw new AppError('NOT_FOUND', 'This class session was not found.');
       ownClass(db, instructorId, classSession.class_id);
@@ -2334,16 +2334,16 @@ var RFID = (function () {
       if (!rosterIds(db, maps, classSession.class_id).includes(studentId)) {
         throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
       }
-    
+
       const fields = {};
       if (!CORRECTABLE.includes(status)) fields.status = 'Choose Present, Late, or Absent.';
       if (reason.length < 5) fields.reason = 'Give a short reason (at least 5 characters).';
       if (Object.keys(fields).length) throw validationError(fields);
-    
+
       const record = recordOf(db, sessionId, studentId);
       const before = statusOf(record, classSession);
       if (before === status) throw validationError({ status: 'The student already has this status.' });
-    
+
       // Never delete a row or edit the device fields (architecture 7.2 rule 4):
       // a retried scan_id must still find its row.
       if (record) {
@@ -2375,7 +2375,7 @@ var RFID = (function () {
           override_reason: '',
         });
       }
-    
+
       writeAudit(db, session, {
         action: CORRECTION_ACTION,
         entityType: 'Attendance',
@@ -2386,7 +2386,7 @@ var RFID = (function () {
       });
       return { session_id: sessionId, student_id: studentId, status };
     }
-    
+
     function instructorClassReport(db, { class_id: classId, from = '', to = '' }, session) {
       const instructorId = linkedId(db, session, 'instructor');
       const maps = lookups(db);
@@ -2397,11 +2397,11 @@ var RFID = (function () {
         throw new AppError('BAD_REQUEST', 'Please choose valid dates.');
       }
       if (from && to && from > to) throw validationError({ to: 'The end date must be on or after the start date.' });
-    
+
       const roster = rosterIds(db, maps, classId);
       const sessions = countedSessions(db, classId)
         .filter((row) => (!from || row.session_date >= from) && (!to || row.session_date <= to));
-    
+
       const students = roster.map((studentId) => {
         const student = maps.students.get(studentId);
         const marks = sessions.map((s) => statusOf(recordOf(db, s.session_id, studentId), s));
@@ -2414,11 +2414,11 @@ var RFID = (function () {
           ...summarize(marks.filter((s) => s !== 'not_scanned')),
         };
       }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-    
+
       const totals = summarize(students.flatMap((row) => row.marks).filter((s) => s !== 'not_scanned'));
       const cancelled = db.ClassSessions.filter((row) => row.class_id === classId && row.status === 'cancelled'
         && (!from || row.session_date >= from) && (!to || row.session_date <= to)).length;
-    
+
       return {
         classes,
         class: { ...classInfo(db, maps, klass), enrolled: roster.length },
@@ -2430,7 +2430,7 @@ var RFID = (function () {
         totals,
       };
     }
-    
+
     // Everyone enrolled in one of the instructor's classes, with their attendance
     // so far. Works even before the first class session.
     function instructorClassRoster(db, { class_id: classId }, session) {
@@ -2458,7 +2458,7 @@ var RFID = (function () {
         students,
       };
     }
-    
+
     function instructorStudentHistory(db, { class_id: classId, student_id: studentId }, session) {
       const instructorId = linkedId(db, session, 'instructor');
       const maps = lookups(db);
@@ -2480,21 +2480,21 @@ var RFID = (function () {
         totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
       };
     }
-    
+
     /* ---------------- Student ---------------- */
-    
+
     function myEnrolledClasses(db, studentId) {
       const ids = new Set(db.Enrollments.filter((row) => row.student_id === studentId && row.status === 'enrolled').map((row) => row.class_id));
       return db.Classes.filter((row) => ids.has(row.class_id) && row.status === 'active')
         .sort((a, b) => a.class_label.localeCompare(b.class_label));
     }
-    
+
     function historyRows(db, maps, studentId, classes) {
       const corrections = new Map();
       db.AuditLog
         .filter((row) => row.action === CORRECTION_ACTION && row.entity_id.endsWith(`:${studentId}`))
         .forEach((row) => corrections.set(row.entity_id, row.reason));
-    
+
       return classes.flatMap((klass) => db.ClassSessions
         .filter((row) => row.class_id === klass.class_id && row.status !== 'scheduled')
         .map((row) => {
@@ -2518,7 +2518,7 @@ var RFID = (function () {
         }))
         .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.start_time.localeCompare(a.start_time));
     }
-    
+
     function studentProfile(db, maps, studentId) {
       const student = maps.students.get(studentId);
       if (!student) throw new AppError('NOT_FOUND', 'Your student record was not found. Contact the administrator.');
@@ -2540,14 +2540,14 @@ var RFID = (function () {
         card: card ? { rfid_uid_masked: `•••• ${card.rfid_uid.slice(-4)}`, assigned_at: card.assigned_at } : null,
       };
     }
-    
+
     function studentOverview(db, _request, session) {
       const studentId = linkedId(db, session, 'student');
       const maps = lookups(db);
       const classes = myEnrolledClasses(db, studentId);
       const records = historyRows(db, maps, studentId, classes);
       const counted = (rows) => rows.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled');
-    
+
       const subjects = classes.map((klass) => {
         const rows = records.filter((row) => row.class_id === klass.class_id);
         return {
@@ -2556,7 +2556,7 @@ var RFID = (function () {
           last: rows.find((row) => row.status !== 'cancelled') ?? null,
         };
       });
-    
+
       const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
       const now = manilaNow();
       const todayCode = dayCodeOf(now.date);
@@ -2564,7 +2564,7 @@ var RFID = (function () {
         .filter((slot) => slot.day === todayCode)
         .map((slot) => ({ ...slot, class_label: klass.class_label, subject_title: maps.subjects.get(klass.subject_id)?.subject_title ?? '' })))
         .sort((a, b) => a.start_time.localeCompare(b.start_time));
-    
+
       return {
         profile: studentProfile(db, maps, studentId),
         term_name: activeTerm?.term_name ?? null,
@@ -2575,7 +2575,7 @@ var RFID = (function () {
         recent: records.filter((row) => row.status !== 'cancelled').slice(0, 6),
       };
     }
-    
+
     function studentHistory(db, { class_id: classId = '' }, session) {
       const studentId = linkedId(db, session, 'student');
       const maps = lookups(db);
@@ -2593,7 +2593,7 @@ var RFID = (function () {
         totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
       };
     }
-    
+
     function studentGetProfile(db, _request, session) {
       const studentId = linkedId(db, session, 'student');
       const maps = lookups(db);
@@ -2614,20 +2614,20 @@ var RFID = (function () {
     const { AppError, validationError, manilaNow, cleanText, writeAudit } = __m["utils"];
     const { normalizeUsername } = __m["auth/account"];
     const { newUserRow, issueTempPassword, usernameProblem, accountSummary } = __m["auth/admin-users"];
-    
+
     const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
     const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    
+
     function admins(db) {
       return db.Users.filter((row) => row.role === 'admin');
     }
-    
+
     function findAdmin(db, userId) {
       const row = admins(db).find((item) => item.user_id === userId);
       if (!row) throw new AppError('NOT_FOUND', 'Administrator not found.');
       return row;
     }
-    
+
     function validate(db, input, existing = null) {
       const errors = {};
       const value = {
@@ -2649,7 +2649,7 @@ var RFID = (function () {
       if (Object.keys(errors).length) throw validationError(errors);
       return value;
     }
-    
+
     function listAdmins(db, _request, session, ctx) {
       return {
         items: admins(db)
@@ -2664,7 +2664,7 @@ var RFID = (function () {
           .sort((a, b) => a.display_name.localeCompare(b.display_name)),
       };
     }
-    
+
     function createAdmin(db, input, session, ctx) {
       const value = validate(db, input);
       // A random temporary password, shown to the admin once.
@@ -2674,7 +2674,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'ADMIN_CREATE', entityType: 'Users', entityId: row.user_id, after: { username: row.username, email: row.email, display_name: row.display_name } });
       return { user_id: row.user_id, ...issued };
     }
-    
+
     function updateAdmin(db, input, session) {
       const row = findAdmin(db, input.user_id);
       const value = validate(db, input, row);
@@ -2686,7 +2686,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'ADMIN_UPDATE', entityType: 'Users', entityId: row.user_id, before, after: value });
       return { user_id: row.user_id };
     }
-    
+
     function setAdminStatus(db, { user_id: userId, status }, session) {
       const row = findAdmin(db, userId);
       if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
@@ -2731,10 +2731,10 @@ var RFID = (function () {
     const portal = __m["handlers/portal"];
     const classes = __m["handlers/classes"];
     const admins = __m["handlers/admins"];
-    
+
     const READ = 'read';
     const WRITE = 'write';
-    
+
     const ACTIONS = Object.freeze({
       'auth.login': { run: account.login, mode: WRITE, role: PUBLIC },
       'auth.logout': { run: account.logout, mode: WRITE, role: PUBLIC },
@@ -2801,11 +2801,11 @@ var RFID = (function () {
       'student.getHistory': { run: portal.studentHistory, mode: READ, role: 'student' },
       'student.getProfile': { run: portal.studentGetProfile, mode: READ, role: 'student' },
     });
-    
+
     function findAction(name) {
       return Object.prototype.hasOwnProperty.call(ACTIONS, name) ? ACTIONS[name] : null;
     }
-    
+
     // Looks the action up, checks the session, the role and the forced password
     // change, then runs it. Throws AppError; error.commit === true means the
     // changes made so far must still be saved (failed logins).
@@ -2814,7 +2814,7 @@ var RFID = (function () {
       const action = findAction(name);
       if (!action) throw new AppError('UNKNOWN_ACTION', `Unknown action: ${name}`);
       if (action.role === PUBLIC) return action.run(db, request, null, ctx);
-    
+
       const session = authorize(db, request.session_token, ctx);
       if (action.role !== ANY && session.role !== action.role) {
         throw new AppError('FORBIDDEN', 'You do not have access to this information.');
@@ -2833,11 +2833,11 @@ var RFID = (function () {
     // the clock, injected so the same code runs in Apps Script and in Node tests.
     const { AppError } = __m["utils"];
     const { PASSWORD_HASH_ITERATIONS, hashPassword, verifyPassword, sha256Hex, generateTempPassword } = __m["auth/passwords"];
-    
+
     function notConfigured(name) {
       return new AppError('NOT_CONFIGURED', `The server is missing the ${name} setting. Ask the administrator to finish the setup.`);
     }
-    
+
     // crypto: see passwords.js. getProperty(name) -> string|null. now() -> epoch ms.
     function createAuthContext({ crypto, getProperty, now, iterations = PASSWORD_HASH_ITERATIONS }) {
       const property = (name) => String(getProperty(name) ?? '');
@@ -2866,14 +2866,14 @@ var RFID = (function () {
     // Crypto adapter for the Apps Script server (see passwords.js for the shape).
     // Utilities works with Java bytes (-128..127), so bytes are converted to signed first.
     /* global Utilities */
-    
+
     function toSigned(bytes) {
       return Array.from(bytes, (b) => {
         const unsigned = b & 0xff;
         return unsigned > 127 ? unsigned - 256 : unsigned;
       });
     }
-    
+
     function appsScriptCrypto() {
       return {
         sha256: (bytes) => Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, toSigned(bytes)),
@@ -2904,7 +2904,7 @@ var RFID = (function () {
     const { normalizeUsername, validateNewPassword } = __m["auth/account"];
     const { USER_COLUMNS, newUserRow, usernameProblem } = __m["auth/admin-users"];
     const { revokeSessions } = __m["auth/session"];
-    
+
     const LOGIN_SETTINGS = [
       { key: 'max_login_attempts', value: '5', description: 'Failed sign-ins in a row before the account is locked', source: 'Login design (Step 2)' },
       { key: 'lockout_minutes', value: '15', description: 'How long a locked account stays locked', source: 'Login design (Step 2)' },
@@ -2912,24 +2912,24 @@ var RFID = (function () {
     ];
     const REMOVED_SETTINGS = ['allowed_email_rule'];
     const ROLE_ORDER = { student: 0, instructor: 1, admin: 2 };
-    
+
     function baseUsername(user) {
       const local = String(user.email || '').split('@')[0].toLowerCase().replace(/[^a-z0-9._-]/g, '');
       const base = local.length >= 3 ? local : String(user.user_id).toLowerCase();
       return base.slice(0, 30);
     }
-    
+
     function uniqueUsername(base, taken) {
       let candidate = base;
       for (let n = 2; taken.has(candidate); n += 1) candidate = `${base}${n}`;
       return candidate;
     }
-    
+
     // Returns a list of what changed (empty when there was nothing to do).
     // Never logs passwords or hashes.
     function migrateUsersToPasswordLogin(db, ctx) {
       const changes = [];
-    
+
       // 1. Columns: every Users column exists; google_sub is removed.
       db.Users = db.Users.map((user) => {
         const row = {};
@@ -2941,7 +2941,7 @@ var RFID = (function () {
         if (row.failed_attempts === '') row.failed_attempts = '0';
         return row;
       });
-    
+
       // 2. Usernames. Existing ones are kept (normalized); students get their
       //    student number; instructors/admins the email local part, de-duplicated.
       const taken = new Set();
@@ -2972,7 +2972,7 @@ var RFID = (function () {
         taken.add(user.username);
         changes.push(`${user.user_id}: username set to "${user.username}"`);
       });
-    
+
       // 3. Users without a password are NOT given a shared one (anyone could guess
       //    it). They cannot sign in until an admin resets their password, which
       //    issues a temporary one. Their old sessions are signed out.
@@ -2981,7 +2981,7 @@ var RFID = (function () {
         const revoked = revokeSessions(db, user.user_id);
         if (revoked) changes.push(`${user.user_id}: ${revoked} old session(s) signed out`);
       });
-    
+
       // 4. Settings.
       const before = db.Settings.length;
       db.Settings = db.Settings.filter((row) => !REMOVED_SETTINGS.includes(row.key));
@@ -2991,10 +2991,10 @@ var RFID = (function () {
         db.Settings.push({ ...row });
         changes.push(`Settings: added ${row.key} = ${row.value}`);
       });
-    
+
       return changes;
     }
-    
+
     // TEST Sheet only: every seeded FAKE user without a password gets the
     // TEST_SEED_PASSWORD Script Property (hashed) and must change it.
     function seedTestPasswords(db, ctx) {
@@ -3008,7 +3008,7 @@ var RFID = (function () {
       });
       return [`${users.length} test user(s) got the TEST_SEED_PASSWORD (must change at first sign-in).`];
     }
-    
+
     // Creates the first admin from BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD.
     function createBootstrapAdmin(db, ctx) {
       const username = normalizeUsername(ctx.property('BOOTSTRAP_ADMIN_USERNAME'));
@@ -3021,7 +3021,7 @@ var RFID = (function () {
       const problem = usernameProblem(db, username);
       if (problem) throw validationError({ username: problem });
       validateNewPassword(null, password);
-    
+
       const row = newUserRow(db, ctx, { username, role: 'admin', displayName: 'Administrator' }, { user_id: 'bootstrap' });
       row.password_hash = ctx.hash(password);
       db.Users.push(row);

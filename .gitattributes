@@ -1,0 +1,5 @@
+# Keep generated Apps Script files and sources LF on every OS (no fake "modified" after a build).
+*.gs   text eol=lf
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
