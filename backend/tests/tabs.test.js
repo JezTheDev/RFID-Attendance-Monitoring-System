@@ -13,6 +13,9 @@ import { startSession } from '../src/auth/session.js';
 const PASSWORD = 'Admin2026x';
 const later = '2099-01-01T00:00:00+08:00';
 
+// A device in maintenance that already has a (fake) key hash.
+const addDevice = (db) => db.Devices.push({ device_id: 'DEV-CPE-101-01', room_id: 'RM-0001', device_name: 'Lab 1 Reader', device_key_hash: 'f'.repeat(64), status: 'maintenance', notes: '' });
+
 // [action, who, request, setup(fullDb)?]
 const CASES = [
   ['auth.login', null, { username: 'admin', password: PASSWORD }],
@@ -49,6 +52,12 @@ const CASES = [
   ['admin.createRoom', 'admin', { room_code: 'CPE-103', room_name: 'Lab 3', building: '' }],
   ['admin.updateRoom', 'admin', { room_id: 'RM-0002', room_code: 'CPE-102', room_name: 'Lab Two', building: '' }],
   ['admin.setRoomStatus', 'admin', { room_id: 'RM-0009', status: 'inactive' }, (db) => db.Rooms.push({ room_id: 'RM-0009', room_code: 'CPE-109', room_name: 'Spare', building: '', status: 'active' })],
+  ['admin.listDevices', 'admin', {}, addDevice],
+  ['admin.createDevice', 'admin', { device_name: 'Lab 1 Reader', room_id: 'RM-0001' }],
+  ['admin.updateDevice', 'admin', { device_id: 'DEV-CPE-101-01', device_name: 'Front Reader' }, addDevice],
+  ['admin.setDeviceStatus', 'admin', { device_id: 'DEV-CPE-101-01', status: 'active' }, addDevice],
+  ['admin.assignDeviceRoom', 'admin', { device_id: 'DEV-CPE-101-01', room_id: 'RM-0002' }, addDevice],
+  ['admin.generateDeviceKey', 'admin', { device_id: 'DEV-CPE-101-01' }, addDevice],
   ['admin.listInstructors', 'admin', {}],
   ['admin.createInstructor', 'admin', { username: 'carl', first_name: 'Carl', last_name: 'Uy', email: 'carl@example.com', department: 'CpE' }],
   ['admin.updateInstructor', 'admin', { instructor_id: 'INS-0002', username: 'ben', first_name: 'Benjamin', last_name: 'Cruz', email: 'ben@example.com', department: 'CpE' }],

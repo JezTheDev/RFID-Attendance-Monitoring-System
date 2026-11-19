@@ -20,6 +20,8 @@ import * as instructors from './handlers/instructors.js';
 import * as portal from './handlers/portal.js';
 import * as classes from './handlers/classes.js';
 import * as admins from './handlers/admins.js';
+import * as devices from './handlers/devices.js';
+import { authenticateDevice } from './auth/device-auth.js';
 
 export const READ = 'read';
 export const WRITE = 'write';
@@ -103,6 +105,18 @@ export const ACTIONS = Object.freeze({
     reads: 'Rooms', writes: 'Rooms', appends: 'AuditLog' },
   'admin.setRoomStatus': { run: academic.setRoomStatus, mode: WRITE, role: 'admin',
     reads: 'Devices Rooms Schedules Classes', writes: 'Rooms', appends: 'AuditLog' },
+  'admin.listDevices': { run: devices.listDevices, mode: READ, role: 'admin',
+    reads: 'Devices Rooms' },
+  'admin.createDevice': { run: devices.createDevice, mode: WRITE, role: 'admin',
+    reads: 'Rooms', writes: 'Devices', appends: 'AuditLog' },
+  'admin.updateDevice': { run: devices.updateDevice, mode: WRITE, role: 'admin',
+    writes: 'Devices', appends: 'AuditLog' },
+  'admin.setDeviceStatus': { run: devices.setDeviceStatus, mode: WRITE, role: 'admin',
+    writes: 'Devices', appends: 'AuditLog' },
+  'admin.assignDeviceRoom': { run: devices.assignDeviceRoom, mode: WRITE, role: 'admin',
+    reads: 'Rooms', writes: 'Devices', appends: 'AuditLog' },
+  'admin.generateDeviceKey': { run: devices.generateDeviceKey, mode: WRITE, role: 'admin',
+    writes: 'Devices', appends: 'AuditLog' },
   'admin.listInstructors': { run: instructors.listInstructors, mode: READ, role: 'admin',
     reads: 'Classes Instructors' },
   'admin.createInstructor': { run: instructors.createInstructor, mode: WRITE, role: 'admin',
@@ -229,4 +243,14 @@ export function runAction(db, request, ctx) {
     throw new AppError('PASSWORD_CHANGE_REQUIRED', 'Please change your password before continuing.');
   }
   return action.run(db, request, session, ctx);
+}
+
+// device.* requests (ESP32): no user session. Server.gs loads only DEVICE_TABS
+// for the check. No device action exists yet (step 4c+), so after a successful
+// check the answer is UNKNOWN_ACTION.
+export const DEVICE_TABS = Object.freeze({ read: ['Devices'], write: [], append: [] });
+
+export function runDeviceAction(db, request, ctx) {
+  authenticateDevice(db, request, ctx);
+  throw new AppError('UNKNOWN_ACTION', `Unknown action: ${String(request.action || '')}`);
 }

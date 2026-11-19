@@ -373,3 +373,72 @@ describe('listScheduleClashes (editor only)', () => {
     assert.match(logs.join('\n'), /No schedule clashes/);
   });
 });
+
+/* ---------------- Step 4b: devices ---------------- */
+
+describe('Server.gs device route and device keys', () => {
+  // A new active device with a key in ROM-0001, made over doPost by the admin.
+  // The seeded DEV-RM301-01 (active there) goes to maintenance first.
+  function withDevice() {
+    const server = ready();
+    const { post, admin } = server;
+    const call = (body) => {
+      const reply = post({ session_token: admin, ...body });
+      assert.equal(reply.ok, true, JSON.stringify(reply.error));
+      return reply.data;
+    };
+    call({ action: 'admin.setDeviceStatus', device_id: 'DEV-RM301-01', status: 'maintenance' });
+    const { device_id: deviceId } = call({ action: 'admin.createDevice', device_name: 'Test Reader', room_id: 'ROM-0001' });
+    const { device_key: key } = call({ action: 'admin.generateDeviceKey', device_id: deviceId });
+    call({ action: 'admin.setDeviceStatus', device_id: deviceId, status: 'active' });
+    server.resetStats();
+    return { ...server, deviceId, key };
+  }
+
+  it('device.* with the right key: authenticated, then UNKNOWN_ACTION; reads only Devices, writes nothing, no session', () => {
+    const { post, stats, tab, deviceId, key } = withDevice();
+    const sessionsBefore = tab('AuthSessions').length;
+    const reply = post({ action: 'device.heartbeat', device_id: deviceId, device_key: key });
+    assert.equal(reply.error.code, 'UNKNOWN_ACTION');
+    assert.deepEqual(stats.tabsRead, ['Devices']);
+    assert.equal(stats.rowsWritten, 0);
+    assert.equal(tab('AuthSessions').length, sessionsBefore);
+  });
+
+  it('device.* with a wrong key or unknown device: the same INVALID_DEVICE_KEY', () => {
+    const { post, deviceId, key } = withDevice();
+    const wrong = post({ action: 'device.heartbeat', device_id: deviceId, device_key: 'f'.repeat(64) });
+    const unknown = post({ action: 'device.heartbeat', device_id: 'DEV-NOPE-99', device_key: key });
+    assert.equal(wrong.error.code, 'INVALID_DEVICE_KEY');
+    assert.deepEqual(unknown.error, wrong.error);
+    assert.equal(post({ action: 'device.heartbeat' }).error.code, 'BAD_REQUEST');
+  });
+
+  it('a generated device key is in the response only: no Sheet cell, no log; only its hash is stored', () => {
+    const { ss, logs, tab, deviceId, key } = withDevice();
+    assert.match(key, /^[0-9a-f]{64}$/);
+    assert.ok(!allCells(ss).includes(key), 'device key in a Sheet cell');
+    assert.ok(!logs.join('\n').includes(key), 'device key in a log');
+    const hash = tab('Devices').find((d) => d.device_id === deviceId).device_key_hash;
+    assert.match(hash, /^[0-9a-f]{64}$/);
+    assert.ok(!JSON.stringify(tab('AuditLog')).includes(hash), 'hash in AuditLog');
+  });
+
+  it('issueTestDeviceKey refuses without TEST_SEED_PASSWORD (production Sheet)', () => {
+    const { context } = makeServer({ PASSWORD_PEPPER: 'vm-test-pepper' });
+    assert.throws(() => context.issueTestDeviceKey('DEV-RM301-01'), /NOT_TEST_SHEET/);
+  });
+
+  it('issueTestDeviceKey on the TEST Sheet logs the key once and stores only its hash', () => {
+    const { context, logs, tab } = makeServer();
+    context.setupSheets();
+    logs.length = 0;
+    context.issueTestDeviceKey('DEV-RM301-01');
+    const key = (logs.join('\n').match(/[0-9a-f]{64}/) || [])[0];
+    assert.ok(key, 'key logged');
+    assert.equal(logs.join('\n').split(key).length - 1, 1, 'logged exactly once');
+    const device = tab('Devices').find((d) => d.device_id === 'DEV-RM301-01');
+    assert.match(device.device_key_hash, /^[0-9a-f]{64}$/);
+    assert.notEqual(device.device_key_hash, key);
+  });
+});

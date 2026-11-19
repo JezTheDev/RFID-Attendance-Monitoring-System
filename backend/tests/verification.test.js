@@ -30,6 +30,7 @@ const READ_CALLS = {
   'admin.listSections': [SESSIONS.admin, {}],
   'admin.listSubjects': [SESSIONS.admin, {}],
   'admin.listRooms': [SESSIONS.admin, {}],
+  'admin.listDevices': [SESSIONS.admin, {}],
   'admin.listInstructors': [SESSIONS.admin, {}],
   'admin.listAdmins': [SESSIONS.admin, {}],
   'admin.getClassOptions': [SESSIONS.admin, {}],

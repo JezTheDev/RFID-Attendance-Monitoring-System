@@ -33,10 +33,11 @@ backend/
     auth/              passwords (hash/verify), context (ctx), session, account
                        (login/me/changePassword/logout), admin-users (reset/unlock,
                        new user rows), migration (migrate + bootstrap admin),
+                       device-auth (authenticateDevice, issueTestDeviceKey),
                        crypto-apps-script (Utilities adapter)
     utils.js           AppError, validation, Manila time, audit log, ids
     config.js          TIMEZONE only
-    handlers/          academic, admins, classes, dashboard, instructors, portal, students
+    handlers/          academic, admins, classes, dashboard, devices, instructors, portal, students
   seed/seed-data.json  FAKE test data (for a TEST Sheet only)
   tests/               node:test unit tests (+ helpers/db.js in-memory db, helpers/auth.js
                        node:crypto adapter + fake-clock ctx); server-gs.test.js runs the
@@ -47,7 +48,7 @@ backend/
     Server.gs          Hand-written: calls RFID.runAction, Sheet read/write, editor-only
                        jobs (setupSheets, createBootstrapAdmin, migrateUsersToPasswordLogin,
                        backfillOverrideReasons, listScheduleClashes, benchmarkPasswordHash,
-                       checkSetup)
+                       checkSetup, issueTestDeviceKey [TEST Sheet only])
     Bundle.gs          GENERATED from backend/src — do not edit
     SeedData.gs        GENERATED from backend/seed/seed-data.json — do not edit
     appsscript.json    Manifest (Asia/Manila, V8)
@@ -75,7 +76,9 @@ seed data — run it only on a TEST spreadsheet.
 
 `PASSWORD_PEPPER` (never change once set; the only required one); only for the
 first admin: `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` (delete after);
-TEST Sheet only: `TEST_SEED_PASSWORD` (password of the fake seeded users);
+TEST Sheet only: `TEST_SEED_PASSWORD` (password of the fake seeded users). It is
+also the **test-Sheet marker** (`issueTestDeviceKey` refuses without it), so it
+must **never** be set on the production Sheet;
 optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
 `ALLOW_TEST_LOGIN`, `DEFAULT_STUDENT_PASSWORD`, `DEFAULT_INSTRUCTOR_PASSWORD`,
 `DEFAULT_ADMIN_PASSWORD`.
@@ -117,6 +120,31 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
   `auth.logout` (`PASSWORD_CHANGE_REQUIRED` otherwise).
 - Never return or log a password or `password_hash`; tests check responses.
   Only exception: `temp_password` in the create/reset response data.
+
+## Devices and device keys (step 4b)
+
+- Admin actions: `admin.listDevices`, `createDevice {device_name, room_id, notes?}`,
+  `updateDevice {device_id, device_name, notes?}`, `setDeviceStatus` (active /
+  maintenance / retired), `assignDeviceRoom` (`room_id: ''` unassigns),
+  `generateDeviceKey`. No delete. `device_id` = `DEV-<room_code>-NN`, never reused
+  or renamed. New devices start in `maintenance`; retired is final and clears the key.
+- Only ONE **active** device per room (`ROOM_HAS_ACTIVE_DEVICE` names it);
+  activating needs a key (`NO_DEVICE_KEY`).
+- Key = 32 random bytes as 64 hex characters, returned ONCE as `device_key`
+  (same rule as `temp_password`: never in a Sheet cell, AuditLog or log). A new
+  key replaces the old one at once. `device_key_hash` never leaves the server
+  (lists show `has_key`) and is never put in the AuditLog.
+- Hash = **one** SHA-256 of `PASSWORD_PEPPER + " " + key` (`ctx.deviceKeyHash`),
+  NOT the 300-iteration password hash: the key is long and random, so it cannot
+  be guessed, and every tap stays fast (the password hash costs ~360 ms).
+- `device.*` requests: Server.gs routes them before the normal action lookup,
+  loads only `Devices` and calls `RFID.runDeviceAction` → `authenticateDevice`.
+  The key is checked first: unknown device or wrong key → `INVALID_DEVICE_KEY`
+  (same error), then `DEVICE_DISABLED` (not active), `DEVICE_NOT_ASSIGNED`.
+  Missing fields → `BAD_REQUEST`. No user session is used or created. No device
+  action exists yet, so an authenticated request gets `UNKNOWN_ACTION`.
+- `issueTestDeviceKey(device_id)` (editor-only, **TEST Sheet only**) logs a new
+  key once for firmware tests; production keys come from the Admin portal.
 
 ## Tests
 

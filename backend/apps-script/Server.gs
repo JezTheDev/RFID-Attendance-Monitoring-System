@@ -4,6 +4,7 @@
  * The website sends every request here as a POST with a JSON body:
  *   { "action": "auth.login", "username": "...", "password": "..." }
  *   { "action": "instructor.getSession", "session_token": "...", ...fields }
+ *   { "action": "device.*", "device_id": "...", "device_key": "...", ...fields }   (ESP32)
  * and always gets back:
  *   { "ok": true,  "server_time": "...", "data": {...} }
  *   { "ok": false, "server_time": "...", "error": { "code", "message", "fields"? } }
@@ -16,7 +17,9 @@
  * Script properties (Project Settings > Script properties). Never commit their values.
  *   PASSWORD_PEPPER              long random secret mixed into every password hash.
  *                                Changing it later makes EVERY password invalid.
- *   TEST_SEED_PASSWORD           TEST Sheet only: password of the FAKE seeded users (setupSheets)
+ *   TEST_SEED_PASSWORD           TEST Sheet only: password of the FAKE seeded users (setupSheets).
+ *                                Also the test-Sheet marker (issueTestDeviceKey): NEVER set
+ *                                it on the production Sheet.
  *   BOOTSTRAP_ADMIN_USERNAME     only for createBootstrapAdmin()
  *   BOOTSTRAP_ADMIN_PASSWORD     only for createBootstrapAdmin(); DELETE it afterwards
  *   SPREADSHEET_ID               only if this script is NOT created from inside the Sheet
@@ -71,6 +74,7 @@ function failure_(code, message, fields) {
 
 function handleRequest_(request) {
   var action = String((request && request.action) || '');
+  if (action.indexOf('device.') === 0) return handleDeviceRequest_(request);
   var entry = RFID.findAction(action);
   if (!entry) return failure_('UNKNOWN_ACTION', 'Unknown action: ' + action);
 
@@ -99,6 +103,20 @@ function handleRequest_(request) {
     return failure_('SERVER_ERROR', 'Unexpected server error. Please try again.');
   } finally {
     if (lock) lock.releaseLock();
+  }
+}
+
+// ESP32 requests: { action: "device.*", device_id, device_key, ... }. Checked by
+// device key (RFID.runDeviceAction), never by a user session. Read-only for now
+// (no device action exists yet), so no lock and nothing is saved.
+function handleDeviceRequest_(request) {
+  try {
+    var state = loadDb_(RFID.DEVICE_TABS, String(request.action), false);
+    return success_(RFID.runDeviceAction(state.db, request, authContext_()));
+  } catch (error) {
+    if (error && typeof error.code === 'string') return failure_(error.code, error.message, error.fields || null);
+    console.error(error && error.stack ? error.stack : error);
+    return failure_('SERVER_ERROR', 'Unexpected server error. Please try again.');
   }
 }
 
@@ -199,6 +217,20 @@ function listScheduleClashes() {
   var lines = RFID.findScheduleClashes(loadDb_(spec, 'listScheduleClashes', false).db);
   console.log(lines.length ? lines.length + ' schedule clash(es):\n' + lines.join('\n') : 'No schedule clashes between active classes.');
   return lines;
+}
+
+/**
+ * TEST SHEET ONLY. Gives a device a new key and LOGS it once, so the firmware
+ * can be tested without the Admin portal. Refuses unless TEST_SEED_PASSWORD is
+ * set (the test-Sheet marker; never set it on the production Sheet). The old
+ * key stops working. Example: issueTestDeviceKey('DEV-RM301-01'); to run it
+ * from the editor dropdown, write a one-line wrapper with your device id.
+ */
+function issueTestDeviceKey(deviceId) {
+  runEditorJob_(function (db, ctx) {
+    var result = RFID.issueTestDeviceKey(db, ctx, deviceId);
+    return ['TEST device key for ' + result.device_id + ' (shown once, copy it now): ' + result.device_key];
+  });
 }
 
 // Deletes a column by header name, but only if every value below the header is empty.

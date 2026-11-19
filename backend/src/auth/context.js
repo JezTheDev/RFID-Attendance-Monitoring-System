@@ -25,5 +25,10 @@ export function createAuthContext({ crypto, getProperty, now, iterations = PASSW
     newTempPassword: () => generateTempPassword(crypto),
     newToken: () => crypto.randomHex(32),
     tokenHash: (token) => sha256Hex(crypto, token),
+    // Device keys are 32 random bytes, not human passwords: nobody can guess
+    // them, so ONE peppered SHA-256 is enough. The 300-iteration password hash
+    // would add ~360 ms to every tap without making the key any safer.
+    newDeviceKey: () => crypto.randomHex(32),
+    deviceKeyHash: (key) => sha256Hex(crypto, `${pepper()}\u0000${key}`),
   };
 }

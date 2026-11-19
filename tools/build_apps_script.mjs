@@ -21,7 +21,7 @@ const outDir = resolve(root, 'backend/apps-script');
 const ENTRIES = [
   'actions.js', 'utils.js', 'config.js',
   'auth/context.js', 'auth/crypto-apps-script.js', 'auth/passwords.js', 'auth/migration.js',
-  'maintenance.js',
+  'auth/device-auth.js', 'maintenance.js',
 ];
 
 const IMPORT_RE = /import\s+([\s\S]*?)\s+from\s+['"](.+?)['"];?/g;
@@ -89,7 +89,7 @@ ${indent(mod.code)}
 }).join('\n')}
 
   return Object.assign({}, __m['config'], __m['utils'], __m['actions'],
-    __m['auth/context'], __m['auth/crypto-apps-script'], __m['auth/passwords'], __m['auth/migration'], __m['maintenance']);
+    __m['auth/context'], __m['auth/crypto-apps-script'], __m['auth/passwords'], __m['auth/migration'], __m['auth/device-auth'], __m['maintenance']);
 })();
 `;
 
