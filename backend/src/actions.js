@@ -22,6 +22,7 @@ import * as classes from './handlers/classes.js';
 import * as admins from './handlers/admins.js';
 import * as devices from './handlers/devices.js';
 import { authenticateDevice } from './auth/device-auth.js';
+import { submitScans } from './handlers/device.js';
 
 export const READ = 'read';
 export const WRITE = 'write';
@@ -245,12 +246,29 @@ export function runAction(db, request, ctx) {
   return action.run(db, request, session, ctx);
 }
 
-// device.* requests (ESP32): no user session. Server.gs loads only DEVICE_TABS
-// for the check. No device action exists yet (step 4c+), so after a successful
-// check the answer is UNKNOWN_ACTION.
+// device.* requests (ESP32): no user session; the device key is checked first
+// (authenticateDevice). Same tab rules as ACTIONS; a device action with writes
+// runs under the lock. Unknown device.* actions load only Devices for the check.
 export const DEVICE_TABS = Object.freeze({ read: ['Devices'], write: [], append: [] });
 
+export const DEVICE_ACTIONS = Object.freeze({
+  'device.submitScans': { run: submitScans,
+    reads: 'Terms Classes Schedules Enrollments RfidCards Students Settings', writes: 'Devices ClassSessions Attendance ScanLog' },
+});
+
+const findDeviceAction = (name) => (Object.prototype.hasOwnProperty.call(DEVICE_ACTIONS, name) ? DEVICE_ACTIONS[name] : null);
+
+export function deviceTabsFor(name) {
+  const action = findDeviceAction(name);
+  if (!action) return DEVICE_TABS;
+  const write = words(action.writes);
+  return { read: [...new Set([...words(action.reads), ...write])], write, append: words(action.appends) };
+}
+
 export function runDeviceAction(db, request, ctx) {
-  authenticateDevice(db, request, ctx);
-  throw new AppError('UNKNOWN_ACTION', `Unknown action: ${String(request.action || '')}`);
+  const device = authenticateDevice(db, request, ctx);
+  const name = String(request.action || '');
+  const action = findDeviceAction(name);
+  if (!action) throw new AppError('UNKNOWN_ACTION', `Unknown action: ${name}`);
+  return action.run(db, request, device, ctx);
 }

@@ -7,7 +7,7 @@ import { newUserRow, issueTempPassword, usernameTaken, accountSummary } from '..
 const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const UID_PATTERN = /^(?:[0-9A-F]{8}|[0-9A-F]{14}|[0-9A-F]{20})$/;
+export const UID_PATTERN = /^(?:[0-9A-F]{8}|[0-9A-F]{14}|[0-9A-F]{20})$/;
 const REPLACE_REASONS = { lost: 'lost', damaged: 'revoked', other: 'revoked' };
 
 export function normalizeUid(value) {
