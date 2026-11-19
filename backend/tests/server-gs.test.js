@@ -55,6 +55,7 @@ function fakeSheet(name) {
 }
 
 function makeServer(props = PROPS) {
+  const locks = { taken: 0, released: 0, available: true };
   const sheets = [fakeSheet('Sheet1')];
   const ss = {
     getId: () => 'fake', getSheets: () => sheets.slice(),
@@ -72,7 +73,7 @@ function makeServer(props = PROPS) {
     console: { log: (m) => logs.push(String(m)), warn: (m) => logs.push(String(m)), error: (m) => logs.push(String(m)) },
     SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss },
     PropertiesService: { getScriptProperties: () => ({ getProperty: (n) => props[n] ?? null, getProperties: () => ({ ...props }) }) },
-    LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
+    LockService: { getScriptLock: () => ({ tryLock: () => { locks.taken += 1; return locks.available; }, releaseLock: () => { locks.released += 1; } }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (text) => ({ setMimeType: () => ({ text }) }) },
     Utilities: {
       DigestAlgorithm: { SHA_256: 'SHA_256' }, Charset: { UTF_8: 'UTF_8' },
@@ -92,7 +93,7 @@ function makeServer(props = PROPS) {
     const [head, ...rows] = ss.getSheetByName('Users').cells;
     return rows.filter((r) => r.some((v) => v !== '')).map((r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ''])));
   };
-  return { context, ss, post, logs, usersTab };
+  return { context, ss, post, logs, usersTab, locks };
 }
 
 describe('Server.gs in a fake Apps Script', () => {
@@ -177,5 +178,28 @@ describe('Server.gs in a fake Apps Script', () => {
     context.migrateUsersToPasswordLogin();
     assert.match(logs.join('\n'), /Nothing to change/);
     assert.equal(JSON.stringify(sheet.cells.map((r) => r.filter((_, i) => sheet.cells[0][i] !== 'last_login_at'))), snapshot);
+  });
+
+  it('write actions take the script lock (and release it); read actions do not', () => {
+    const { context, post, locks } = makeServer();
+    context.setupSheets();
+    locks.taken = 0; locks.released = 0;
+    const token = post({ action: 'auth.login', username: 'admin.test', password: 'Admin2026' }).data.session_token;
+    assert.deepEqual([locks.taken, locks.released], [1, 1], 'auth.login is a write');
+    post({ action: 'auth.me', session_token: token });
+    post({ action: 'admin.listStudents', session_token: token });
+    assert.deepEqual([locks.taken, locks.released], [1, 1], 'reads must not lock');
+    post({ action: 'auth.changePassword', session_token: token, old_password: 'Admin2026', new_password: 'NewAdmin99' });
+    assert.deepEqual([locks.taken, locks.released], [2, 2]);
+  });
+
+  it('a busy lock answers BUSY and saves nothing', () => {
+    const { context, post, locks, usersTab } = makeServer();
+    context.setupSheets();
+    const before = JSON.stringify(usersTab());
+    locks.available = false;
+    const reply = post({ action: 'auth.login', username: 'admin.test', password: 'wrong-pass1' });
+    assert.equal(reply.error.code, 'BUSY');
+    assert.equal(JSON.stringify(usersTab()), before);
   });
 });

@@ -1,0 +1,286 @@
+# Backend Verification Report
+
+| | |
+|---|---|
+| Date | 2026-11-19 |
+| Branch | `backend-verification` (from `hash-iterations-300`, which includes `docs/PROJECT_CONTEXT.md`) |
+| Scope | **Backend only**: `backend/src`, `backend/apps-script/Server.gs`, seed data. Frontend not reviewed. |
+| Method | Read every handler; ran the code in Node; wrote tests for what we rely on and for every bug found. No backend logic was changed. |
+| Not checked | The live Apps Script / Google Sheet (speed, sharing settings, real quotas). Anything marked **UNVERIFIED** needs that. |
+
+**Expected load (assumed):** one department; a few RFID devices (one per room); classes of about 40 students
+who tap within the first minutes of class; up to a few hundred students logging in to check records.
+
+**Legend:** **MET** = works, proven by a test or a line I read · **PARTIAL** = some of it works · **MISSING** = not built ·
+**WRONG** = built, but gives a wrong result · **N/A** = hardware only, nothing for the backend to do.
+
+## Evidence (fresh run on this branch)
+
+```
+$ node --test
+ℹ tests 132
+ℹ suites 31
+ℹ pass 124
+ℹ fail 0
+ℹ todo 8        <- the 8 confirmed bugs below (they run, fail, and are reported as TODO)
+exit code 0
+
+$ node tools/build_apps_script.mjs
+Wrote backend/apps-script/Bundle.gs (17 modules: config, utils, auth/session, auth/passwords, auth/account,
+  auth/admin-users, handlers/dashboard, handlers/classes, handlers/students, handlers/academic,
+  handlers/instructors, handlers/portal, handlers/admins, actions, auth/context, auth/crypto-apps-script, auth/migration)
+Wrote backend/apps-script/SeedData.gs
+```
+
+The rebuilt `Bundle.gs` was identical to the committed one except the date in its header line, so it is in sync with `backend/src`.
+
+New tests added on this branch:
+- `backend/tests/verification.test.js`: every READ action leaves the db unchanged (Server.gs never saves after a read);
+  Asia/Manila day boundary at 23:59:59 vs 00:00; 8 bug tests marked `todo`.
+- `backend/tests/server-gs.test.js`: write actions take and release the script lock, reads do not; a busy lock
+  answers `BUSY` and saves nothing. (Checked that the lock test fails if Server.gs locks every request.)
+
+**Password hash iterations:** already **300** on this branch (commit `9b58e71`), from your benchmark
+(1.197 ms × 300 ≈ 359 ms per hash). Old 1500-iteration hashes still verify (`auth.test.js`:
+"still accepts a hash made with the old 1500-iteration constant"). Nothing else needed changing.
+
+---
+
+## Part 1 — Requirements traceability
+
+Sources: **PC** = `docs/PROJECT_CONTEXT.md`, **CL** = `CLAUDE.md`, **AR** = `docs/RFID_Attendance_System_Architecture.md`.
+Test names are from `backend/tests/<file>`.
+
+### 1A. Required system features (PC §6)
+
+| # | Requirement | Source | Backend action(s) / function(s) | Test(s) / evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| F1 | RFID-based attendance recording | PC §6 | — (no `device.*` action in `actions.js`) | `actions.test.js`: action table has only `auth/admin/instructor/student` | MISSING | Step 4 (Part 4). |
+| F2 | Online database synchronization (device → Sheet) | PC §6 | — | same | MISSING | `device.submitScans` not built. |
+| F3 | Accurate timestamping | PC §6, §13 | `utils.manilaNow`, `utils.toManilaIso` | `actions.test.js` manilaNow; `passwords.test.js` toManilaIso; `verification.test.js` Manila day boundary | PARTIAL | Server timestamps are correct Manila ISO. Converting the device's epoch time is not built. |
+| F4 | Web-based attendance dashboard (data) | PC §6 | `admin.getDashboard`, `instructor.getDashboard`, `student.getOverview` | `portal.test.js`; `verification.test.js` READ check | MET | Bugs 4 and 7 affect some numbers. |
+| F5 | Rechargeable battery operation | PC §6 | — | — | N/A | Hardware. |
+| F6 | Offline buffering + automatic sync (server side) | PC §6, §13 | — | — | MISSING | Needs `scan_id` idempotency in `submitScans`. |
+| F7 | LED + buzzer feedback (server returns result codes) | PC §6 | — | — | MISSING | Result codes are defined in Device_API_Spec §8.1 but not implemented. |
+| F8 | Low-battery monitoring with dashboard alerts | PC §6 | `dashboard.js:80-90` (low_battery), `:124-126` (alert) | read only; no test | PARTIAL | Dashboard logic exists, but nothing writes `battery_voltage` (no heartbeat). |
+| F9 | Duplicate-scan prevention (server layers) | PC §6, AR §6.9 | — | — | MISSING | Session uniqueness + scan_id idempotency not built. |
+
+### 1B. Admin (PC §8)
+
+| # | Requirement | Source | Backend action(s) | Test(s) / evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| A1 | Manage student accounts | PC §8 | `admin.listStudents/getStudent/createStudent/updateStudent/setStudentStatus` | `users.test.js` creating/updating accounts | MET | BUG-2: changing section does not change enrollments. |
+| A2 | Register and assign RFID UIDs | PC §8 | `admin.assignCard`, `revokeCard`, `listUnregisteredUids` | `cards.test.js` (11 tests) | MET | `listUnregisteredUids` has no test (read `students.js:333-350`); it only fills once devices log scans. |
+| A3 | Manage instructors | PC §8 | `admin.list/create/update/setInstructorStatus` | `users.test.js` | MET | |
+| A4 | Manage courses and sections | PC §8 | programs / sections / subjects / terms / rooms in `academic.js`; `admin.*Class*`, schedules, enrollments in `classes.js` | `classes.test.js` (schedules, enrollments); `academic.js` read fully | MET | `academic.js` has **no unit tests**. BUG-3 (room double-booking). |
+| A5 | View all attendance records | PC §8 | `admin.getDashboard` (sessions of one date + counts) | `verification.test.js` READ check | PARTIAL | No admin action to open a session, a class report, or one student's history. Only instructors have those. |
+| A6 | Generate reports | PC §8 | — | — | MISSING | `instructor.getClassReport` exists, but only for the instructor's own classes. |
+| A7 | Monitor device status | PC §8 | `admin.getDashboard` → `devices[]`, `admin.listRooms` → `device_id` | read `dashboard.js:82-95` | PARTIAL | Read-only list. No device create/assign/key actions; nothing updates device status yet. |
+| A8 | Manage application settings | PC §8 | — | — | MISSING | Settings tab exists; no `admin.*Setting*` action. |
+
+### 1C. Instructor (PC §8)
+
+| # | Requirement | Source | Backend action(s) | Test(s) / evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| I1 | View assigned classes and sections | PC §8 | `instructor.getDashboard`, `listSessions` | `portal.test.js` "dashboard lists only the instructor's classes" | MET | |
+| I2 | Monitor student attendance | PC §8 | `instructor.getSession`, `getClassRoster` | `portal.test.js` | MET | BUG-7: open session shows a not-yet-scanned student as absent in the counts. |
+| I3 | View class attendance history | PC §8 | `instructor.listSessions`, `getStudentHistory` | `portal.test.js` "cannot read the history of a student who is not in their class" | MET | |
+| I4 | Filter attendance by date | PC §8 | `instructor.getClassReport {from,to}` (`portal.js:390-403`), `instructor.getDashboard {date}` | read; no test for from/to | MET | Add a test for `from`/`to` later. |
+| I5 | Generate and export class reports | PC §8 | `instructor.getClassReport` | `portal.test.js` "cannot list sessions, roster, or report of another instructor's class" | MET | Backend gives the data; the CSV is made in the browser. |
+| I6 | Correct attendance (with reason, audited) | AR §7.1 | `instructor.correctAttendance` | `portal.test.js` (ownership) | WRONG | Ownership is correct, but see BUG-1, BUG-6, BUG-8. |
+
+### 1D. Student (PC §8)
+
+| # | Requirement | Source | Backend action(s) | Test(s) / evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| S1 | Log in to their personal account | PC §8 | `auth.login` | `auth.test.js` (26 tests) | MET | |
+| S2 | View attendance summary | PC §8 | `student.getOverview` | `portal.test.js` "overview and profile describe the signed-in student only" | MET | |
+| S3 | View personal attendance history | PC §8 | `student.getHistory` | `portal.test.js` "ignores a student_id sent in the request" | MET | |
+| S4 | Check scan dates and timestamps | PC §8 | `historyRows` → `scanned_at` (`portal.js:514`) | read | MET | Time is shown only for device taps (manual entries have none, by design). |
+| S5 | Filter records by date | PC §8 | `student.getHistory` takes only `class_id` | read `portal.js:579`; the frontend filters by class/status only | MISSING | Small: add `from`/`to` like `getClassReport`. |
+| S6 | View registered student information | PC §8 | `student.getProfile` | `users.test.js` "shows username / must change / locked, never a hash" | MET | |
+| S7 | Cannot edit own attendance or see others' records | PC §8 | no `student.*` write action; `linkedId()` (`portal.js:16-22`) | `actions.test.js` roles; `portal.test.js` ownership tests | MET | |
+
+### 1E. Dashboard data (PC §9)
+
+| # | Requirement | Source | Backend field(s) | Test(s) / evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| D1 | Admin: total registered students | PC §9A | `stats.active_students` (`dashboard.js:150`) | read | MET | |
+| D2 | Admin: total instructors | PC §9A | `stats.active_instructors` | read | MET | |
+| D3 | Admin: present students today | PC §9A | `stats.students_present` (`dashboard.js:76-78`) | read | MET | Counts by the Manila date in `scanned_at`; device rows must be stored with `+08:00`. |
+| D4 | Admin: attendance statistics | PC §9A | `stats.attendance_rate`, `sessions[]` counts | `verification.test.js` BUG-4 | WRONG | Rate can go above 100% (BUG-4). |
+| D5 | Admin: student / instructor / course-section management | PC §9A | see A1, A3, A4 | see above | MET | |
+| D6 | Admin: attendance management | PC §9A | — | — | MISSING | Admin cannot correct attendance (instructors can). |
+| D7 | Admin: reports | PC §9A | — | — | MISSING | Same as A6. |
+| D8 | Admin: device monitoring | PC §9A | `devices[]`, offline / low-battery / queue alerts | read `dashboard.js:80-136` | PARTIAL | Same as A7. |
+| D9 | Instructor: assigned classes | PC §9B | `classes[]` | `portal.test.js` | MET | |
+| D10 | Instructor: total students per section | PC §9B | `classes[].enrolled`, `stats.students` | read `portal.js:230-236` | MET | |
+| D11 | Instructor: present and absent counts | PC §9B | `sessions[].present/late/absent` | `portal.test.js` absent tests | MET | BUG-7 during open sessions. |
+| D12 | Instructor: recent attendance activity | PC §9B | sessions of the chosen date only | read | PARTIAL | No feed of recent taps for the instructor's classes. |
+| D13 | Instructor: attendance history + report generation | PC §9B | see I3, I5 | see above | MET | |
+| D14 | Student: overview, percentage, history, scan time, profile | PC §9C | `student.getOverview` (`totals.rate`), `getHistory`, `getProfile` | `portal.test.js` | MET | |
+
+### 1F. System logic (PC §13)
+
+| # | Requirement | Source | Backend | Test(s) / evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| L1 | RFID validation: registered → accept, else reject + result | PC §13 | `normalizeUid` (`students.js:12`) only | `cards.test.js` UID format | MISSING | No scan path. |
+| L2 | Duplicate prevention, 5 min, configurable | PC §13 | Settings `duplicate_window_minutes` | seed only | PARTIAL | The setting exists but no code reads it; `device.getRoster` would deliver it to the device. |
+| L3 | Timestamping, Asia/Manila | PC §13 | `manilaNow`, `toManilaIso` | `verification.test.js` boundary tests | PARTIAL | Server side MET; device time not handled yet. |
+| L4 | Offline sync: confirm, no duplicates during sync | PC §13 | — | — | MISSING | |
+| L5 | Dashboard: real attendance data | PC §13 | reads Attendance / ClassSessions | `portal.test.js` | MET | **But no code creates ClassSessions** (Part 3). |
+| L6 | Dashboard: device status + battery | PC §13 | see F8 / A7 | — | PARTIAL | |
+| L7 | Distinguish pending offline vs synced records | PC §13 | `sync_mode` in `instructor.getSession` and `recent_scans`; `queue_count` alert | read `portal.js:313`, `dashboard.js:134-136` | PARTIAL | Shown when present; nothing writes it yet. |
+
+### 1G. Security and privacy (PC §14)
+
+| # | Requirement | Source | Backend | Test(s) / evidence | Status | Notes |
+|---|---|---|---|---|---|---|
+| X1 | Role-based access control | PC §14 | `runAction` (`actions.js:101-115`) | `auth.test.js` "enforces the role of each action on the server"; `users.test.js` "is admin-only on the server" | MET | |
+| X2 | Secure authentication | PC §14, CL | `auth/account.js` | `auth.test.js` | MET | See design risks R1, R2 (Part 2). |
+| X3 | Passwords never stored in plaintext | PC §14 | `auth/passwords.js` | `passwords.test.js`; `migration.test.js` seed test | MET | |
+| X4 | Students only access their own records | PC §14 | `linkedId()` from the session | `portal.test.js` "student can only see their own data" (3 tests) | MET | |
+| X5 | Instructors only access their assigned classes | PC §14 | `ownClass()` (`portal.js:131-137`) | `portal.test.js` (4 tests) | MET | |
+| X6 | Admin functions protected | PC §14 | role `admin` in `actions.js` | `actions.test.js`, `auth.test.js` | MET | |
+| X7 | No secret credentials in frontend / responses | PC §14 | secrets only in Script Properties (`context.js`) | `auth.test.js` "no response or audit row contains a password, a hash, or a token hash" | MET | Backend side only. |
+| X8 | Validate incoming ESP32 requests | PC §14 | — | — | MISSING | Device key check not built. |
+| X9 | Protect against unauthorized attendance submissions | PC §14 | — | — | MISSING | No device endpoint exists yet, so nothing is open today. |
+| X10 | Validate and sanitize user inputs | PC §14 | validators in every handler (`cleanText`, patterns, existence checks) | `users.test.js`, `cards.test.js`, `classes.test.js` | MET | `academic.js` validators were read but have no tests. |
+| X11 | Do not expose the whole Sheet | PC §14 | Web App returns per-action data only | read `Server.gs` | PARTIAL | Sheet sharing settings are **UNVERIFIED** (not in the repo). |
+| X12 | Use test data during development | PC §14 | `seed-data.json` (fake, `@example.com`) | `migration.test.js` "contains no passwords, hashes or google_sub" | MET | |
+| X13 | UID alone is not strong identity | PC §14 | — | — | N/A | Design note. Device key + ScanLog review are the planned mitigations. |
+
+### 1H. Login decisions (CLAUDE.md)
+
+| # | Requirement | Source | Backend | Test(s) | Status | Notes |
+|---|---|---|---|---|---|---|
+| C1 | No Google Sign-In, no test sign-in | CL | removed from `Server.gs` / `actions.js` | `actions.test.js` "has no Google, test or demo sign-in actions"; `server-gs.test.js` "removed actions are unknown" | MET | |
+| C2 | No demo mode | CL | — | `actions.test.js` same | MET | |
+| C3 | Only admins create accounts (no sign-up) | CL | only `auth.login` / `auth.logout` are public | `actions.test.js` "auth actions: only login and logout are public" | MET | |
+| C4 | Instructor/admin: username; student: student number | CL | `newUserRow`, `createStudent` | `users.test.js` (student / instructor / admin create) | MET | |
+| C5 | Usernames trimmed, lowercase, unique across all users | CL | `normalizeUsername`, `usernameProblem` | `users.test.js` "usernames are unique across ALL roles, ignoring case" | MET | |
+| C6 | Default password per role from Script Properties; missing → error | CL | `ctx.defaultPassword` | `users.test.js` "fails with NOT_CONFIGURED and changes nothing" | MET | Adds `DEFAULT_ADMIN_PASSWORD`. |
+| C7 | Salt + pepper + iterated SHA-256, versioned string | CL | `passwords.js` | `passwords.test.js` (format, round-trip, pepper, salt) | MET | |
+| C8 | One hash ≈ 200–500 ms in Apps Script | CL | `PASSWORD_HASH_ITERATIONS = 300` (`passwords.js:22`) | `passwords.test.js` "uses 300 iterations" | MET | 359 ms is computed from your 1500-run; re-run `benchmarkPasswordHash` to confirm. |
+| C9 | Constant-time comparison | CL | `constantTimeEqual` (`passwords.js:72`) | `passwords.test.js` | MET | |
+| C10 | Same error for wrong username / wrong password | CL | `account.js:52-56` | `auth.test.js` "gives the SAME error" | MET | |
+| C11 | Lockout 5 failures → 15 min; success resets | CL | `account.js:58-80` | `auth.test.js` lockout tests (fake clock) | MET | |
+| C12 | Disabled accounts rejected | CL | `account.js:84-88`, `session.js:47` | `auth.test.js` disabled tests | MET | |
+| C13 | must_change → only me / changePassword / logout | CL | `actions.js:111-113` | `auth.test.js` gate tests | MET | |
+| C14 | changePassword rules + revoke other sessions | CL | `account.changePassword` | `auth.test.js` (3 tests) | MET | |
+| C15 | admin.resetPassword / admin.unlockUser | CL | `auth/admin-users.js` | `users.test.js` | MET | |
+| C16 | Last active admin cannot be disabled or demoted | CL | `admins.setAdminStatus`; no role-change action | `users.test.js` "cannot be disabled", "no action can change a user's role" | MET | |
+| C17 | AuditLog login events, never the password | CL | `account.js` `audit()` | `auth.test.js` | MET | |
+| C18 | Bootstrap admin (editor-only) | CL | `createBootstrapAdmin` | `migration.test.js`, `server-gs.test.js` | MET | |
+| C19 | Idempotent migration of the existing Sheet | CL | `migrateUsersToPasswordLogin` | `migration.test.js` "is idempotent"; `server-gs.test.js` | MET | |
+| C20 | Hashed session tokens; LockService on writes | CL | `session.js`; `Server.gs:76-89` | `auth.test.js` "only the hash is stored"; `server-gs.test.js` lock tests | MET | |
+| C21 | No fake success | CL | unknown → `UNKNOWN_ACTION`; errors are `AppError` | `auth.test.js` "rejects unknown actions" | MET | No stub actions exist. |
+
+### Totals
+
+| Status | Count |
+|---|---|
+| MET | 56 |
+| PARTIAL | 11 |
+| MISSING | 14 |
+| WRONG | 2 |
+| N/A | 2 |
+| **Total** | **85** |
+
+Almost all **MISSING** rows belong to one piece of work: the Device API and session engine (Step 4), plus admin reports and settings.
+
+---
+
+## Part 2 — Logic review per feature
+
+For every action I checked: input validation, role + ownership, data written, error codes, lock, edge cases
+(empty data, inactive records, duplicates, Manila midnight).
+
+### Checked and OK
+
+| Area | What I checked | Evidence |
+|---|---|---|
+| Routing + roles | Unknown action → `UNKNOWN_ACTION`; `__proto__` / `toString` are not actions; role checked before running; must-change gate | `auth.test.js` sessions/roles tests |
+| Lock | Every WRITE action locks (`Server.gs:76-83`); reads do not; busy → `BUSY`, nothing saved | `server-gs.test.js` lock tests |
+| Read actions are read-only | All 25 READ actions leave the db unchanged, so skipping the save is safe | `verification.test.js` |
+| Failed actions save nothing | `Server.gs:89` saves only on success; failed logins are the one deliberate exception (`:94`) | `server-gs.test.js` "full login flow" |
+| Ownership | Instructor: `ownClass()` on every class/session action. Student: `linkedId()`, ignores IDs in the request | `portal.test.js` |
+| Manila time | Date strings use Asia/Manila; 23:59:59 vs 00:00 lands on the right day; `dayCodeOf` uses the date string, not the server clock | `verification.test.js` |
+| Duplicates | Usernames, student numbers, emails, UIDs, room codes, subject/program codes, terms (name + date overlap), class (term+subject+section), schedules (room / instructor / section overlap), enrollments | `users.test.js`, `cards.test.js`, `classes.test.js`; `academic.js` read |
+| Inactive records | Can't assign a card to, or enroll, an inactive student; inactive instructor can't get a class; deactivation is blocked while things depend on the record (`IN_USE`) | `cards.test.js`, `classes.test.js`; `academic.js:37-52` read |
+
+### Confirmed bugs
+
+Each bug has a test in `backend/tests/verification.test.js` that runs, fails, and is marked `todo`.
+
+| ID | Severity | Where | What goes wrong | How to reproduce |
+|---|---|---|---|---|
+| BUG-1 | **Medium** (data loss) | `portal.js:353-354` | Correcting a student to **Absent** deletes the Attendance row. The device's `scanned_at`, `scan_id`, `card_id`, `device_id` are gone. AuditLog keeps only `{"status":"present"}`. If a device later re-sends that `scan_id`, it would be recorded again. | Correct ATT-00001 (STU-0001, SES-0001) to absent → the row disappears (BUG-1 test). Known from audit ISS-07. |
+| BUG-2 | **Medium** | `students.js:200` (`updateStudent`) | Moving a student to another section keeps them enrolled in the **old** section's classes and does not add the new ones. `createStudent` does it right (`students.js:195`). Their taps would count in the wrong class. | Move STU-0001 from SEC-0001 to SEC-0002 → still only in CLS-0001 (BUG-2 test). Needs your decision: auto-move, or warn the admin. |
+| BUG-3 | **Medium** (blocks Step 4) | `classes.js:215-220` | Re-activating a class does not re-check schedule clashes. While a class is inactive its slots are ignored (`classes.test.js` "ignores schedules of inactive classes"), so another class can take the room; re-activating then gives **two classes in one room at the same time**. The session engine can't decide which class a tap belongs to. | Deactivate CLS-0001, schedule a new class in RM-0001 MON 08:00-10:00, re-activate CLS-0001 → accepted (BUG-3 test). |
+| BUG-4 | Low | `dashboard.js:23` | Admin dashboard counts Attendance of **dropped** students but divides by current enrollment → rate above 100% (seen: 1.5). The instructor portal filters by roster and is correct. | Everyone attends SES-0001, then drop STU-0003 → `attendance_rate` 1.5 (BUG-4 test). |
+| BUG-5 | Low now, Medium later | `utils.js:82` | `writeAudit` uses `Math.max(...allRows)`. In Node this crashes ("Maximum call stack size exceeded") at about 130,000 AuditLog rows; Apps Script's limit is similar but **UNVERIFIED**. Every login adds a row, so a busy year can reach it, and then **every write fails**. | AuditLog with 150,000 rows → RangeError (BUG-5 test). Fix: a simple loop instead of the spread. |
+| BUG-6 | Low | `portal.js:350-354` | During an **open** session, correcting a not-yet-scanned student to Absent "succeeds" and writes an audit row, but nothing changes: the student still shows "not scanned". That is a fake success. | Open SES-0001, correct STU-0003 to absent → `ok`, no change (BUG-6 test). |
+| BUG-7 | Low | `portal.js:102-112` | For an **open** session the counts call not-yet-scanned students "absent", while the student list says "not scanned". The two views disagree on the same screen. Same at `dashboard.js:42`. | Open SES-0001 → `session.absent` = 1, list shows 1 "not_scanned" (BUG-7 test). |
+| BUG-8 | Low | `portal.js:355-356` | A correction overwrites the device-created row (`source` stays `device`, status changes). AR §7.2 item 4 says device rows are never edited in place; the original result survives only in AuditLog. | Correct ATT-00001 present → late → device row now says late (BUG-8 test). |
+
+### Design risks (not bugs, but you should decide)
+
+| ID | Risk | Evidence | Suggestion |
+|---|---|---|---|
+| R1 | **High: taking over accounts that haven't signed in yet.** All new students share one default password, and their username is their student number (easy to guess). Anyone who knows the default can sign in first and choose the password, and the lockout doesn't help, because the first try is correct. | `migration.test.js` "migrated users can sign in with the role default" | Before real students: give each account a random one-time password that admins hand out, or have the first login done in front of the admin. Approved design, so your call. |
+| R2 | **Medium: anyone can fill the AuditLog and hold the write lock.** `auth.login` is public; every failed attempt (even an unknown username) takes the script lock, reads the whole Sheet and writes an AuditLog row. A script sending many wrong logins slows everyone down and speeds up BUG-5. | `auth.test.js` "marks failed logins to be saved (commit) and audits them" | Don't audit unknown usernames, or count them in CacheService (no Sheet write). |
+| R3 | **High for Step 4: every request reads all tabs and all writes share one lock.** `loadDb_` (`Server.gs:225-232`) reads every tab on every request, and writes wait up to 20 s for one shared lock (`Server.gs:28,83`). Today that's fine. At class start, 40 taps + logins in a few minutes, with ScanLog/Attendance/AuditLog growing all term, can turn into `BUSY` replies. | read `Server.gs` | **UNVERIFIED** (needs a timing test in real Apps Script). The device path should read only the tabs it needs and append rows instead of rewriting. |
+| R4 | No code ever creates, opens or closes a ClassSession. | `grep` for `ClassSessions.push` / `status = 'open'/'closed'` in `backend/src`: no results | Today the portals only show seeded sessions. See Part 4. |
+
+### Smaller notes (no action needed now)
+
+- `student.getHistory` only lists classes the student is **still** enrolled in (`portal.js:486-490`). After a drop, they can't see their past attendance for that class. Probably fine; confirm.
+- `historyRows` filters `status !== 'scheduled'` (`portal.js:499`), but no session ever has that status. Dead condition.
+- A room can't be deactivated while an **inactive** class still has active slots in it (`academic.js:358`).
+
+---
+
+## Part 3 — Data model check
+
+I compared the 19 seed tabs (= `setupSheets` columns) with what `backend/src` reads/writes and with AR §5.4.
+
+| Tab | Matches AR §5.4? | Columns the code never reads | Step 4 needs / problems |
+|---|---|---|---|
+| Users | Newer than AR (AR still shows `google_sub`, no passwords; **doc out of date**) | — | OK. |
+| AuthSessions | Yes | — | OK. |
+| Students, Instructors, Programs, Sections, Subjects, Terms, Rooms | Yes | — | OK. |
+| RfidCards | Yes | — | OK. `roster_version` is bumped on every card change (`cards.test.js`), ready for `device.getRoster`. |
+| **Devices** | Yes | `device_key_hash`, `firmware_version`, `wifi_rssi`, `time_synced`, `last_heartbeat_at` | Used by heartbeat/auth (Step 4). The spec heartbeat also sends `uptime_seconds` (no column; optional). No admin action creates devices or keys. |
+| Classes | Yes | — | `late_grace_minutes` is only displayed; no present/late logic uses it yet. |
+| Schedules | Yes | — | **BUG-3** must be fixed so one room has at most one class at a time. |
+| Enrollments | Yes | — | OK (BUG-2 affects correctness). |
+| **ClassSessions** | Yes | `opened_by`, `closed_by` | **Blocker:** nothing creates rows or changes `status`. Unique (schedule_id, session_date) must be enforced in code. |
+| Attendance | Yes | — | OK. Code must enforce unique (session_id, student_id) and unique `scan_id`. `scanned_at` must be stored as Manila ISO (dashboards slice the date from it). |
+| **ScanLog** | Yes | `log_id` (written by the seed only) | Add **`time_quality`** (to explain `INVALID_TIME`) and ideally `card_id`. `scan_id` lookup is needed for `ALREADY_RECORDED`. |
+| AuditLog | Yes | — | BUG-5 at large sizes. |
+| **Settings** | Yes (+2 login keys) | not read: `duplicate_window_minutes`, `late_grace_minutes`, `early_window_minutes`, `accept_after_end_minutes`, `heartbeat_interval_seconds` | All five are for the session engine / roster. `allowed_email_rule` removed (correct). |
+
+Missing tables: none. The schema is ready for Step 4; what's missing is the code, not columns (except ScanLog `time_quality`).
+
+---
+
+## Part 4 — Gap list for Step 4
+
+Goal: **student taps RFID → attendance is saved under the right class session → it shows in the portals.**
+Effort: **S** ≈ under half a day, **M** ≈ 1–2 days, **L** ≈ 3+ days.
+
+| # | Build this | Why | Effort |
+|---|---|---|---|
+| 1 | **Fix BUG-3** (re-activate checks room clashes) and **BUG-5** (loop instead of spread) | The engine assumes one class per room per time; BUG-5 can stop all writes later. | S |
+| 2 | **Devices admin actions**: list, create (room, name), show a new device key **once** (store only its hash), rotate key, retire. One active device per room. | A device must exist before it can authenticate. | M |
+| 3 | **Device auth** in `runAction`: a third kind of caller (`device_id` + `device_key`, hash compare, `INVALID_DEVICE_KEY` / `DEVICE_DISABLED` / `DEVICE_NOT_ASSIGNED`); update `last_seen_at`. | PC §14 "validate incoming ESP32 requests". | S |
+| 4 | **Session engine** as pure, tested functions: device → room; manual session first; else active term + day + `start − early_window ≤ t ≤ end + accept_after_end`; create the ClassSession on the first tap (one per schedule + date); back-to-back tie-breaker; `cancelled` → `SESSION_CANCELLED`; present/late from the class's `late_grace_minutes` or the setting. Follow AR §4.2–4.3. | The core of "right class session". | L |
+| 5 | **`device.submitScans`** (1–20 scans): epoch → Manila ISO (`toManilaIso`), `INVALID_TIME` for 0 / far-off times, normalize UID → active card → student, `ALREADY_RECORDED` by `scan_id`, `NOT_ENROLLED`, `DUPLICATE` per session, write Attendance + ScanLog (every tap, with `time_quality`), return results in order + `roster_version` + `lcd_line2` (max 16 chars). | Device_API_Spec §6.1, §8.1. | L |
+| 6 | **`device.heartbeat`**: battery, RSSI, queue_count, time_synced, firmware → Devices; return `low_battery`. | Turns on F8 / A7 / L6. | S |
+| 7 | **`device.getRoster`**: active cards + `duplicate_window_minutes` + `heartbeat_interval_seconds`, only when `roster_version` changed. | Offline mode + configurable duplicate window. | S |
+| 8 | **Session closing**: decide when `open` becomes `closed` so absences count. Recommended: treat a session as closed once `end + accept_after_end` has passed, computed when reading (no timer needed). Alternative: a time-driven trigger every 15 min. | Without it, absent counts never appear for real sessions. | M |
+| 9 | **End-to-end test** in the `server-gs.test.js` style: `doPost(device.submitScans)` → `instructor.getSession` shows Present → `student.getHistory` shows the tap. | Proves the whole flow before the hardware arrives. | S |
+| 10 | **Speed check in real Apps Script**: 40 taps in 2 minutes with a term-sized Sheet. If too slow, let the device path read only the needed tabs and append rows. | R3 is unverified. | M |
+| 11 | Before the demo, fix **BUG-1, BUG-6, BUG-7, BUG-8** (attendance correction) and decide BUG-2, R1. | Wrong numbers in front of instructors. | S each |
+| 12 | After the MVP: instructor manual session start/extend/cancel (AR §4.4), admin reports, settings page actions, student date filter (S5). | Remaining MISSING rows. | M each |
