@@ -109,7 +109,7 @@ Measured on the live Web App on 2026-11-20 (POST + redirect GET together):
 So:
 - Set the HTTP timeout to **20 s**.
 - Show `Processing...` on the LCD while waiting (Section 7).
-- Writes (`submitScans`, `heartbeat`) take turns on the server. If the server is still busy after waiting, it answers `SERVER_BUSY`. Your 20 s timeout may fire before that answer arrives. **Treat a timeout and `SERVER_BUSY` the same way:** keep the scan in the queue and retry later.
+- Writes (`submitScans`, `heartbeat`) take turns on the server. A write waits **up to 10 s** for its turn; if the server is still busy, it answers `SERVER_BUSY`, normally before your 20 s timeout fires. A timeout can still happen (slow network). **Treat a timeout and `SERVER_BUSY` the same way:** keep the scan in the queue and retry later.
 
 ### 3.3 TLS certificate [?]
 Validating Google's root CA is preferred over `setInsecure()`. If root-CA validation causes problems on your board, tell the software side so we document the trade-off.

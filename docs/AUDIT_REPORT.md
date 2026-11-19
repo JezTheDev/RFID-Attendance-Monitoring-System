@@ -176,7 +176,7 @@ RFID-Attendance-Monitoring-System/
 | `device.getRoster` | **NOT STARTED** | `roster_version` is bumped on card changes (`students.js:37-40`) but nothing serves it | Everything |
 | Hashed device keys | **NOT STARTED** | Column `device_key_hash` exists but empty in seed data | Key generate/rotate + verify |
 | `scan_id` idempotency | **NOT STARTED** | Column exists in Attendance/ScanLog only | Logic |
-| LockService on writes | **DONE** | `Server.gs:76-81` (all WRITE actions, 20 s wait) | Device writes must also be WRITE |
+| LockService on writes | **DONE** | `Server.gs:76-81` (all WRITE actions, 10 s wait) | Device writes must also be WRITE |
 | Session resolution (room + schedule + time) | **NOT STARTED** | Only dashboards *display* expected sessions from Schedules (`dashboard.js:47-62`); nothing creates ClassSessions | Engine per arch §4.2 |
 | Manual start / override | **NOT STARTED** | No `sessions.*` action | — |
 | Present vs late (late_grace_minutes) | **NOT STARTED** (data only) | `late_grace_minutes` stored (`classes.js:138-146`) but never used to classify a scan | Engine |

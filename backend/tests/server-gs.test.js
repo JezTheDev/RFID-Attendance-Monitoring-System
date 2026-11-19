@@ -290,6 +290,22 @@ describe('Server.gs reads only the declared tabs', () => {
   });
 });
 
+describe('Server.gs admin settings and lock wait', () => {
+  it('waits at most 10 s for the lock, so SERVER_BUSY beats the device 20 s timeout', () => {
+    assert.equal(makeServer().context.LOCK_WAIT_MS, 10000);
+  });
+
+  it('admin.updateSettings saves the Settings row and reads only its declared tabs', () => {
+    const { post, stats, admin, tab } = ready();
+    stats.tabsRead.length = 0;
+    const reply = post({ action: 'admin.updateSettings', session_token: admin, changes: { lockout_minutes: 30 } });
+    assert.equal(reply.ok, true, JSON.stringify(reply.error));
+    assert.equal(tab('Settings').find((r) => r.key === 'lockout_minutes').value, '30');
+    assert.deepEqual([...new Set(stats.tabsRead.map((t) => t.split(' ')[0]))].sort(), ['AuditLog', 'AuthSessions', 'Settings', 'Users']);
+    assert.equal(stats.batchUpdates, 1);
+  });
+});
+
 describe('Server.gs saves in one all-or-nothing batchUpdate', () => {
   it('a READ action writes nothing; a write action makes exactly one batchUpdate', () => {
     const { post, stats, admin } = ready();

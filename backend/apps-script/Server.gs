@@ -28,7 +28,7 @@
  */
 
 var AUTH_SESSION_HEADERS = ['token_hash', 'user_id', 'created_at', 'expires_at', 'revoked'];
-var LOCK_WAIT_MS = 20000;
+var LOCK_WAIT_MS = 10000; // answer SERVER_BUSY before the device's 20 s HTTP timeout
 var VIEW_PREFIX = 'View - ';
 var REQUIRED_PROPERTIES = ['PASSWORD_PEPPER'];
 var OBSOLETE_PROPERTIES = ['GOOGLE_CLIENT_ID', 'ALLOW_TEST_LOGIN', 'DEFAULT_STUDENT_PASSWORD', 'DEFAULT_INSTRUCTOR_PASSWORD', 'DEFAULT_ADMIN_PASSWORD'];

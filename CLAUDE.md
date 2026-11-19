@@ -175,6 +175,19 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
 - `issueTestDeviceKey(device_id)` (editor-only, **TEST Sheet only**) logs a new
   key once for firmware tests; production keys come from the Admin portal.
 
+## Admin settings
+
+- `admin.getSettings` → `items: [{key, value, description, min, max, decimal}]`
+  for the 10 editable keys (`EDITABLE_SETTINGS` in `handlers/settings.js`).
+  `roster_version` (system) and `late_grace_minutes` (unused: a tap is always
+  PRESENT; row kept) are hidden and not editable.
+- `admin.updateSettings {changes: {key: value}}`: all-or-nothing
+  (`VALIDATION_ERROR`, fields named by key); one `UPDATE_SETTINGS` audit row
+  with before/after of changed keys; changing `duplicate_window_minutes` or
+  `heartbeat_interval_seconds` bumps `roster_version`.
+- `LOCK_WAIT_MS` (Server.gs) = 10000, so `SERVER_BUSY` comes before the
+  device's 20 s HTTP timeout.
+
 ## Tests
 
 ```bash
