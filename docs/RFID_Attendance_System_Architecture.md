@@ -513,8 +513,10 @@ Constraints: (schedule_id, session_date) **unique** for auto sessions; a room ca
 | sync_mode | `live` / `offline` — lets dashboard distinguish delayed records [P] |
 | time_quality | `ntp` / `backfilled` / `unverified` (Section 6.4) |
 | created_by | user_id for manual entries |
+| override_status | Instructor correction: `present` / `late` / `absent`; blank = none. Effective status = `override_status` if set, else `status` |
+| override_by, override_at, override_reason | Who, when (Manila ISO) and why of the latest correction (full history in AuditLog) |
 
-Constraints: (session_id, student_id) **unique** — one attendance row per student per session. scan_id unique.
+Constraints: (session_id, student_id) **unique** — one attendance row per student per session. scan_id unique. Rows are never deleted and corrections never change the device fields; they set the `override_*` columns.
 
 #### ScanLog — every scan, including rejected ones [R]
 | Column | Notes |

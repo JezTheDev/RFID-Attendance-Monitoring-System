@@ -1415,7 +1415,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00002",
@@ -1431,7 +1435,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00003",
@@ -1447,7 +1455,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00004",
@@ -1463,7 +1475,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00005",
@@ -1479,7 +1495,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00006",
@@ -1495,7 +1515,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00007",
@@ -1511,7 +1535,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00008",
@@ -1527,7 +1555,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00009",
@@ -1543,7 +1575,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00010",
@@ -1559,7 +1595,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00011",
@@ -1575,7 +1615,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00012",
@@ -1591,7 +1635,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00013",
@@ -1607,7 +1655,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00014",
@@ -1623,7 +1675,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00015",
@@ -1639,7 +1695,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00016",
@@ -1655,7 +1715,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00017",
@@ -1671,7 +1735,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00018",
@@ -1687,7 +1755,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00019",
@@ -1703,7 +1775,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00020",
@@ -1719,7 +1795,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00021",
@@ -1735,7 +1815,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00022",
@@ -1751,7 +1835,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00023",
@@ -1767,7 +1855,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00024",
@@ -1783,7 +1875,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00025",
@@ -1799,7 +1895,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00026",
@@ -1815,7 +1915,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00027",
@@ -1831,7 +1935,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00028",
@@ -1847,7 +1955,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00029",
@@ -1863,7 +1975,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00030",
@@ -1879,7 +1995,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00031",
@@ -1895,7 +2015,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00032",
@@ -1911,7 +2035,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00033",
@@ -1927,7 +2055,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00034",
@@ -1943,7 +2075,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00035",
@@ -1959,7 +2095,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00036",
@@ -1975,7 +2115,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00037",
@@ -1991,7 +2135,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00038",
@@ -2007,7 +2155,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00039",
@@ -2023,7 +2175,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00040",
@@ -2039,7 +2195,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00041",
@@ -2055,7 +2215,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00042",
@@ -2071,7 +2235,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00043",
@@ -2087,7 +2255,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00044",
@@ -2103,7 +2275,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00045",
@@ -2119,7 +2295,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00046",
@@ -2135,7 +2315,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00047",
@@ -2151,7 +2335,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00048",
@@ -2167,7 +2355,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00049",
@@ -2183,7 +2375,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00050",
@@ -2199,7 +2395,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00051",
@@ -2215,7 +2415,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00052",
@@ -2231,7 +2435,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00053",
@@ -2247,7 +2455,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00054",
@@ -2263,7 +2475,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00055",
@@ -2279,7 +2495,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00056",
@@ -2295,7 +2515,11 @@ var SEED_DATA = {
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   }
  ],
  "ScanLog": [

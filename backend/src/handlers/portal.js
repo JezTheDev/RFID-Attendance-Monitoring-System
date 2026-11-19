@@ -4,7 +4,7 @@
 // signed-in user and only returns rows that belong to that person.
 import {
   AppError, validationError, manilaNow, dayCodeOf, isValidDate, indexBy, fullName,
-  cleanText, writeAudit, nextId,
+  cleanText, writeAudit, nextId, effectiveStatus,
 } from '../utils.js';
 
 const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -83,7 +83,7 @@ function correctionsFor(db, sessionId) {
 }
 
 function statusOf(record, session) {
-  if (record) return record.status;
+  if (record) return effectiveStatus(record);
   return session.status === 'open' ? 'not_scanned' : 'absent';
 }
 
@@ -101,8 +101,8 @@ function summarize(statuses) {
 
 function sessionCounts(db, session, roster) {
   const records = db.Attendance.filter((row) => row.session_id === session.session_id && roster.includes(row.student_id));
-  const present = records.filter((row) => row.status === 'present').length;
-  const late = records.filter((row) => row.status === 'late').length;
+  const present = records.filter((row) => effectiveStatus(row) === 'present').length;
+  const late = records.filter((row) => effectiveStatus(row) === 'late').length;
   const counted = session.status === 'closed' || session.status === 'open';
   return {
     enrolled: roster.length,
@@ -350,11 +350,13 @@ export function instructorCorrectAttendance(db, request, session) {
   const before = statusOf(record, classSession);
   if (before === status) throw validationError({ status: 'The student already has this status.' });
 
-  if (status === 'absent') {
-    db.Attendance = db.Attendance.filter((row) => row !== record);
-  } else if (record) {
-    record.status = status;
-  } else {
+  // Never delete a row or edit the device fields (architecture 7.2 rule 4):
+  // a retried scan_id must still find its row.
+  if (record) {
+    Object.assign(record, {
+      override_status: status, override_by: session.user_id, override_at: manilaNow().iso, override_reason: reason,
+    });
+  } else if (status !== 'absent') {
     const student = maps.students.get(studentId);
     const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
     const stamp = `${classSession.session_date}T${classSession.scheduled_start}:00+08:00`;
@@ -373,6 +375,10 @@ export function instructorCorrectAttendance(db, request, session) {
       sync_mode: '',
       time_quality: '',
       created_by: session.user_id,
+      override_status: '',
+      override_by: '',
+      override_at: '',
+      override_reason: '',
     });
   }
 

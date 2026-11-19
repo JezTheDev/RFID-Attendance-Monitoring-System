@@ -88,7 +88,7 @@ describe('verified: Asia/Manila day boundary', () => {
 /* ===================== Part B: confirmed bugs (todo) ===================== */
 
 describe('known bugs (todo until fixed)', () => {
-  it('BUG-1 correcting a device record to "absent" keeps the scan evidence', { todo: 'BUG-1: portal.js:353-354 deletes the Attendance row' }, () => {
+  it('BUG-1 correcting a device record to "absent" keeps the scan evidence', () => {
     const db = makeDb();
     const row = db.Attendance.find((a) => a.attendance_id === 'ATT-00001');
     portal.instructorCorrectAttendance(db, { session_id: 'SES-0001', student_id: 'STU-0001', status: 'absent', reason: 'card used by a friend' }, SESSIONS.instructorAna);
@@ -143,7 +143,7 @@ describe('known bugs (todo until fixed)', () => {
     assert.equal(session.absent, 0, 'the same student is "not scanned" in the list but "absent" in the counts');
   });
 
-  it('BUG-8 a correction never edits a device-created row in place (architecture 7.2.4)', { todo: 'BUG-8: portal.js:355-356 sets record.status on the device row' }, () => {
+  it('BUG-8 a correction never edits a device-created row in place (architecture 7.2.4)', () => {
     const db = makeDb();
     const row = db.Attendance.find((a) => a.attendance_id === 'ATT-00001');
     portal.instructorCorrectAttendance(db, { session_id: 'SES-0001', student_id: 'STU-0001', status: 'late', reason: 'came in late' }, SESSIONS.instructorAna);

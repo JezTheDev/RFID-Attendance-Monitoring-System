@@ -1,5 +1,5 @@
 import {
-  AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId,
+  AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus,
 } from '../utils.js';
 import { enrollInSectionClasses } from './classes.js';
 import { newUserRow, issueTempPassword, usernameTaken, accountSummary } from '../auth/admin-users.js';
@@ -127,7 +127,7 @@ export function getStudent(db, { student_id }, _session, ctx) {
       }),
     attendance: {
       records: attendance.length,
-      late: attendance.filter((row) => row.status === 'late').length,
+      late: attendance.filter((row) => effectiveStatus(row) === 'late').length,
       last_scan_at: attendance.map((row) => row.scanned_at).sort().pop() ?? null,
     },
   };

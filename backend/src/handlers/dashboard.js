@@ -1,5 +1,5 @@
 import {
-  AppError, setting, manilaNow, dayCodeOf, isValidDate, shiftDate, indexBy, fullName,
+  AppError, setting, manilaNow, dayCodeOf, isValidDate, shiftDate, indexBy, fullName, effectiveStatus,
 } from '../utils.js';
 
 export function getAdminDashboard(db, { date }) {
@@ -21,8 +21,8 @@ export function getAdminDashboard(db, { date }) {
   const describe = ({ classId, roomId, start, end, status, sessionId, source }) => {
     const klass = classes.get(classId);
     const records = sessionId ? db.Attendance.filter((row) => row.session_id === sessionId) : [];
-    const present = records.filter((row) => row.status === 'present').length;
-    const late = records.filter((row) => row.status === 'late').length;
+    const present = records.filter((row) => effectiveStatus(row) === 'present').length;
+    const late = records.filter((row) => effectiveStatus(row) === 'late').length;
     const enrolled = enrolledCount(classId);
     const counted = status === 'closed' || status === 'open';
     return {
@@ -74,7 +74,7 @@ export function getAdminDashboard(db, { date }) {
   const expected = countedSessions.reduce((sum, row) => sum + row.enrolled, 0);
   const attended = countedSessions.reduce((sum, row) => sum + row.present + row.late, 0);
   const studentsPresent = new Set(
-    db.Attendance.filter((row) => row.scanned_at.slice(0, 10) === date).map((row) => row.student_id),
+    db.Attendance.filter((row) => row.scanned_at.slice(0, 10) === date && effectiveStatus(row) !== 'absent').map((row) => row.student_id),
   ).size;
 
   const lowBatteryVoltage = Number(setting(db, 'low_battery_voltage', 3.5));

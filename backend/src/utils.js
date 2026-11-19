@@ -73,6 +73,11 @@ export function fullName(person) {
   return person ? `${person.first_name} ${person.last_name}` : '';
 }
 
+// An instructor correction sets override_status; the device's own status is never changed.
+export function effectiveStatus(row) {
+  return row.override_status || row.status;
+}
+
 export function cleanText(value) {
   return String(value ?? '').trim().replace(/\s+/g, ' ');
 }

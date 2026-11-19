@@ -1413,7 +1413,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00002",
@@ -1429,7 +1433,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00003",
@@ -1445,7 +1453,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00004",
@@ -1461,7 +1473,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00005",
@@ -1477,7 +1493,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00006",
@@ -1493,7 +1513,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00007",
@@ -1509,7 +1533,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00008",
@@ -1525,7 +1553,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00009",
@@ -1541,7 +1573,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00010",
@@ -1557,7 +1593,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00011",
@@ -1573,7 +1613,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00012",
@@ -1589,7 +1633,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00013",
@@ -1605,7 +1653,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00014",
@@ -1621,7 +1673,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00015",
@@ -1637,7 +1693,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00016",
@@ -1653,7 +1713,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00017",
@@ -1669,7 +1733,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00018",
@@ -1685,7 +1753,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00019",
@@ -1701,7 +1773,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00020",
@@ -1717,7 +1793,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00021",
@@ -1733,7 +1813,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00022",
@@ -1749,7 +1833,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00023",
@@ -1765,7 +1853,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00024",
@@ -1781,7 +1873,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00025",
@@ -1797,7 +1893,11 @@
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00026",
@@ -1813,7 +1913,11 @@
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00027",
@@ -1829,7 +1933,11 @@
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00028",
@@ -1845,7 +1953,11 @@
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00029",
@@ -1861,7 +1973,11 @@
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00030",
@@ -1877,7 +1993,11 @@
    "source": "device",
    "sync_mode": "offline",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00031",
@@ -1893,7 +2013,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00032",
@@ -1909,7 +2033,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00033",
@@ -1925,7 +2053,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00034",
@@ -1941,7 +2073,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00035",
@@ -1957,7 +2093,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00036",
@@ -1973,7 +2113,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00037",
@@ -1989,7 +2133,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00038",
@@ -2005,7 +2153,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00039",
@@ -2021,7 +2173,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00040",
@@ -2037,7 +2193,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00041",
@@ -2053,7 +2213,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00042",
@@ -2069,7 +2233,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00043",
@@ -2085,7 +2253,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00044",
@@ -2101,7 +2273,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00045",
@@ -2117,7 +2293,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00046",
@@ -2133,7 +2313,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00047",
@@ -2149,7 +2333,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00048",
@@ -2165,7 +2353,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00049",
@@ -2181,7 +2373,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00050",
@@ -2197,7 +2393,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00051",
@@ -2213,7 +2413,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00052",
@@ -2229,7 +2433,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00053",
@@ -2245,7 +2453,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00054",
@@ -2261,7 +2473,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00055",
@@ -2277,7 +2493,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   },
   {
    "attendance_id": "ATT-00056",
@@ -2293,7 +2513,11 @@
    "source": "device",
    "sync_mode": "live",
    "time_quality": "ntp",
-   "created_by": ""
+   "created_by": "",
+   "override_status": "",
+   "override_by": "",
+   "override_at": "",
+   "override_reason": ""
   }
  ],
  "ScanLog": [
