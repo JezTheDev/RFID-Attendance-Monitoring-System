@@ -50,6 +50,43 @@ describe('Server.gs in a fake Apps Script', () => {
     assert.ok(!text.includes('old1') && !text.includes('old2'));
   });
 
+  // Settings tab edited by hand: [key, value] or [key, null] to delete the row.
+  function checkSetupWith(changes) {
+    const { context, ss, logs } = makeServer();
+    context.setupSheets();
+    const sheet = ss.getSheetByName('Settings');
+    const keyCol = sheet.cells[0].indexOf('key');
+    const valueCol = sheet.cells[0].indexOf('value');
+    changes.forEach(([key, value]) => {
+      const i = sheet.cells.findIndex((row) => row[keyCol] === key);
+      if (value === null) sheet.cells.splice(i, 1);
+      else sheet.cells[i][valueCol] = value;
+    });
+    logs.length = 0;
+    context.checkSetup();
+    return logs.join('\n');
+  }
+
+  it('checkSetup: seeded Settings give no roster_version / low_battery_voltage warning', () => {
+    const text = checkSetupWith([]);
+    assert.doesNotMatch(text, /roster_version|low_battery_voltage/);
+  });
+
+  it('checkSetup warns when roster_version is missing or below 1', () => {
+    assert.match(checkSetupWith([['roster_version', null]]), /roster_version is missing or below 1/);
+    assert.match(checkSetupWith([['roster_version', '0']]), /roster_version is missing or below 1/);
+    assert.match(checkSetupWith([['roster_version', '']]), /roster_version is missing or below 1/);
+    assert.match(checkSetupWith([['roster_version', 'abc']]), /roster_version is missing or below 1/);
+  });
+
+  it('checkSetup warns when low_battery_voltage is missing, empty or not a number', () => {
+    assert.match(checkSetupWith([['low_battery_voltage', null]]), /low_battery_voltage is missing or not a number/);
+    assert.match(checkSetupWith([['low_battery_voltage', '']]), /low_battery_voltage is missing or not a number/);
+    assert.match(checkSetupWith([['low_battery_voltage', '  ']]), /low_battery_voltage is missing or not a number/);
+    assert.match(checkSetupWith([['low_battery_voltage', '3.5V']]), /low_battery_voltage is missing or not a number/);
+    assert.doesNotMatch(checkSetupWith([['low_battery_voltage', '3.3']]), /low_battery_voltage/);
+  });
+
   it('a temp password from create/reset over doPost is in the response only: no Sheet cell, no log', () => {
     const { context, post, ss, logs } = makeServer();
     context.setupSheets();

@@ -635,4 +635,15 @@ function checkSetup() {
   });
   var noPassword = (db.Users || []).filter(function (u) { return !u.password_hash; }).length;
   if (noPassword) console.warn(noPassword + ' user(s) have no password and cannot sign in. An admin must use Reset password for each.');
+
+  var settings = {};
+  (db.Settings || []).forEach(function (row) { settings[row.key] = String(row.value == null ? '' : row.value).trim(); });
+  // Version 0 or no row: devices never get a roster and card changes cannot bump it.
+  if (!(Number(settings.roster_version) >= 1)) {
+    console.warn('Settings: roster_version is missing or below 1. Devices will not download the roster. Add/set it to 1 in the Settings tab.');
+  }
+  var volts = settings.low_battery_voltage;
+  if (volts === undefined || volts === '' || !isFinite(Number(volts))) {
+    console.warn('Settings: low_battery_voltage is missing or not a number. Low-battery alerts are off. Set it (e.g. 3.5) in the Settings tab.');
+  }
 }

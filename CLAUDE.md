@@ -96,7 +96,8 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
    Users without a password get none; an admin resets each (temporary password).
 6. If there is no active admin: set the two `BOOTSTRAP_ADMIN_*` properties, run
    `createBootstrapAdmin`, then delete `BOOTSTRAP_ADMIN_PASSWORD`.
-7. Run `benchmarkPasswordHash` and `checkSetup`.
+7. Run `benchmarkPasswordHash` and `checkSetup` (also warns if Settings
+   `roster_version` is missing/< 1 or `low_battery_voltage` is empty/not a number).
    After deploying step 4a (tab declarations) also run `backfillOverrideReasons`
    once (copies old correction reasons into Attendance) and `listScheduleClashes`
    (read-only report).
