@@ -9,7 +9,7 @@ import {
 
 const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 const CORRECTABLE = ['present', 'late', 'absent'];
-const CORRECTION_ACTION = 'ATTENDANCE_CORRECT';
+export const CORRECTION_ACTION = 'ATTENDANCE_CORRECT';
 
 /* ---------------- shared helpers ---------------- */
 
@@ -74,11 +74,13 @@ function correctionKey(sessionId, studentId) {
   return `${sessionId}:${studentId}`;
 }
 
+// Corrected rows (device overrides and manual rows) carry the reason in
+// override_reason, so the portals never read the ever-growing AuditLog.
 function correctionsFor(db, sessionId) {
   const map = new Map();
-  db.AuditLog
-    .filter((row) => row.action === CORRECTION_ACTION && row.entity_id.startsWith(`${sessionId}:`))
-    .forEach((row) => map.set(row.entity_id, { reason: row.reason, at: row.timestamp }));
+  db.Attendance
+    .filter((row) => row.session_id === sessionId && row.override_reason)
+    .forEach((row) => map.set(correctionKey(row.session_id, row.student_id), { reason: row.override_reason }));
   return map;
 }
 
@@ -378,7 +380,7 @@ export function instructorCorrectAttendance(db, request, session) {
       override_status: '',
       override_by: '',
       override_at: '',
-      override_reason: '',
+      override_reason: reason,
     });
   }
 
@@ -496,10 +498,9 @@ function myEnrolledClasses(db, studentId) {
 }
 
 function historyRows(db, maps, studentId, classes) {
-  const corrections = new Map();
-  db.AuditLog
-    .filter((row) => row.action === CORRECTION_ACTION && row.entity_id.endsWith(`:${studentId}`))
-    .forEach((row) => corrections.set(row.entity_id, row.reason));
+  const corrections = new Set(db.Attendance
+    .filter((row) => row.student_id === studentId && row.override_reason)
+    .map((row) => correctionKey(row.session_id, row.student_id)));
 
   return classes.flatMap((klass) => db.ClassSessions
     .filter((row) => row.class_id === klass.class_id && row.status !== 'scheduled')

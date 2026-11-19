@@ -109,3 +109,24 @@ describe('attendance override (BUG-1)', () => {
     assert.equal(JSON.stringify(db.Attendance), before);
   });
 });
+
+describe('correction reason lives in Attendance.override_reason (step 4a)', () => {
+  it('a new manual row stores the reason', () => {
+    const db = makeDb();
+    correct(db, 'STU-0003', 'late', 'reader was offline');
+    assert.equal(db.Attendance.find((a) => a.student_id === 'STU-0003').override_reason, 'reader was offline');
+  });
+
+  it('getSession and getHistory show corrections without reading AuditLog', () => {
+    const db = makeDb();
+    correct(db, 'STU-0003', 'late', 'reader was offline');
+    correct(db, 'STU-0001', 'absent', 'card used by a friend');
+    delete db.AuditLog; // any read of AuditLog would now throw
+    const students = portal.instructorGetSession(db, { session_id: 'SES-0001' }, SESSIONS.instructorAna).students;
+    const byId = Object.fromEntries(students.map((s) => [s.student_id, s]));
+    assert.deepEqual([byId['STU-0001'].corrected, byId['STU-0001'].correction_reason], [true, 'card used by a friend']);
+    assert.deepEqual([byId['STU-0003'].corrected, byId['STU-0003'].correction_reason], [true, 'reader was offline']);
+    assert.deepEqual([byId['STU-0002'].corrected, byId['STU-0002'].correction_reason], [false, '']);
+    assert.equal(portal.studentHistory(db, {}, SESSIONS.student1).records[0].corrected, true);
+  });
+});

@@ -152,6 +152,15 @@ describe('Server.gs in a fake Apps Script', () => {
     assert.deepEqual([locks.taken, locks.released], [2, 2]);
   });
 
+  it('backfillOverrideReasons runs from the editor and is idempotent', () => {
+    const { context, logs } = makeServer();
+    context.setupSheets();
+    logs.length = 0;
+    context.backfillOverrideReasons();
+    context.backfillOverrideReasons();
+    assert.match(logs.at(-1), /Nothing to change/);
+  });
+
   it('a busy lock answers BUSY and saves nothing', () => {
     const { context, post, locks, usersTab } = makeServer();
     context.setupSheets();

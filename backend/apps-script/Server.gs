@@ -182,6 +182,15 @@ function migrateUsersToPasswordLogin() {
   dropEmptyColumn_('Users', 'google_sub');
 }
 
+/**
+ * Copies correction reasons from AuditLog into Attendance.override_reason for
+ * rows corrected before the portals read the reason from there. Safe to run
+ * again ("Nothing to change"). Run once after deploying step 4a.
+ */
+function backfillOverrideReasons() {
+  runEditorJob_(function (db) { return RFID.backfillOverrideReasons(db); });
+}
+
 // Deletes a column by header name, but only if every value below the header is empty.
 function dropEmptyColumn_(tab, header) {
   var sheet = spreadsheet_().getSheetByName(tab);
