@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { ACTIONS, READ, WRITE } from '../src/actions.js';
 import { PUBLIC, ANY } from '../src/auth/session.js';
-import { AppError, manilaNow, nextId } from '../src/utils.js';
+import { AppError, manilaAt, nextId } from '../src/utils.js';
 
 describe('action table', () => {
   it('every admin./instructor./student. action requires exactly that role', () => {
@@ -34,12 +34,9 @@ describe('action table', () => {
 });
 
 describe('utils', () => {
-  it('manilaNow() gives YYYY-MM-DD, HH:mm and an ISO time with +08:00', () => {
-    const now = manilaNow();
-    assert.match(now.date, /^\d{4}-\d{2}-\d{2}$/);
-    assert.match(now.time, /^\d{2}:\d{2}$/);
-    assert.match(now.iso, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+08:00$/);
-    assert.ok(now.iso.startsWith(`${now.date}T${now.time}`));
+  it('manilaAt(ms) gives YYYY-MM-DD, HH:mm and an ISO time with +08:00', () => {
+    const now = manilaAt(Date.UTC(2026, 10, 18, 1, 2, 3));
+    assert.deepEqual(now, { date: '2026-11-18', time: '09:02', iso: '2026-11-18T09:02:03+08:00' });
   });
 
   it('AppError carries code and fields (Server.gs relies on error.code)', () => {

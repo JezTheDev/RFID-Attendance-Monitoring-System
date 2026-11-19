@@ -130,6 +130,6 @@ export function createBootstrapAdmin(db, ctx) {
   db.Users.push(row);
   writeAudit(db, { user_id: '', role: 'system' }, {
     action: 'BOOTSTRAP_ADMIN', entityType: 'Users', entityId: row.user_id, after: { username: row.username },
-  });
+  }, ctx);
   return { user_id: row.user_id, username: row.username };
 }

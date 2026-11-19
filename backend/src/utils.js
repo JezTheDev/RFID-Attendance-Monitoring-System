@@ -1,5 +1,3 @@
-import { TIMEZONE } from './config.js';
-
 const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -20,35 +18,13 @@ export function setting(db, key, fallback) {
   return row ? row.value : fallback;
 }
 
-export function manilaNow() {
-  // On the Apps Script server, use its own date formatter (always available there).
-  if (typeof Utilities !== 'undefined') {
-    const now = new Date();
-    const date = Utilities.formatDate(now, TIMEZONE, 'yyyy-MM-dd');
-    const time = Utilities.formatDate(now, TIMEZONE, 'HH:mm');
-    return { date, time, iso: `${date}T${Utilities.formatDate(now, TIMEZONE, 'HH:mm:ss')}+08:00` };
-  }
-  const parts = Object.fromEntries(
-    new Intl.DateTimeFormat('en-CA', {
-      timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-    }).formatToParts(new Date()).map((part) => [part.type, part.value]),
-  );
-  const date = `${parts.year}-${parts.month}-${parts.day}`;
-  return {
-    date,
-    time: `${parts.hour}:${parts.minute}`,
-    iso: `${date}T${parts.hour}:${parts.minute}:${parts.second}+08:00`,
-  };
-}
-
 // Epoch ms -> "YYYY-MM-DDTHH:mm:ss+08:00". Manila has no daylight saving, so a
 // fixed +8 h offset is exact.
 export function toManilaIso(ms) {
   return `${new Date(Number(ms) + 8 * 3600000).toISOString().slice(0, 19)}+08:00`;
 }
 
-// Epoch ms -> { date, time (HH:mm), iso } in Manila, like manilaNow() for any clock (ctx.now()).
+// Epoch ms -> { date, time (HH:mm), iso } in Manila, for any clock (ctx.now()).
 export function manilaAt(ms) {
   const iso = toManilaIso(ms);
   return { date: iso.slice(0, 10), time: iso.slice(11, 16), iso };
@@ -88,10 +64,11 @@ export function cleanText(value) {
   return String(value ?? '').trim().replace(/\s+/g, ' ');
 }
 
-export function writeAudit(db, session, { action, entityType, entityId, before = null, after = null, reason = '' }) {
+// ctx.now() is the one clock (fake in tests).
+export function writeAudit(db, session, { action, entityType, entityId, before = null, after = null, reason = '' }, ctx) {
   db.AuditLog.push({
     audit_id: nextId(db.AuditLog, 'audit_id', 'AUD'),
-    timestamp: manilaNow().iso,
+    timestamp: toManilaIso(ctx.now()),
     user_id: session.user_id,
     role: session.role,
     action,

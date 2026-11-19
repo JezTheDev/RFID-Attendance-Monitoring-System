@@ -1,4 +1,4 @@
-import { AppError, validationError, manilaNow, cleanText, writeAudit, nextId } from '../utils.js';
+import { AppError, validationError, toManilaIso, cleanText, writeAudit, nextId } from '../utils.js';
 import { normalizeUsername } from '../auth/account.js';
 import { newUserRow, issueTempPassword, usernameProblem, accountSummary } from '../auth/admin-users.js';
 
@@ -73,11 +73,11 @@ export function createInstructor(db, input, session, ctx) {
   const issued = issueTempPassword(db, ctx, user);
   db.Instructors.push(instructor);
   db.Users.push(user);
-  writeAudit(db, session, { action: 'INSTRUCTOR_CREATE', entityType: 'Instructors', entityId: instructor.instructor_id, after: instructor });
+  writeAudit(db, session, { action: 'INSTRUCTOR_CREATE', entityType: 'Instructors', entityId: instructor.instructor_id, after: instructor }, ctx);
   return { instructor_id: instructor.instructor_id, ...issued };
 }
 
-export function updateInstructor(db, input, session) {
+export function updateInstructor(db, input, session, ctx) {
   const instructor = findInstructor(db, input.instructor_id);
   const { value, username } = validateInstructor(db, input, instructor);
   const before = { ...instructor };
@@ -86,13 +86,13 @@ export function updateInstructor(db, input, session) {
   if (user) {
     user.username = username;
     user.email = value.email;
-    user.updated_at = manilaNow().iso;
+    user.updated_at = toManilaIso(ctx.now());
   }
-  writeAudit(db, session, { action: 'INSTRUCTOR_UPDATE', entityType: 'Instructors', entityId: instructor.instructor_id, before, after: { ...instructor, username } });
+  writeAudit(db, session, { action: 'INSTRUCTOR_UPDATE', entityType: 'Instructors', entityId: instructor.instructor_id, before, after: { ...instructor, username } }, ctx);
   return { instructor_id: instructor.instructor_id };
 }
 
-export function setInstructorStatus(db, { instructor_id, status }, session) {
+export function setInstructorStatus(db, { instructor_id, status }, session, ctx) {
   const instructor = findInstructor(db, instructor_id);
   if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
   if (instructor.account_status === status) throw new AppError('NO_CHANGE', `This instructor is already ${status}.`);
@@ -105,11 +105,11 @@ export function setInstructorStatus(db, { instructor_id, status }, session) {
   const user = userOf(db, instructor_id);
   if (user) {
     user.account_status = status === 'active' ? 'active' : 'disabled';
-    user.updated_at = manilaNow().iso;
+    user.updated_at = toManilaIso(ctx.now());
   }
   writeAudit(db, session, {
     action: status === 'active' ? 'INSTRUCTOR_ACTIVATE' : 'INSTRUCTOR_DEACTIVATE',
     entityType: 'Instructors', entityId: instructor_id, before, after: { account_status: status },
-  });
+  }, ctx);
   return { instructor_id, status };
 }

@@ -2,7 +2,7 @@
 // passwords, reset password, unlock, last-admin protection.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDb, SESSIONS, withCode } from './helpers/db.js';
+import { makeDb, SESSIONS, withCode, CTX } from './helpers/db.js';
 import { makeCtx, setPassword, TEST_PROPS } from './helpers/auth.js';
 import { TEMP_PASSWORD_PATTERN } from '../src/auth/passwords.js';
 import { runAction } from '../src/actions.js';
@@ -176,10 +176,10 @@ describe('last active admin', () => {
     const other = { user_id: 'USR-0099', role: 'admin' };
     assert.throws(() => setAdminStatus(db, { user_id: 'USR-0001', status: 'inactive' }, other), withCode('IN_USE'));
     const { user_id: second } = createAdmin(db, { username: 'second', display_name: 'Second Admin' }, SESSIONS.admin, ctx);
-    setAdminStatus(db, { user_id: second, status: 'inactive' }, SESSIONS.admin);
+    setAdminStatus(db, { user_id: second, status: 'inactive' }, SESSIONS.admin, CTX);
     assert.throws(() => setAdminStatus(db, { user_id: 'USR-0001', status: 'inactive' }, other), withCode('IN_USE'));
-    setAdminStatus(db, { user_id: second, status: 'active' }, SESSIONS.admin);
-    setAdminStatus(db, { user_id: 'USR-0001', status: 'inactive' }, other);
+    setAdminStatus(db, { user_id: second, status: 'active' }, SESSIONS.admin, CTX);
+    setAdminStatus(db, { user_id: 'USR-0001', status: 'inactive' }, other, CTX);
     assert.equal(userById(db, 'USR-0001').account_status, 'disabled');
   });
 

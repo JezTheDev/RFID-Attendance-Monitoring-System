@@ -58,7 +58,7 @@ export function listDevices(db) {
   };
 }
 
-export function createDevice(db, input, session) {
+export function createDevice(db, input, session, ctx) {
   const name = deviceName(input.device_name);
   const room = activeRoom(db, input.room_id);
   // DEV-<room code>-NN; devices are never deleted, so highest + 1 is never reused.
@@ -76,20 +76,20 @@ export function createDevice(db, input, session) {
     notes: cleanText(input.notes),
   });
   db.Devices.push(row);
-  writeAudit(db, session, { action: 'DEVICE_CREATE', entityType: 'Devices', entityId: row.device_id, after: publicView(row) });
+  writeAudit(db, session, { action: 'DEVICE_CREATE', entityType: 'Devices', entityId: row.device_id, after: publicView(row) }, ctx);
   return { device_id: row.device_id };
 }
 
-export function updateDevice(db, input, session) {
+export function updateDevice(db, input, session, ctx) {
   const device = findDevice(db, input.device_id);
   const value = { device_name: deviceName(input.device_name), notes: cleanText(input.notes) };
   const before = publicView(device);
   Object.assign(device, value);
-  writeAudit(db, session, { action: 'DEVICE_UPDATE', entityType: 'Devices', entityId: device.device_id, before, after: publicView(device) });
+  writeAudit(db, session, { action: 'DEVICE_UPDATE', entityType: 'Devices', entityId: device.device_id, before, after: publicView(device) }, ctx);
   return { device_id: device.device_id };
 }
 
-export function setDeviceStatus(db, { device_id: deviceId, status }, session) {
+export function setDeviceStatus(db, { device_id: deviceId, status }, session, ctx) {
   if (!DEVICE_STATUSES.includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
   const device = findDevice(db, deviceId);
   notRetired(device);
@@ -101,12 +101,12 @@ export function setDeviceStatus(db, { device_id: deviceId, status }, session) {
   const before = { status: device.status };
   device.status = status;
   if (status === 'retired') device.device_key_hash = ''; // a retired device can never sign in again
-  writeAudit(db, session, { action: 'DEVICE_STATUS', entityType: 'Devices', entityId: device.device_id, before, after: { status } });
+  writeAudit(db, session, { action: 'DEVICE_STATUS', entityType: 'Devices', entityId: device.device_id, before, after: { status } }, ctx);
   return { device_id: device.device_id, status };
 }
 
 // room_id '' unassigns the device. The device_id keeps its original room code.
-export function assignDeviceRoom(db, { device_id: deviceId, room_id: roomId = '' }, session) {
+export function assignDeviceRoom(db, { device_id: deviceId, room_id: roomId = '' }, session, ctx) {
   const device = findDevice(db, deviceId);
   notRetired(device);
   const target = roomId ? activeRoom(db, roomId).room_id : '';
@@ -114,7 +114,7 @@ export function assignDeviceRoom(db, { device_id: deviceId, room_id: roomId = ''
   if (device.status === 'active') checkRoomFree(db, device, target);
   const before = { room_id: device.room_id };
   device.room_id = target;
-  writeAudit(db, session, { action: 'DEVICE_ASSIGN_ROOM', entityType: 'Devices', entityId: device.device_id, before, after: { room_id: target } });
+  writeAudit(db, session, { action: 'DEVICE_ASSIGN_ROOM', entityType: 'Devices', entityId: device.device_id, before, after: { room_id: target } }, ctx);
   return { device_id: device.device_id, room_id: target };
 }
 
@@ -134,6 +134,6 @@ export function generateDeviceKey(db, { device_id: deviceId }, session, ctx) {
   writeAudit(db, session, {
     action: 'DEVICE_KEY_GENERATE', entityType: 'Devices', entityId: device.device_id,
     reason: hadKey ? 'New key issued; the old key no longer works' : 'First key issued',
-  });
+  }, ctx);
   return { device_id: device.device_id, device_key: key };
 }

@@ -34,7 +34,7 @@ function failIfErrors(errors) {
   if (Object.keys(errors).length) throw validationError(errors);
 }
 
-function changeStatus(db, session, { rows, key, id, status, label, entityType, blockers }) {
+function changeStatus(db, session, ctx, { rows, key, id, status, label, entityType, blockers }) {
   if (!STATUSES.includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
   const row = find(rows, key, id, label);
   if (row.status === status) throw new AppError('NO_CHANGE', `This ${label.toLowerCase()} is already ${status}.`);
@@ -47,7 +47,7 @@ function changeStatus(db, session, { rows, key, id, status, label, entityType, b
   writeAudit(db, session, {
     action: `${entityType.toUpperCase()}_${status === 'active' ? 'ACTIVATE' : 'DEACTIVATE'}`,
     entityType, entityId: id, before, after: { status },
-  });
+  }, ctx);
   return { [key]: id, status };
 }
 
@@ -102,24 +102,24 @@ function validateTerm(db, input, existing = null) {
   return value;
 }
 
-export function createTerm(db, input, session) {
+export function createTerm(db, input, session, ctx) {
   const value = validateTerm(db, input);
   const row = { term_id: nextId(db.Terms, 'term_id', 'TRM'), ...value, is_active: 'FALSE' };
   db.Terms.push(row);
-  writeAudit(db, session, { action: 'TERM_CREATE', entityType: 'Terms', entityId: row.term_id, after: row });
+  writeAudit(db, session, { action: 'TERM_CREATE', entityType: 'Terms', entityId: row.term_id, after: row }, ctx);
   return { term_id: row.term_id };
 }
 
-export function updateTerm(db, input, session) {
+export function updateTerm(db, input, session, ctx) {
   const row = find(db.Terms, 'term_id', input.term_id, 'Term');
   const value = validateTerm(db, input, row);
   const before = { ...row };
   Object.assign(row, value);
-  writeAudit(db, session, { action: 'TERM_UPDATE', entityType: 'Terms', entityId: row.term_id, before, after: { ...row } });
+  writeAudit(db, session, { action: 'TERM_UPDATE', entityType: 'Terms', entityId: row.term_id, before, after: { ...row } }, ctx);
   return { term_id: row.term_id };
 }
 
-export function setActiveTerm(db, { term_id }, session) {
+export function setActiveTerm(db, { term_id }, session, ctx) {
   const row = find(db.Terms, 'term_id', term_id, 'Term');
   if (row.is_active === 'TRUE') throw new AppError('NO_CHANGE', 'This term is already the active term.');
   const previous = db.Terms.find((item) => item.is_active === 'TRUE');
@@ -127,7 +127,7 @@ export function setActiveTerm(db, { term_id }, session) {
   writeAudit(db, session, {
     action: 'TERM_SET_ACTIVE', entityType: 'Terms', entityId: term_id,
     before: { active_term: previous?.term_id ?? null }, after: { active_term: term_id },
-  });
+  }, ctx);
   return { term_id };
 }
 
@@ -158,25 +158,25 @@ function validateProgram(db, input, existing = null) {
   return value;
 }
 
-export function createProgram(db, input, session) {
+export function createProgram(db, input, session, ctx) {
   const value = validateProgram(db, input);
   const row = { program_id: nextId(db.Programs, 'program_id', 'PRG'), ...value, status: 'active' };
   db.Programs.push(row);
-  writeAudit(db, session, { action: 'PROGRAM_CREATE', entityType: 'Programs', entityId: row.program_id, after: row });
+  writeAudit(db, session, { action: 'PROGRAM_CREATE', entityType: 'Programs', entityId: row.program_id, after: row }, ctx);
   return { program_id: row.program_id };
 }
 
-export function updateProgram(db, input, session) {
+export function updateProgram(db, input, session, ctx) {
   const row = find(db.Programs, 'program_id', input.program_id, 'Program');
   const value = validateProgram(db, input, row);
   const before = { ...row };
   Object.assign(row, value);
-  writeAudit(db, session, { action: 'PROGRAM_UPDATE', entityType: 'Programs', entityId: row.program_id, before, after: { ...row } });
+  writeAudit(db, session, { action: 'PROGRAM_UPDATE', entityType: 'Programs', entityId: row.program_id, before, after: { ...row } }, ctx);
   return { program_id: row.program_id };
 }
 
-export function setProgramStatus(db, { program_id, status }, session) {
-  return changeStatus(db, session, {
+export function setProgramStatus(db, { program_id, status }, session, ctx) {
+  return changeStatus(db, session, ctx, {
     rows: db.Programs, key: 'program_id', id: program_id, status, label: 'Program', entityType: 'Programs',
     blockers: (row) => [
       countLabel(db.Sections.filter((s) => s.program_id === row.program_id && s.status === 'active').length, 'active section'),
@@ -224,25 +224,25 @@ function validateSection(db, input, existing = null) {
   return { ...value, year_level: String(value.year_level) };
 }
 
-export function createSection(db, input, session) {
+export function createSection(db, input, session, ctx) {
   const value = validateSection(db, input);
   const row = { section_id: nextId(db.Sections, 'section_id', 'SEC'), ...value, status: 'active' };
   db.Sections.push(row);
-  writeAudit(db, session, { action: 'SECTION_CREATE', entityType: 'Sections', entityId: row.section_id, after: row });
+  writeAudit(db, session, { action: 'SECTION_CREATE', entityType: 'Sections', entityId: row.section_id, after: row }, ctx);
   return { section_id: row.section_id };
 }
 
-export function updateSection(db, input, session) {
+export function updateSection(db, input, session, ctx) {
   const row = find(db.Sections, 'section_id', input.section_id, 'Section');
   const value = validateSection(db, input, row);
   const before = { ...row };
   Object.assign(row, value);
-  writeAudit(db, session, { action: 'SECTION_UPDATE', entityType: 'Sections', entityId: row.section_id, before, after: { ...row } });
+  writeAudit(db, session, { action: 'SECTION_UPDATE', entityType: 'Sections', entityId: row.section_id, before, after: { ...row } }, ctx);
   return { section_id: row.section_id };
 }
 
-export function setSectionStatus(db, { section_id, status }, session) {
-  return changeStatus(db, session, {
+export function setSectionStatus(db, { section_id, status }, session, ctx) {
+  return changeStatus(db, session, ctx, {
     rows: db.Sections, key: 'section_id', id: section_id, status, label: 'Section', entityType: 'Sections',
     blockers: (row) => [
       countLabel(db.Students.filter((s) => s.section_id === row.section_id && s.account_status === 'active').length, 'active student'),
@@ -279,25 +279,25 @@ function validateSubject(db, input, existing = null) {
   return { ...value, units: String(value.units) };
 }
 
-export function createSubject(db, input, session) {
+export function createSubject(db, input, session, ctx) {
   const value = validateSubject(db, input);
   const row = { subject_id: nextId(db.Subjects, 'subject_id', 'SUB'), ...value, status: 'active' };
   db.Subjects.push(row);
-  writeAudit(db, session, { action: 'SUBJECT_CREATE', entityType: 'Subjects', entityId: row.subject_id, after: row });
+  writeAudit(db, session, { action: 'SUBJECT_CREATE', entityType: 'Subjects', entityId: row.subject_id, after: row }, ctx);
   return { subject_id: row.subject_id };
 }
 
-export function updateSubject(db, input, session) {
+export function updateSubject(db, input, session, ctx) {
   const row = find(db.Subjects, 'subject_id', input.subject_id, 'Subject');
   const value = validateSubject(db, input, row);
   const before = { ...row };
   Object.assign(row, value);
-  writeAudit(db, session, { action: 'SUBJECT_UPDATE', entityType: 'Subjects', entityId: row.subject_id, before, after: { ...row } });
+  writeAudit(db, session, { action: 'SUBJECT_UPDATE', entityType: 'Subjects', entityId: row.subject_id, before, after: { ...row } }, ctx);
   return { subject_id: row.subject_id };
 }
 
-export function setSubjectStatus(db, { subject_id, status }, session) {
-  return changeStatus(db, session, {
+export function setSubjectStatus(db, { subject_id, status }, session, ctx) {
+  return changeStatus(db, session, ctx, {
     rows: db.Subjects, key: 'subject_id', id: subject_id, status, label: 'Subject', entityType: 'Subjects',
     blockers: (row) => [countLabel(db.Classes.filter((c) => c.subject_id === row.subject_id && c.status === 'active').length, 'active class', 'active classes')],
   });
@@ -334,25 +334,25 @@ function validateRoom(db, input, existing = null) {
   return value;
 }
 
-export function createRoom(db, input, session) {
+export function createRoom(db, input, session, ctx) {
   const value = validateRoom(db, input);
   const row = { room_id: nextId(db.Rooms, 'room_id', 'ROM'), ...value, status: 'active' };
   db.Rooms.push(row);
-  writeAudit(db, session, { action: 'ROOM_CREATE', entityType: 'Rooms', entityId: row.room_id, after: row });
+  writeAudit(db, session, { action: 'ROOM_CREATE', entityType: 'Rooms', entityId: row.room_id, after: row }, ctx);
   return { room_id: row.room_id };
 }
 
-export function updateRoom(db, input, session) {
+export function updateRoom(db, input, session, ctx) {
   const row = find(db.Rooms, 'room_id', input.room_id, 'Room');
   const value = validateRoom(db, input, row);
   const before = { ...row };
   Object.assign(row, value);
-  writeAudit(db, session, { action: 'ROOM_UPDATE', entityType: 'Rooms', entityId: row.room_id, before, after: { ...row } });
+  writeAudit(db, session, { action: 'ROOM_UPDATE', entityType: 'Rooms', entityId: row.room_id, before, after: { ...row } }, ctx);
   return { room_id: row.room_id };
 }
 
-export function setRoomStatus(db, { room_id, status }, session) {
-  return changeStatus(db, session, {
+export function setRoomStatus(db, { room_id, status }, session, ctx) {
+  return changeStatus(db, session, ctx, {
     rows: db.Rooms, key: 'room_id', id: room_id, status, label: 'Room', entityType: 'Rooms',
     blockers: (row) => [
       countLabel(db.Schedules.filter((s) => s.room_id === row.room_id && s.status === 'active').length, 'active schedule'),

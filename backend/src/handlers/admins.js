@@ -1,7 +1,7 @@
 // Admin accounts. Unlike students and instructors, an admin has no separate
 // record: the Users row is the whole account (name stored in display_name).
 import {
-  AppError, validationError, manilaNow, cleanText, writeAudit,
+  AppError, validationError, toManilaIso, cleanText, writeAudit,
 } from '../utils.js';
 import { normalizeUsername } from '../auth/account.js';
 import { newUserRow, issueTempPassword, usernameProblem, accountSummary } from '../auth/admin-users.js';
@@ -62,23 +62,23 @@ export function createAdmin(db, input, session, ctx) {
   const row = newUserRow(db, ctx, { username: value.username, email: value.email, role: 'admin', displayName: value.display_name }, session);
   const issued = issueTempPassword(db, ctx, row);
   db.Users.push(row);
-  writeAudit(db, session, { action: 'ADMIN_CREATE', entityType: 'Users', entityId: row.user_id, after: { username: row.username, email: row.email, display_name: row.display_name } });
+  writeAudit(db, session, { action: 'ADMIN_CREATE', entityType: 'Users', entityId: row.user_id, after: { username: row.username, email: row.email, display_name: row.display_name } }, ctx);
   return { user_id: row.user_id, ...issued };
 }
 
-export function updateAdmin(db, input, session) {
+export function updateAdmin(db, input, session, ctx) {
   const row = findAdmin(db, input.user_id);
   const value = validate(db, input, row);
   const before = { username: row.username, email: row.email, display_name: row.display_name || '' };
   row.username = value.username;
   row.email = value.email;
   row.display_name = value.display_name;
-  row.updated_at = manilaNow().iso;
-  writeAudit(db, session, { action: 'ADMIN_UPDATE', entityType: 'Users', entityId: row.user_id, before, after: value });
+  row.updated_at = toManilaIso(ctx.now());
+  writeAudit(db, session, { action: 'ADMIN_UPDATE', entityType: 'Users', entityId: row.user_id, before, after: value }, ctx);
   return { user_id: row.user_id };
 }
 
-export function setAdminStatus(db, { user_id: userId, status }, session) {
+export function setAdminStatus(db, { user_id: userId, status }, session, ctx) {
   const row = findAdmin(db, userId);
   if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
   const current = row.account_status === 'active' ? 'active' : 'inactive';
@@ -89,7 +89,7 @@ export function setAdminStatus(db, { user_id: userId, status }, session) {
     if (activeAdmins.length <= 1) throw new AppError('IN_USE', 'There must always be at least one active administrator.');
   }
   row.account_status = status === 'active' ? 'active' : 'disabled';
-  row.updated_at = manilaNow().iso;
+  row.updated_at = toManilaIso(ctx.now());
   if (status === 'inactive') {
     // Sign them out everywhere right away.
     (db.AuthSessions || []).forEach((item) => { if (item.user_id === userId) item.revoked = 'TRUE'; });
@@ -97,6 +97,6 @@ export function setAdminStatus(db, { user_id: userId, status }, session) {
   writeAudit(db, session, {
     action: status === 'active' ? 'ADMIN_ACTIVATE' : 'ADMIN_DEACTIVATE',
     entityType: 'Users', entityId: userId, before: { account_status: current }, after: { account_status: row.account_status },
-  });
+  }, ctx);
   return { user_id: userId, status };
 }

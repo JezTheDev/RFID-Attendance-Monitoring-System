@@ -45,10 +45,10 @@ function saved(error) {
   return error;
 }
 
-function audit(db, user, action, reason = '') {
+function audit(db, ctx, user, action, reason = '') {
   writeAudit(db, { user_id: user ? user.user_id : '', role: user ? user.role : '' }, {
     action, entityType: 'Users', entityId: user ? user.user_id : '', reason,
-  });
+  }, ctx);
 }
 
 export function login(db, request, _session, ctx) {
@@ -60,13 +60,13 @@ export function login(db, request, _session, ctx) {
   if (!user) {
     ctx.hash(password); // same work as a real check, so timing does not reveal unknown usernames
     // The attempted username is NOT logged: people sometimes type their password there.
-    audit(db, null, 'LOGIN_FAILED', 'unknown username');
+    audit(db, ctx, null, 'LOGIN_FAILED', 'unknown username');
     throw saved(invalidCredentials());
   }
 
   const lockedUntil = Date.parse(user.locked_until);
   if (lockedUntil > nowMs) {
-    audit(db, user, 'LOGIN_FAILED', 'account locked');
+    audit(db, ctx, user, 'LOGIN_FAILED', 'account locked');
     throw saved(accountLocked(Math.ceil((lockedUntil - nowMs) / MINUTE)));
   }
   if (user.locked_until) { // the lock has expired: start counting again
@@ -78,11 +78,11 @@ export function login(db, request, _session, ctx) {
     if (!user.password_hash) ctx.hash(password);
     const attempts = (Number(user.failed_attempts) || 0) + 1;
     user.failed_attempts = String(attempts);
-    audit(db, user, 'LOGIN_FAILED', 'wrong password');
+    audit(db, ctx, user, 'LOGIN_FAILED', 'wrong password');
     if (attempts >= positiveSetting(db, 'max_login_attempts', 5)) {
       const minutes = positiveSetting(db, 'lockout_minutes', 15);
       user.locked_until = toManilaIso(nowMs + minutes * MINUTE);
-      audit(db, user, 'ACCOUNT_LOCKED', `${attempts} failed attempts`);
+      audit(db, ctx, user, 'ACCOUNT_LOCKED', `${attempts} failed attempts`);
       throw saved(accountLocked(minutes));
     }
     throw saved(invalidCredentials());
@@ -90,13 +90,13 @@ export function login(db, request, _session, ctx) {
 
   // Only someone with the right password learns that the account is disabled.
   if (user.account_status !== 'active') {
-    audit(db, user, 'LOGIN_FAILED', 'account disabled');
+    audit(db, ctx, user, 'LOGIN_FAILED', 'account disabled');
     throw saved(new AppError('ACCOUNT_DISABLED', 'Your account is disabled. Contact the administrator.'));
   }
 
   // Checked only after the right password, so a guesser learns nothing.
   if (Date.parse(user.temp_password_expires_at) <= nowMs) {
-    audit(db, user, 'LOGIN_FAILED', 'temporary password expired');
+    audit(db, ctx, user, 'LOGIN_FAILED', 'temporary password expired');
     throw saved(new AppError('TEMP_PASSWORD_EXPIRED', 'Your temporary password has expired. Ask the admin to reset your password.'));
   }
 
@@ -105,7 +105,7 @@ export function login(db, request, _session, ctx) {
   if (hashIterations(user.password_hash) < ctx.iterations) user.password_hash = ctx.hash(password);
   const { token, expires_at: expiresAt } = startSession(db, user, ctx);
   user.last_login_at = toManilaIso(nowMs);
-  audit(db, user, 'LOGIN_SUCCESS');
+  audit(db, ctx, user, 'LOGIN_SUCCESS');
   return {
     session_token: token,
     user_id: user.user_id,
@@ -177,6 +177,6 @@ export function changePassword(db, request, session, ctx) {
   user.locked_until = '';
   user.updated_at = now;
   const revoked = revokeSessions(db, user.user_id, session.token_hash);
-  audit(db, user, 'PASSWORD_CHANGED', revoked ? `${revoked} other session(s) signed out` : '');
+  audit(db, ctx, user, 'PASSWORD_CHANGED', revoked ? `${revoked} other session(s) signed out` : '');
   return { must_change_password: false, other_sessions_revoked: revoked };
 }

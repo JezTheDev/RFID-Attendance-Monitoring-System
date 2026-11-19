@@ -1,5 +1,5 @@
 import {
-  AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus,
+  AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus,
 } from '../utils.js';
 import { enrollInSectionClasses } from './classes.js';
 import { newUserRow, issueTempPassword, usernameTaken, accountSummary } from '../auth/admin-users.js';
@@ -193,12 +193,12 @@ export function createStudent(db, input, session, ctx) {
   const issued = issueTempPassword(db, ctx, user);
   db.Students.push(student);
   db.Users.push(user);
-  const classesJoined = enrollInSectionClasses(db, student.student_id, student.section_id);
-  writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } });
+  const classesJoined = enrollInSectionClasses(db, ctx, student.student_id, student.section_id);
+  writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } }, ctx);
   return { student_id: student.student_id, classes_joined: classesJoined, ...issued };
 }
 
-export function updateStudent(db, input, session) {
+export function updateStudent(db, input, session, ctx) {
   const student = findStudent(db, input.student_id);
   const value = validateStudentInput(db, input, student);
   const before = { ...student };
@@ -217,21 +217,21 @@ export function updateStudent(db, input, session) {
   if (user) {
     user.username = value.student_number; // the username follows the student number
     user.email = value.email;
-    user.updated_at = manilaNow().iso;
+    user.updated_at = toManilaIso(ctx.now());
   }
 
-  writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before, after: { ...student } });
+  writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before, after: { ...student } }, ctx);
   return { student_id: student.student_id };
 }
 
-export function setStudentStatus(db, { student_id, status, reason }, session) {
+export function setStudentStatus(db, { student_id, status, reason }, session, ctx) {
   const student = findStudent(db, student_id);
   if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
   if (student.account_status === status) throw new AppError('NO_CHANGE', `This student is already ${status}.`);
   const cleanReason = cleanText(reason);
   if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
 
-  const now = manilaNow().iso;
+  const now = toManilaIso(ctx.now());
   const user = userOf(db, student_id);
   const before = { account_status: student.account_status };
   student.account_status = status;
@@ -255,11 +255,11 @@ export function setStudentStatus(db, { student_id, status, reason }, session) {
   writeAudit(db, session, {
     action: status === 'active' ? 'STUDENT_ACTIVATE' : 'STUDENT_DEACTIVATE',
     entityType: 'Students', entityId: student_id, before, after: { account_status: status, revoked_card: revokedCard }, reason: cleanReason,
-  });
+  }, ctx);
   return { student_id, account_status: status, revoked_card_id: revokedCard };
 }
 
-export function assignCard(db, { student_id, rfid_uid, replace_reason = '', note = '' }, session) {
+export function assignCard(db, { student_id, rfid_uid, replace_reason = '', note = '' }, session, ctx) {
   const student = findStudent(db, student_id);
   if (student.account_status !== 'active') {
     throw new AppError('STUDENT_INACTIVE', 'Activate this student before assigning a card.');
@@ -283,7 +283,7 @@ export function assignCard(db, { student_id, rfid_uid, replace_reason = '', note
   }
 
   const current = activeCardOf(db, student_id);
-  const now = manilaNow().iso;
+  const now = toManilaIso(ctx.now());
   const cleanNote = cleanText(note).slice(0, 200);
   if (current) {
     if (!REPLACE_REASONS[replace_reason]) throw validationError({ replace_reason: 'Choose why the current card is being replaced.' });
@@ -310,24 +310,24 @@ export function assignCard(db, { student_id, rfid_uid, replace_reason = '', note
     before: current ? { card_id: current.card_id, status: 'active' } : null,
     after: { card_id: card.card_id, rfid_uid: uid, student_id },
     reason: current ? replace_reason : '',
-  });
+  }, ctx);
   return { card_id: card.card_id, replaced_card_id: current?.card_id ?? null };
 }
 
-export function revokeCard(db, { student_id, reason }, session) {
+export function revokeCard(db, { student_id, reason }, session, ctx) {
   findStudent(db, student_id);
   const card = activeCardOf(db, student_id);
   if (!card) throw new AppError('NO_ACTIVE_CARD', 'This student has no active card.');
   const cleanReason = cleanText(reason);
   if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
   card.status = 'revoked';
-  card.revoked_at = manilaNow().iso;
+  card.revoked_at = toManilaIso(ctx.now());
   card.notes = cleanText(`${card.notes} Revoked: ${cleanReason}`);
   bumpRosterVersion(db);
   writeAudit(db, session, {
     action: 'CARD_REVOKE', entityType: 'RfidCards', entityId: card.card_id,
     before: { status: 'active' }, after: { status: 'revoked' }, reason: cleanReason,
-  });
+  }, ctx);
   return { card_id: card.card_id };
 }
 

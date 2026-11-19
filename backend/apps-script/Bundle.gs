@@ -5,18 +5,8 @@ var RFID = (function () {
   'use strict';
   const __m = {};
 
-  // ---- config.js ----
-  __m["config"] = (function () {
-    // Server-side settings shared by every handler. Only the time zone for now:
-    // everything else lives in the Settings tab or in Script Properties.
-    const TIMEZONE = 'Asia/Manila';
-    return { TIMEZONE };
-  })();
-
   // ---- utils.js ----
   __m["utils"] = (function () {
-    const { TIMEZONE } = __m["config"];
-
     const DAY_CODES = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
     const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -37,35 +27,13 @@ var RFID = (function () {
       return row ? row.value : fallback;
     }
 
-    function manilaNow() {
-      // On the Apps Script server, use its own date formatter (always available there).
-      if (typeof Utilities !== 'undefined') {
-        const now = new Date();
-        const date = Utilities.formatDate(now, TIMEZONE, 'yyyy-MM-dd');
-        const time = Utilities.formatDate(now, TIMEZONE, 'HH:mm');
-        return { date, time, iso: `${date}T${Utilities.formatDate(now, TIMEZONE, 'HH:mm:ss')}+08:00` };
-      }
-      const parts = Object.fromEntries(
-        new Intl.DateTimeFormat('en-CA', {
-          timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit',
-          hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
-        }).formatToParts(new Date()).map((part) => [part.type, part.value]),
-      );
-      const date = `${parts.year}-${parts.month}-${parts.day}`;
-      return {
-        date,
-        time: `${parts.hour}:${parts.minute}`,
-        iso: `${date}T${parts.hour}:${parts.minute}:${parts.second}+08:00`,
-      };
-    }
-
     // Epoch ms -> "YYYY-MM-DDTHH:mm:ss+08:00". Manila has no daylight saving, so a
     // fixed +8 h offset is exact.
     function toManilaIso(ms) {
       return `${new Date(Number(ms) + 8 * 3600000).toISOString().slice(0, 19)}+08:00`;
     }
 
-    // Epoch ms -> { date, time (HH:mm), iso } in Manila, like manilaNow() for any clock (ctx.now()).
+    // Epoch ms -> { date, time (HH:mm), iso } in Manila, for any clock (ctx.now()).
     function manilaAt(ms) {
       const iso = toManilaIso(ms);
       return { date: iso.slice(0, 10), time: iso.slice(11, 16), iso };
@@ -105,10 +73,11 @@ var RFID = (function () {
       return String(value ?? '').trim().replace(/\s+/g, ' ');
     }
 
-    function writeAudit(db, session, { action, entityType, entityId, before = null, after = null, reason = '' }) {
+    // ctx.now() is the one clock (fake in tests).
+    function writeAudit(db, session, { action, entityType, entityId, before = null, after = null, reason = '' }, ctx) {
       db.AuditLog.push({
         audit_id: nextId(db.AuditLog, 'audit_id', 'AUD'),
-        timestamp: manilaNow().iso,
+        timestamp: toManilaIso(ctx.now()),
         user_id: session.user_id,
         role: session.role,
         action,
@@ -127,7 +96,7 @@ var RFID = (function () {
       }, 0);
       return `${prefix}-${String(highest + 1).padStart(width, '0')}`;
     }
-    return { AppError, validationError, setting, manilaNow, toManilaIso, manilaAt, dayCodeOf, isValidDate, shiftDate, indexBy, fullName, effectiveStatus, cleanText, writeAudit, nextId };
+    return { AppError, validationError, setting, toManilaIso, manilaAt, dayCodeOf, isValidDate, shiftDate, indexBy, fullName, effectiveStatus, cleanText, writeAudit, nextId };
   })();
 
   // ---- auth/session.js ----
@@ -360,10 +329,10 @@ var RFID = (function () {
       return error;
     }
 
-    function audit(db, user, action, reason = '') {
+    function audit(db, ctx, user, action, reason = '') {
       writeAudit(db, { user_id: user ? user.user_id : '', role: user ? user.role : '' }, {
         action, entityType: 'Users', entityId: user ? user.user_id : '', reason,
-      });
+      }, ctx);
     }
 
     function login(db, request, _session, ctx) {
@@ -375,13 +344,13 @@ var RFID = (function () {
       if (!user) {
         ctx.hash(password); // same work as a real check, so timing does not reveal unknown usernames
         // The attempted username is NOT logged: people sometimes type their password there.
-        audit(db, null, 'LOGIN_FAILED', 'unknown username');
+        audit(db, ctx, null, 'LOGIN_FAILED', 'unknown username');
         throw saved(invalidCredentials());
       }
 
       const lockedUntil = Date.parse(user.locked_until);
       if (lockedUntil > nowMs) {
-        audit(db, user, 'LOGIN_FAILED', 'account locked');
+        audit(db, ctx, user, 'LOGIN_FAILED', 'account locked');
         throw saved(accountLocked(Math.ceil((lockedUntil - nowMs) / MINUTE)));
       }
       if (user.locked_until) { // the lock has expired: start counting again
@@ -393,11 +362,11 @@ var RFID = (function () {
         if (!user.password_hash) ctx.hash(password);
         const attempts = (Number(user.failed_attempts) || 0) + 1;
         user.failed_attempts = String(attempts);
-        audit(db, user, 'LOGIN_FAILED', 'wrong password');
+        audit(db, ctx, user, 'LOGIN_FAILED', 'wrong password');
         if (attempts >= positiveSetting(db, 'max_login_attempts', 5)) {
           const minutes = positiveSetting(db, 'lockout_minutes', 15);
           user.locked_until = toManilaIso(nowMs + minutes * MINUTE);
-          audit(db, user, 'ACCOUNT_LOCKED', `${attempts} failed attempts`);
+          audit(db, ctx, user, 'ACCOUNT_LOCKED', `${attempts} failed attempts`);
           throw saved(accountLocked(minutes));
         }
         throw saved(invalidCredentials());
@@ -405,13 +374,13 @@ var RFID = (function () {
 
       // Only someone with the right password learns that the account is disabled.
       if (user.account_status !== 'active') {
-        audit(db, user, 'LOGIN_FAILED', 'account disabled');
+        audit(db, ctx, user, 'LOGIN_FAILED', 'account disabled');
         throw saved(new AppError('ACCOUNT_DISABLED', 'Your account is disabled. Contact the administrator.'));
       }
 
       // Checked only after the right password, so a guesser learns nothing.
       if (Date.parse(user.temp_password_expires_at) <= nowMs) {
-        audit(db, user, 'LOGIN_FAILED', 'temporary password expired');
+        audit(db, ctx, user, 'LOGIN_FAILED', 'temporary password expired');
         throw saved(new AppError('TEMP_PASSWORD_EXPIRED', 'Your temporary password has expired. Ask the admin to reset your password.'));
       }
 
@@ -420,7 +389,7 @@ var RFID = (function () {
       if (hashIterations(user.password_hash) < ctx.iterations) user.password_hash = ctx.hash(password);
       const { token, expires_at: expiresAt } = startSession(db, user, ctx);
       user.last_login_at = toManilaIso(nowMs);
-      audit(db, user, 'LOGIN_SUCCESS');
+      audit(db, ctx, user, 'LOGIN_SUCCESS');
       return {
         session_token: token,
         user_id: user.user_id,
@@ -492,7 +461,7 @@ var RFID = (function () {
       user.locked_until = '';
       user.updated_at = now;
       const revoked = revokeSessions(db, user.user_id, session.token_hash);
-      audit(db, user, 'PASSWORD_CHANGED', revoked ? `${revoked} other session(s) signed out` : '');
+      audit(db, ctx, user, 'PASSWORD_CHANGED', revoked ? `${revoked} other session(s) signed out` : '');
       return { must_change_password: false, other_sessions_revoked: revoked };
     }
     return { normalizeUsername, findUserByUsername, positiveSetting, login, logout, me, validateNewPassword, changePassword };
@@ -532,17 +501,13 @@ var RFID = (function () {
       return '';
     }
 
-    function nowMs(ctx) {
-      return ctx ? ctx.now() : Date.now();
-    }
-
     // What the admin pages may show about a login account (never the hash).
     function accountSummary(user, ctx) {
       if (!user) return null;
       return {
         username: user.username || '',
         must_change_password: isTrue(user.must_change_password),
-        locked: Date.parse(user.locked_until) > nowMs(ctx),
+        locked: Date.parse(user.locked_until) > ctx.now(),
         last_login_at: user.last_login_at || null,
       };
     }
@@ -602,7 +567,7 @@ var RFID = (function () {
       writeAudit(db, session, {
         action: 'PASSWORD_RESET', entityType: 'Users', entityId: user.user_id,
         reason: `New temporary password issued; ${revoked} session(s) signed out`,
-      });
+      }, ctx);
       return { user_id: user.user_id, must_change_password: true, sessions_revoked: revoked, ...issued };
     }
 
@@ -618,7 +583,7 @@ var RFID = (function () {
       writeAudit(db, session, {
         action: 'USER_UNLOCKED', entityType: 'Users', entityId: user.user_id,
         before, after: { failed_attempts: '0', locked_until: '' },
-      });
+      }, ctx);
       return { user_id: user.user_id };
     }
     return { USER_COLUMNS, USERNAME_PATTERN, usernameTaken, usernameProblem, accountSummary, issueTempPassword, newUserRow, resetPassword, unlockUser };
@@ -776,6 +741,7 @@ var RFID = (function () {
           end_time: end,
           source,
           status,
+          phase: sessionPhase(session ?? { status: 'open', session_date: date, scheduled_start: start, scheduled_end: end }, now),
           enrolled,
           present: counted ? present : null,
           late: counted ? late : null,
@@ -830,7 +796,7 @@ var RFID = (function () {
           battery_voltage: battery,
           low_battery: battery !== null && battery < lowBatteryVoltage,
           last_seen_at: row.last_seen_at || null,
-          online: Boolean(row.last_seen_at) && Date.now() - Date.parse(row.last_seen_at) <= offlineAfterMs,
+          online: Boolean(row.last_seen_at) && ctx.now() - Date.parse(row.last_seen_at) <= offlineAfterMs,
           queue_count: Number(row.queue_count || 0),
         };
       });
@@ -911,7 +877,7 @@ var RFID = (function () {
     // Admin: classes (subject + section + instructor), their weekly schedules,
     // and which students are enrolled. The Instructor and Student portals and the
     // RFID session lookup all read from these three tables.
-    const { AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId } = __m["utils"];
+    const { AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId } = __m["utils"];
 
     const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -1053,7 +1019,7 @@ var RFID = (function () {
       return String(number);
     }
 
-    function createClass(db, input, session) {
+    function createClass(db, input, session, ctx) {
       const m = maps(db);
       const errors = {};
       const value = {
@@ -1087,13 +1053,13 @@ var RFID = (function () {
 
       // Default: the whole section is enrolled. The admin can adjust afterwards.
       const sectionStudents = db.Students.filter((row) => row.section_id === value.section_id && row.account_status === 'active');
-      sectionStudents.forEach((student) => enroll(db, klass.class_id, student.student_id));
+      sectionStudents.forEach((student) => enroll(db, ctx, klass.class_id, student.student_id));
 
-      writeAudit(db, session, { action: 'CLASS_CREATE', entityType: 'Classes', entityId: klass.class_id, after: { ...klass, enrolled: sectionStudents.length } });
+      writeAudit(db, session, { action: 'CLASS_CREATE', entityType: 'Classes', entityId: klass.class_id, after: { ...klass, enrolled: sectionStudents.length } }, ctx);
       return { class_id: klass.class_id, class_label: klass.class_label, enrolled: sectionStudents.length };
     }
 
-    function updateClass(db, input, session) {
+    function updateClass(db, input, session, ctx) {
       const m = maps(db);
       const klass = findClass(db, input.class_id);
       const errors = {};
@@ -1112,11 +1078,11 @@ var RFID = (function () {
       const before = { instructor_id: klass.instructor_id, late_grace_minutes: klass.late_grace_minutes };
       klass.instructor_id = instructorId;
       klass.late_grace_minutes = lateGrace;
-      writeAudit(db, session, { action: 'CLASS_UPDATE', entityType: 'Classes', entityId: klass.class_id, before, after: { instructor_id: instructorId, late_grace_minutes: lateGrace } });
+      writeAudit(db, session, { action: 'CLASS_UPDATE', entityType: 'Classes', entityId: klass.class_id, before, after: { instructor_id: instructorId, late_grace_minutes: lateGrace } }, ctx);
       return { class_id: klass.class_id };
     }
 
-    function setClassStatus(db, { class_id: classId, status }, session) {
+    function setClassStatus(db, { class_id: classId, status }, session, ctx) {
       const klass = findClass(db, classId);
       if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
       if (klass.status === status) throw new AppError('NO_CHANGE', `This class is already ${status}.`);
@@ -1137,7 +1103,7 @@ var RFID = (function () {
       }
       const before = { status: klass.status };
       klass.status = status;
-      writeAudit(db, session, { action: status === 'active' ? 'CLASS_ACTIVATE' : 'CLASS_DEACTIVATE', entityType: 'Classes', entityId: classId, before, after: { status } });
+      writeAudit(db, session, { action: status === 'active' ? 'CLASS_ACTIVATE' : 'CLASS_DEACTIVATE', entityType: 'Classes', entityId: classId, before, after: { status } }, ctx);
       return { class_id: classId, status };
     }
 
@@ -1166,7 +1132,7 @@ var RFID = (function () {
       return '';
     }
 
-    function addSchedule(db, input, session) {
+    function addSchedule(db, input, session, ctx) {
       const m = maps(db);
       const klass = findClass(db, input.class_id);
       if (klass.status !== 'active') throw new AppError('CLASS_INACTIVE', 'Activate this class before adding a schedule.');
@@ -1197,22 +1163,22 @@ var RFID = (function () {
 
       const row = { schedule_id: nextId(db.Schedules, 'schedule_id', 'SCH'), class_id: klass.class_id, ...slot, status: 'active' };
       db.Schedules.push(row);
-      writeAudit(db, session, { action: 'SCHEDULE_CREATE', entityType: 'Schedules', entityId: row.schedule_id, after: row });
+      writeAudit(db, session, { action: 'SCHEDULE_CREATE', entityType: 'Schedules', entityId: row.schedule_id, after: row }, ctx);
       return { schedule_id: row.schedule_id };
     }
 
-    function removeSchedule(db, { schedule_id: scheduleId }, session) {
+    function removeSchedule(db, { schedule_id: scheduleId }, session, ctx) {
       const row = db.Schedules.find((item) => item.schedule_id === scheduleId);
       if (!row || row.status !== 'active') throw new AppError('NOT_FOUND', 'Schedule not found.');
       // Kept as "inactive" so past sessions still point to a real schedule.
       row.status = 'inactive';
-      writeAudit(db, session, { action: 'SCHEDULE_REMOVE', entityType: 'Schedules', entityId: scheduleId, before: { status: 'active' }, after: { status: 'inactive' } });
+      writeAudit(db, session, { action: 'SCHEDULE_REMOVE', entityType: 'Schedules', entityId: scheduleId, before: { status: 'active' }, after: { status: 'inactive' } }, ctx);
       return { schedule_id: scheduleId };
     }
 
     /* ---------------- enrollments ---------------- */
 
-    function enroll(db, classId, studentId) {
+    function enroll(db, ctx, classId, studentId) {
       const existing = db.Enrollments.find((row) => row.class_id === classId && row.student_id === studentId);
       if (existing) {
         if (existing.status === 'enrolled') return false;
@@ -1224,12 +1190,12 @@ var RFID = (function () {
         class_id: classId,
         student_id: studentId,
         status: 'enrolled',
-        enrolled_at: manilaNow().iso,
+        enrolled_at: toManilaIso(ctx.now()),
       });
       return true;
     }
 
-    function enrollStudents(db, input, session) {
+    function enrollStudents(db, input, session, ctx) {
       const klass = findClass(db, input.class_id);
       const m = maps(db);
       let ids = Array.isArray(input.student_ids) ? input.student_ids : String(input.student_ids ?? '').split(',');
@@ -1241,14 +1207,14 @@ var RFID = (function () {
       const invalid = ids.find((id) => m.students.get(id)?.account_status !== 'active');
       if (invalid) throw validationError({ student_ids: 'Only active students can be enrolled.' });
 
-      const added = [...new Set(ids)].filter((id) => enroll(db, klass.class_id, id));
+      const added = [...new Set(ids)].filter((id) => enroll(db, ctx, klass.class_id, id));
       if (added.length) {
-        writeAudit(db, session, { action: 'ENROLL_ADD', entityType: 'Enrollments', entityId: klass.class_id, after: { student_ids: added } });
+        writeAudit(db, session, { action: 'ENROLL_ADD', entityType: 'Enrollments', entityId: klass.class_id, after: { student_ids: added } }, ctx);
       }
       return { class_id: klass.class_id, added: added.length };
     }
 
-    function dropEnrollment(db, { class_id: classId, student_id: studentId, reason = '' }, session) {
+    function dropEnrollment(db, { class_id: classId, student_id: studentId, reason = '' }, session, ctx) {
       findClass(db, classId);
       const row = db.Enrollments.find((item) => item.class_id === classId && item.student_id === studentId && item.status === 'enrolled');
       if (!row) throw new AppError('NOT_FOUND', 'This student is not enrolled in the class.');
@@ -1258,24 +1224,24 @@ var RFID = (function () {
       writeAudit(db, session, {
         action: 'ENROLL_DROP', entityType: 'Enrollments', entityId: row.enrollment_id,
         before: { status: 'enrolled' }, after: { status: 'dropped' }, reason: cleanReason,
-      });
+      }, ctx);
       return { class_id: classId, student_id: studentId };
     }
 
     // Used when a new student is added: join every active class of their section
     // in the active term, so they show up in their instructors' rosters at once.
-    function enrollInSectionClasses(db, studentId, sectionId) {
+    function enrollInSectionClasses(db, ctx, studentId, sectionId) {
       const activeTerm = db.Terms.find((row) => row.is_active === 'TRUE');
       return db.Classes
         .filter((row) => row.section_id === sectionId && row.status === 'active' && (!activeTerm || row.term_id === activeTerm.term_id))
-        .filter((row) => enroll(db, row.class_id, studentId)).length;
+        .filter((row) => enroll(db, ctx, row.class_id, studentId)).length;
     }
     return { getClassOptions, listClasses, getClass, createClass, updateClass, setClassStatus, overlaps, addSchedule, removeSchedule, enrollStudents, dropEnrollment, enrollInSectionClasses };
   })();
 
   // ---- handlers/students.js ----
   __m["handlers/students"] = (function () {
-    const { AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus } = __m["utils"];
+    const { AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus } = __m["utils"];
     const { enrollInSectionClasses } = __m["handlers/classes"];
     const { newUserRow, issueTempPassword, usernameTaken, accountSummary } = __m["auth/admin-users"];
 
@@ -1468,12 +1434,12 @@ var RFID = (function () {
       const issued = issueTempPassword(db, ctx, user);
       db.Students.push(student);
       db.Users.push(user);
-      const classesJoined = enrollInSectionClasses(db, student.student_id, student.section_id);
-      writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } });
+      const classesJoined = enrollInSectionClasses(db, ctx, student.student_id, student.section_id);
+      writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } }, ctx);
       return { student_id: student.student_id, classes_joined: classesJoined, ...issued };
     }
 
-    function updateStudent(db, input, session) {
+    function updateStudent(db, input, session, ctx) {
       const student = findStudent(db, input.student_id);
       const value = validateStudentInput(db, input, student);
       const before = { ...student };
@@ -1492,21 +1458,21 @@ var RFID = (function () {
       if (user) {
         user.username = value.student_number; // the username follows the student number
         user.email = value.email;
-        user.updated_at = manilaNow().iso;
+        user.updated_at = toManilaIso(ctx.now());
       }
 
-      writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before, after: { ...student } });
+      writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before, after: { ...student } }, ctx);
       return { student_id: student.student_id };
     }
 
-    function setStudentStatus(db, { student_id, status, reason }, session) {
+    function setStudentStatus(db, { student_id, status, reason }, session, ctx) {
       const student = findStudent(db, student_id);
       if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
       if (student.account_status === status) throw new AppError('NO_CHANGE', `This student is already ${status}.`);
       const cleanReason = cleanText(reason);
       if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
 
-      const now = manilaNow().iso;
+      const now = toManilaIso(ctx.now());
       const user = userOf(db, student_id);
       const before = { account_status: student.account_status };
       student.account_status = status;
@@ -1530,11 +1496,11 @@ var RFID = (function () {
       writeAudit(db, session, {
         action: status === 'active' ? 'STUDENT_ACTIVATE' : 'STUDENT_DEACTIVATE',
         entityType: 'Students', entityId: student_id, before, after: { account_status: status, revoked_card: revokedCard }, reason: cleanReason,
-      });
+      }, ctx);
       return { student_id, account_status: status, revoked_card_id: revokedCard };
     }
 
-    function assignCard(db, { student_id, rfid_uid, replace_reason = '', note = '' }, session) {
+    function assignCard(db, { student_id, rfid_uid, replace_reason = '', note = '' }, session, ctx) {
       const student = findStudent(db, student_id);
       if (student.account_status !== 'active') {
         throw new AppError('STUDENT_INACTIVE', 'Activate this student before assigning a card.');
@@ -1558,7 +1524,7 @@ var RFID = (function () {
       }
 
       const current = activeCardOf(db, student_id);
-      const now = manilaNow().iso;
+      const now = toManilaIso(ctx.now());
       const cleanNote = cleanText(note).slice(0, 200);
       if (current) {
         if (!REPLACE_REASONS[replace_reason]) throw validationError({ replace_reason: 'Choose why the current card is being replaced.' });
@@ -1585,24 +1551,24 @@ var RFID = (function () {
         before: current ? { card_id: current.card_id, status: 'active' } : null,
         after: { card_id: card.card_id, rfid_uid: uid, student_id },
         reason: current ? replace_reason : '',
-      });
+      }, ctx);
       return { card_id: card.card_id, replaced_card_id: current?.card_id ?? null };
     }
 
-    function revokeCard(db, { student_id, reason }, session) {
+    function revokeCard(db, { student_id, reason }, session, ctx) {
       findStudent(db, student_id);
       const card = activeCardOf(db, student_id);
       if (!card) throw new AppError('NO_ACTIVE_CARD', 'This student has no active card.');
       const cleanReason = cleanText(reason);
       if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
       card.status = 'revoked';
-      card.revoked_at = manilaNow().iso;
+      card.revoked_at = toManilaIso(ctx.now());
       card.notes = cleanText(`${card.notes} Revoked: ${cleanReason}`);
       bumpRosterVersion(db);
       writeAudit(db, session, {
         action: 'CARD_REVOKE', entityType: 'RfidCards', entityId: card.card_id,
         before: { status: 'active' }, after: { status: 'revoked' }, reason: cleanReason,
-      });
+      }, ctx);
       return { card_id: card.card_id };
     }
 
@@ -1665,7 +1631,7 @@ var RFID = (function () {
       if (Object.keys(errors).length) throw validationError(errors);
     }
 
-    function changeStatus(db, session, { rows, key, id, status, label, entityType, blockers }) {
+    function changeStatus(db, session, ctx, { rows, key, id, status, label, entityType, blockers }) {
       if (!STATUSES.includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
       const row = find(rows, key, id, label);
       if (row.status === status) throw new AppError('NO_CHANGE', `This ${label.toLowerCase()} is already ${status}.`);
@@ -1678,7 +1644,7 @@ var RFID = (function () {
       writeAudit(db, session, {
         action: `${entityType.toUpperCase()}_${status === 'active' ? 'ACTIVATE' : 'DEACTIVATE'}`,
         entityType, entityId: id, before, after: { status },
-      });
+      }, ctx);
       return { [key]: id, status };
     }
 
@@ -1733,24 +1699,24 @@ var RFID = (function () {
       return value;
     }
 
-    function createTerm(db, input, session) {
+    function createTerm(db, input, session, ctx) {
       const value = validateTerm(db, input);
       const row = { term_id: nextId(db.Terms, 'term_id', 'TRM'), ...value, is_active: 'FALSE' };
       db.Terms.push(row);
-      writeAudit(db, session, { action: 'TERM_CREATE', entityType: 'Terms', entityId: row.term_id, after: row });
+      writeAudit(db, session, { action: 'TERM_CREATE', entityType: 'Terms', entityId: row.term_id, after: row }, ctx);
       return { term_id: row.term_id };
     }
 
-    function updateTerm(db, input, session) {
+    function updateTerm(db, input, session, ctx) {
       const row = find(db.Terms, 'term_id', input.term_id, 'Term');
       const value = validateTerm(db, input, row);
       const before = { ...row };
       Object.assign(row, value);
-      writeAudit(db, session, { action: 'TERM_UPDATE', entityType: 'Terms', entityId: row.term_id, before, after: { ...row } });
+      writeAudit(db, session, { action: 'TERM_UPDATE', entityType: 'Terms', entityId: row.term_id, before, after: { ...row } }, ctx);
       return { term_id: row.term_id };
     }
 
-    function setActiveTerm(db, { term_id }, session) {
+    function setActiveTerm(db, { term_id }, session, ctx) {
       const row = find(db.Terms, 'term_id', term_id, 'Term');
       if (row.is_active === 'TRUE') throw new AppError('NO_CHANGE', 'This term is already the active term.');
       const previous = db.Terms.find((item) => item.is_active === 'TRUE');
@@ -1758,7 +1724,7 @@ var RFID = (function () {
       writeAudit(db, session, {
         action: 'TERM_SET_ACTIVE', entityType: 'Terms', entityId: term_id,
         before: { active_term: previous?.term_id ?? null }, after: { active_term: term_id },
-      });
+      }, ctx);
       return { term_id };
     }
 
@@ -1789,25 +1755,25 @@ var RFID = (function () {
       return value;
     }
 
-    function createProgram(db, input, session) {
+    function createProgram(db, input, session, ctx) {
       const value = validateProgram(db, input);
       const row = { program_id: nextId(db.Programs, 'program_id', 'PRG'), ...value, status: 'active' };
       db.Programs.push(row);
-      writeAudit(db, session, { action: 'PROGRAM_CREATE', entityType: 'Programs', entityId: row.program_id, after: row });
+      writeAudit(db, session, { action: 'PROGRAM_CREATE', entityType: 'Programs', entityId: row.program_id, after: row }, ctx);
       return { program_id: row.program_id };
     }
 
-    function updateProgram(db, input, session) {
+    function updateProgram(db, input, session, ctx) {
       const row = find(db.Programs, 'program_id', input.program_id, 'Program');
       const value = validateProgram(db, input, row);
       const before = { ...row };
       Object.assign(row, value);
-      writeAudit(db, session, { action: 'PROGRAM_UPDATE', entityType: 'Programs', entityId: row.program_id, before, after: { ...row } });
+      writeAudit(db, session, { action: 'PROGRAM_UPDATE', entityType: 'Programs', entityId: row.program_id, before, after: { ...row } }, ctx);
       return { program_id: row.program_id };
     }
 
-    function setProgramStatus(db, { program_id, status }, session) {
-      return changeStatus(db, session, {
+    function setProgramStatus(db, { program_id, status }, session, ctx) {
+      return changeStatus(db, session, ctx, {
         rows: db.Programs, key: 'program_id', id: program_id, status, label: 'Program', entityType: 'Programs',
         blockers: (row) => [
           countLabel(db.Sections.filter((s) => s.program_id === row.program_id && s.status === 'active').length, 'active section'),
@@ -1855,25 +1821,25 @@ var RFID = (function () {
       return { ...value, year_level: String(value.year_level) };
     }
 
-    function createSection(db, input, session) {
+    function createSection(db, input, session, ctx) {
       const value = validateSection(db, input);
       const row = { section_id: nextId(db.Sections, 'section_id', 'SEC'), ...value, status: 'active' };
       db.Sections.push(row);
-      writeAudit(db, session, { action: 'SECTION_CREATE', entityType: 'Sections', entityId: row.section_id, after: row });
+      writeAudit(db, session, { action: 'SECTION_CREATE', entityType: 'Sections', entityId: row.section_id, after: row }, ctx);
       return { section_id: row.section_id };
     }
 
-    function updateSection(db, input, session) {
+    function updateSection(db, input, session, ctx) {
       const row = find(db.Sections, 'section_id', input.section_id, 'Section');
       const value = validateSection(db, input, row);
       const before = { ...row };
       Object.assign(row, value);
-      writeAudit(db, session, { action: 'SECTION_UPDATE', entityType: 'Sections', entityId: row.section_id, before, after: { ...row } });
+      writeAudit(db, session, { action: 'SECTION_UPDATE', entityType: 'Sections', entityId: row.section_id, before, after: { ...row } }, ctx);
       return { section_id: row.section_id };
     }
 
-    function setSectionStatus(db, { section_id, status }, session) {
-      return changeStatus(db, session, {
+    function setSectionStatus(db, { section_id, status }, session, ctx) {
+      return changeStatus(db, session, ctx, {
         rows: db.Sections, key: 'section_id', id: section_id, status, label: 'Section', entityType: 'Sections',
         blockers: (row) => [
           countLabel(db.Students.filter((s) => s.section_id === row.section_id && s.account_status === 'active').length, 'active student'),
@@ -1910,25 +1876,25 @@ var RFID = (function () {
       return { ...value, units: String(value.units) };
     }
 
-    function createSubject(db, input, session) {
+    function createSubject(db, input, session, ctx) {
       const value = validateSubject(db, input);
       const row = { subject_id: nextId(db.Subjects, 'subject_id', 'SUB'), ...value, status: 'active' };
       db.Subjects.push(row);
-      writeAudit(db, session, { action: 'SUBJECT_CREATE', entityType: 'Subjects', entityId: row.subject_id, after: row });
+      writeAudit(db, session, { action: 'SUBJECT_CREATE', entityType: 'Subjects', entityId: row.subject_id, after: row }, ctx);
       return { subject_id: row.subject_id };
     }
 
-    function updateSubject(db, input, session) {
+    function updateSubject(db, input, session, ctx) {
       const row = find(db.Subjects, 'subject_id', input.subject_id, 'Subject');
       const value = validateSubject(db, input, row);
       const before = { ...row };
       Object.assign(row, value);
-      writeAudit(db, session, { action: 'SUBJECT_UPDATE', entityType: 'Subjects', entityId: row.subject_id, before, after: { ...row } });
+      writeAudit(db, session, { action: 'SUBJECT_UPDATE', entityType: 'Subjects', entityId: row.subject_id, before, after: { ...row } }, ctx);
       return { subject_id: row.subject_id };
     }
 
-    function setSubjectStatus(db, { subject_id, status }, session) {
-      return changeStatus(db, session, {
+    function setSubjectStatus(db, { subject_id, status }, session, ctx) {
+      return changeStatus(db, session, ctx, {
         rows: db.Subjects, key: 'subject_id', id: subject_id, status, label: 'Subject', entityType: 'Subjects',
         blockers: (row) => [countLabel(db.Classes.filter((c) => c.subject_id === row.subject_id && c.status === 'active').length, 'active class', 'active classes')],
       });
@@ -1965,25 +1931,25 @@ var RFID = (function () {
       return value;
     }
 
-    function createRoom(db, input, session) {
+    function createRoom(db, input, session, ctx) {
       const value = validateRoom(db, input);
       const row = { room_id: nextId(db.Rooms, 'room_id', 'ROM'), ...value, status: 'active' };
       db.Rooms.push(row);
-      writeAudit(db, session, { action: 'ROOM_CREATE', entityType: 'Rooms', entityId: row.room_id, after: row });
+      writeAudit(db, session, { action: 'ROOM_CREATE', entityType: 'Rooms', entityId: row.room_id, after: row }, ctx);
       return { room_id: row.room_id };
     }
 
-    function updateRoom(db, input, session) {
+    function updateRoom(db, input, session, ctx) {
       const row = find(db.Rooms, 'room_id', input.room_id, 'Room');
       const value = validateRoom(db, input, row);
       const before = { ...row };
       Object.assign(row, value);
-      writeAudit(db, session, { action: 'ROOM_UPDATE', entityType: 'Rooms', entityId: row.room_id, before, after: { ...row } });
+      writeAudit(db, session, { action: 'ROOM_UPDATE', entityType: 'Rooms', entityId: row.room_id, before, after: { ...row } }, ctx);
       return { room_id: row.room_id };
     }
 
-    function setRoomStatus(db, { room_id, status }, session) {
-      return changeStatus(db, session, {
+    function setRoomStatus(db, { room_id, status }, session, ctx) {
+      return changeStatus(db, session, ctx, {
         rows: db.Rooms, key: 'room_id', id: room_id, status, label: 'Room', entityType: 'Rooms',
         blockers: (row) => [
           countLabel(db.Schedules.filter((s) => s.room_id === row.room_id && s.status === 'active').length, 'active schedule'),
@@ -1996,7 +1962,7 @@ var RFID = (function () {
 
   // ---- handlers/instructors.js ----
   __m["handlers/instructors"] = (function () {
-    const { AppError, validationError, manilaNow, cleanText, writeAudit, nextId } = __m["utils"];
+    const { AppError, validationError, toManilaIso, cleanText, writeAudit, nextId } = __m["utils"];
     const { normalizeUsername } = __m["auth/account"];
     const { newUserRow, issueTempPassword, usernameProblem, accountSummary } = __m["auth/admin-users"];
 
@@ -2071,11 +2037,11 @@ var RFID = (function () {
       const issued = issueTempPassword(db, ctx, user);
       db.Instructors.push(instructor);
       db.Users.push(user);
-      writeAudit(db, session, { action: 'INSTRUCTOR_CREATE', entityType: 'Instructors', entityId: instructor.instructor_id, after: instructor });
+      writeAudit(db, session, { action: 'INSTRUCTOR_CREATE', entityType: 'Instructors', entityId: instructor.instructor_id, after: instructor }, ctx);
       return { instructor_id: instructor.instructor_id, ...issued };
     }
 
-    function updateInstructor(db, input, session) {
+    function updateInstructor(db, input, session, ctx) {
       const instructor = findInstructor(db, input.instructor_id);
       const { value, username } = validateInstructor(db, input, instructor);
       const before = { ...instructor };
@@ -2084,13 +2050,13 @@ var RFID = (function () {
       if (user) {
         user.username = username;
         user.email = value.email;
-        user.updated_at = manilaNow().iso;
+        user.updated_at = toManilaIso(ctx.now());
       }
-      writeAudit(db, session, { action: 'INSTRUCTOR_UPDATE', entityType: 'Instructors', entityId: instructor.instructor_id, before, after: { ...instructor, username } });
+      writeAudit(db, session, { action: 'INSTRUCTOR_UPDATE', entityType: 'Instructors', entityId: instructor.instructor_id, before, after: { ...instructor, username } }, ctx);
       return { instructor_id: instructor.instructor_id };
     }
 
-    function setInstructorStatus(db, { instructor_id, status }, session) {
+    function setInstructorStatus(db, { instructor_id, status }, session, ctx) {
       const instructor = findInstructor(db, instructor_id);
       if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
       if (instructor.account_status === status) throw new AppError('NO_CHANGE', `This instructor is already ${status}.`);
@@ -2103,12 +2069,12 @@ var RFID = (function () {
       const user = userOf(db, instructor_id);
       if (user) {
         user.account_status = status === 'active' ? 'active' : 'disabled';
-        user.updated_at = manilaNow().iso;
+        user.updated_at = toManilaIso(ctx.now());
       }
       writeAudit(db, session, {
         action: status === 'active' ? 'INSTRUCTOR_ACTIVATE' : 'INSTRUCTOR_DEACTIVATE',
         entityType: 'Instructors', entityId: instructor_id, before, after: { account_status: status },
-      });
+      }, ctx);
       return { instructor_id, status };
     }
     return { listInstructors, createInstructor, updateInstructor, setInstructorStatus };
@@ -2182,6 +2148,9 @@ var RFID = (function () {
         .sort((a, b) => a.session_date.localeCompare(b.session_date) || a.scheduled_start.localeCompare(b.scheduled_start));
     }
 
+    // An open session that has not started yet (early tap) is not held.
+    const heldCount = (sessions, now) => sessions.filter((s) => sessionPhase(s, now) !== 'upcoming').length;
+
     function recordOf(db, sessionId, studentId) {
       return db.Attendance.find((row) => row.session_id === sessionId && row.student_id === studentId) ?? null;
     }
@@ -2244,6 +2213,7 @@ var RFID = (function () {
         room_code: maps.rooms.get(session.room_id)?.room_code ?? '',
         source: session.source,
         status: session.status,
+        phase: sessionPhase(session, now),
         reason: session.override_reason || '',
         ...sessionCounts(db, session, roster, now),
       };
@@ -2290,7 +2260,7 @@ var RFID = (function () {
       return {
         ...classInfo(db, maps, klass),
         enrolled: roster.length,
-        sessions_held: sessions.length,
+        sessions_held: heldCount(sessions, now),
         last_session_date: sessions.length ? sessions[sessions.length - 1].session_date : null,
         attendance_rate: totals.rate,
         totals,
@@ -2335,6 +2305,7 @@ var RFID = (function () {
               room_code: maps.rooms.get(slot.room_id)?.room_code ?? '',
               source: 'auto',
               status,
+              phase: sessionPhase({ status: 'open', session_date: date, scheduled_start: slot.start_time, scheduled_end: slot.end_time }, now),
               reason: '',
               enrolled: roster.length,
               present: null,
@@ -2514,7 +2485,7 @@ var RFID = (function () {
         before: { status: before },
         after: { status },
         reason,
-      });
+      }, ctx);
       return { session_id: sessionId, student_id: studentId, status };
     }
 
@@ -2587,7 +2558,7 @@ var RFID = (function () {
         };
       }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
       return {
-        class: { ...classInfo(db, maps, klass), enrolled: students.length, sessions_held: held.length },
+        class: { ...classInfo(db, maps, klass), enrolled: students.length, sessions_held: heldCount(held, now) },
         students,
       };
     }
@@ -2745,7 +2716,7 @@ var RFID = (function () {
   __m["handlers/admins"] = (function () {
     // Admin accounts. Unlike students and instructors, an admin has no separate
     // record: the Users row is the whole account (name stored in display_name).
-    const { AppError, validationError, manilaNow, cleanText, writeAudit } = __m["utils"];
+    const { AppError, validationError, toManilaIso, cleanText, writeAudit } = __m["utils"];
     const { normalizeUsername } = __m["auth/account"];
     const { newUserRow, issueTempPassword, usernameProblem, accountSummary } = __m["auth/admin-users"];
 
@@ -2805,23 +2776,23 @@ var RFID = (function () {
       const row = newUserRow(db, ctx, { username: value.username, email: value.email, role: 'admin', displayName: value.display_name }, session);
       const issued = issueTempPassword(db, ctx, row);
       db.Users.push(row);
-      writeAudit(db, session, { action: 'ADMIN_CREATE', entityType: 'Users', entityId: row.user_id, after: { username: row.username, email: row.email, display_name: row.display_name } });
+      writeAudit(db, session, { action: 'ADMIN_CREATE', entityType: 'Users', entityId: row.user_id, after: { username: row.username, email: row.email, display_name: row.display_name } }, ctx);
       return { user_id: row.user_id, ...issued };
     }
 
-    function updateAdmin(db, input, session) {
+    function updateAdmin(db, input, session, ctx) {
       const row = findAdmin(db, input.user_id);
       const value = validate(db, input, row);
       const before = { username: row.username, email: row.email, display_name: row.display_name || '' };
       row.username = value.username;
       row.email = value.email;
       row.display_name = value.display_name;
-      row.updated_at = manilaNow().iso;
-      writeAudit(db, session, { action: 'ADMIN_UPDATE', entityType: 'Users', entityId: row.user_id, before, after: value });
+      row.updated_at = toManilaIso(ctx.now());
+      writeAudit(db, session, { action: 'ADMIN_UPDATE', entityType: 'Users', entityId: row.user_id, before, after: value }, ctx);
       return { user_id: row.user_id };
     }
 
-    function setAdminStatus(db, { user_id: userId, status }, session) {
+    function setAdminStatus(db, { user_id: userId, status }, session, ctx) {
       const row = findAdmin(db, userId);
       if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
       const current = row.account_status === 'active' ? 'active' : 'inactive';
@@ -2832,7 +2803,7 @@ var RFID = (function () {
         if (activeAdmins.length <= 1) throw new AppError('IN_USE', 'There must always be at least one active administrator.');
       }
       row.account_status = status === 'active' ? 'active' : 'disabled';
-      row.updated_at = manilaNow().iso;
+      row.updated_at = toManilaIso(ctx.now());
       if (status === 'inactive') {
         // Sign them out everywhere right away.
         (db.AuthSessions || []).forEach((item) => { if (item.user_id === userId) item.revoked = 'TRUE'; });
@@ -2840,7 +2811,7 @@ var RFID = (function () {
       writeAudit(db, session, {
         action: status === 'active' ? 'ADMIN_ACTIVATE' : 'ADMIN_DEACTIVATE',
         entityType: 'Users', entityId: userId, before: { account_status: current }, after: { account_status: row.account_status },
-      });
+      }, ctx);
       return { user_id: userId, status };
     }
     return { listAdmins, createAdmin, updateAdmin, setAdminStatus };
@@ -2908,7 +2879,7 @@ var RFID = (function () {
       };
     }
 
-    function createDevice(db, input, session) {
+    function createDevice(db, input, session, ctx) {
       const name = deviceName(input.device_name);
       const room = activeRoom(db, input.room_id);
       // DEV-<room code>-NN; devices are never deleted, so highest + 1 is never reused.
@@ -2926,20 +2897,20 @@ var RFID = (function () {
         notes: cleanText(input.notes),
       });
       db.Devices.push(row);
-      writeAudit(db, session, { action: 'DEVICE_CREATE', entityType: 'Devices', entityId: row.device_id, after: publicView(row) });
+      writeAudit(db, session, { action: 'DEVICE_CREATE', entityType: 'Devices', entityId: row.device_id, after: publicView(row) }, ctx);
       return { device_id: row.device_id };
     }
 
-    function updateDevice(db, input, session) {
+    function updateDevice(db, input, session, ctx) {
       const device = findDevice(db, input.device_id);
       const value = { device_name: deviceName(input.device_name), notes: cleanText(input.notes) };
       const before = publicView(device);
       Object.assign(device, value);
-      writeAudit(db, session, { action: 'DEVICE_UPDATE', entityType: 'Devices', entityId: device.device_id, before, after: publicView(device) });
+      writeAudit(db, session, { action: 'DEVICE_UPDATE', entityType: 'Devices', entityId: device.device_id, before, after: publicView(device) }, ctx);
       return { device_id: device.device_id };
     }
 
-    function setDeviceStatus(db, { device_id: deviceId, status }, session) {
+    function setDeviceStatus(db, { device_id: deviceId, status }, session, ctx) {
       if (!DEVICE_STATUSES.includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
       const device = findDevice(db, deviceId);
       notRetired(device);
@@ -2951,12 +2922,12 @@ var RFID = (function () {
       const before = { status: device.status };
       device.status = status;
       if (status === 'retired') device.device_key_hash = ''; // a retired device can never sign in again
-      writeAudit(db, session, { action: 'DEVICE_STATUS', entityType: 'Devices', entityId: device.device_id, before, after: { status } });
+      writeAudit(db, session, { action: 'DEVICE_STATUS', entityType: 'Devices', entityId: device.device_id, before, after: { status } }, ctx);
       return { device_id: device.device_id, status };
     }
 
     // room_id '' unassigns the device. The device_id keeps its original room code.
-    function assignDeviceRoom(db, { device_id: deviceId, room_id: roomId = '' }, session) {
+    function assignDeviceRoom(db, { device_id: deviceId, room_id: roomId = '' }, session, ctx) {
       const device = findDevice(db, deviceId);
       notRetired(device);
       const target = roomId ? activeRoom(db, roomId).room_id : '';
@@ -2964,7 +2935,7 @@ var RFID = (function () {
       if (device.status === 'active') checkRoomFree(db, device, target);
       const before = { room_id: device.room_id };
       device.room_id = target;
-      writeAudit(db, session, { action: 'DEVICE_ASSIGN_ROOM', entityType: 'Devices', entityId: device.device_id, before, after: { room_id: target } });
+      writeAudit(db, session, { action: 'DEVICE_ASSIGN_ROOM', entityType: 'Devices', entityId: device.device_id, before, after: { room_id: target } }, ctx);
       return { device_id: device.device_id, room_id: target };
     }
 
@@ -2984,7 +2955,7 @@ var RFID = (function () {
       writeAudit(db, session, {
         action: 'DEVICE_KEY_GENERATE', entityType: 'Devices', entityId: device.device_id,
         reason: hadKey ? 'New key issued; the old key no longer works' : 'First key issued',
-      });
+      }, ctx);
       return { device_id: device.device_id, device_key: key };
     }
     return { DEVICE_STATUSES, listDevices, createDevice, updateDevice, setDeviceStatus, assignDeviceRoom, issueDeviceKey, generateDeviceKey };
@@ -3029,7 +3000,7 @@ var RFID = (function () {
       const key = issueDeviceKey(db, ctx, device);
       writeAudit(db, { user_id: '', role: 'system' }, {
         action: 'DEVICE_KEY_GENERATE', entityType: 'Devices', entityId: device.device_id, reason: 'Test key issued from the editor (issueTestDeviceKey)',
-      });
+      }, ctx);
       return { device_id: device.device_id, device_key: key };
     }
     return { authenticateDevice, issueTestDeviceKey };
@@ -3291,6 +3262,14 @@ var RFID = (function () {
     return { READ, WRITE, AUTH_TABS, ACTIONS, tabsFor, guardDb, findAction, runAction, DEVICE_TABS, runDeviceAction };
   })();
 
+  // ---- config.js ----
+  __m["config"] = (function () {
+    // Server-side settings shared by every handler. Only the time zone for now:
+    // everything else lives in the Settings tab or in Script Properties.
+    const TIMEZONE = 'Asia/Manila';
+    return { TIMEZONE };
+  })();
+
   // ---- auth/context.js ----
   __m["auth/context"] = (function () {
     // The "ctx" every auth-aware handler receives: hashing, Script Properties and
@@ -3496,7 +3475,7 @@ var RFID = (function () {
       db.Users.push(row);
       writeAudit(db, { user_id: '', role: 'system' }, {
         action: 'BOOTSTRAP_ADMIN', entityType: 'Users', entityId: row.user_id, after: { username: row.username },
-      });
+      }, ctx);
       return { user_id: row.user_id, username: row.username };
     }
     return { migrateUsersToPasswordLogin, seedTestPasswords, createBootstrapAdmin };

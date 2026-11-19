@@ -35,6 +35,6 @@ export function issueTestDeviceKey(db, ctx, deviceId) {
   const key = issueDeviceKey(db, ctx, device);
   writeAudit(db, { user_id: '', role: 'system' }, {
     action: 'DEVICE_KEY_GENERATE', entityType: 'Devices', entityId: device.device_id, reason: 'Test key issued from the editor (issueTestDeviceKey)',
-  });
+  }, ctx);
   return { device_id: device.device_id, device_key: key };
 }

@@ -41,6 +41,7 @@ export function getAdminDashboard(db, { date }, _session, ctx) {
       end_time: end,
       source,
       status,
+      phase: sessionPhase(session ?? { status: 'open', session_date: date, scheduled_start: start, scheduled_end: end }, now),
       enrolled,
       present: counted ? present : null,
       late: counted ? late : null,
@@ -95,7 +96,7 @@ export function getAdminDashboard(db, { date }, _session, ctx) {
       battery_voltage: battery,
       low_battery: battery !== null && battery < lowBatteryVoltage,
       last_seen_at: row.last_seen_at || null,
-      online: Boolean(row.last_seen_at) && Date.now() - Date.parse(row.last_seen_at) <= offlineAfterMs,
+      online: Boolean(row.last_seen_at) && ctx.now() - Date.parse(row.last_seen_at) <= offlineAfterMs,
       queue_count: Number(row.queue_count || 0),
     };
   });

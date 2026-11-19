@@ -30,17 +30,13 @@ export function usernameProblem(db, username, ownUserId = null) {
   return '';
 }
 
-function nowMs(ctx) {
-  return ctx ? ctx.now() : Date.now();
-}
-
 // What the admin pages may show about a login account (never the hash).
 export function accountSummary(user, ctx) {
   if (!user) return null;
   return {
     username: user.username || '',
     must_change_password: isTrue(user.must_change_password),
-    locked: Date.parse(user.locked_until) > nowMs(ctx),
+    locked: Date.parse(user.locked_until) > ctx.now(),
     last_login_at: user.last_login_at || null,
   };
 }
@@ -100,7 +96,7 @@ export function resetPassword(db, { user_id: userId }, session, ctx) {
   writeAudit(db, session, {
     action: 'PASSWORD_RESET', entityType: 'Users', entityId: user.user_id,
     reason: `New temporary password issued; ${revoked} session(s) signed out`,
-  });
+  }, ctx);
   return { user_id: user.user_id, must_change_password: true, sessions_revoked: revoked, ...issued };
 }
 
@@ -116,6 +112,6 @@ export function unlockUser(db, { user_id: userId }, session, ctx) {
   writeAudit(db, session, {
     action: 'USER_UNLOCKED', entityType: 'Users', entityId: user.user_id,
     before, after: { failed_attempts: '0', locked_until: '' },
-  });
+  }, ctx);
   return { user_id: user.user_id };
 }

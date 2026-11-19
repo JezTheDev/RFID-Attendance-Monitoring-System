@@ -1,7 +1,7 @@
 // Schedule overlap rules and enrollment uniqueness.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDb, SESSIONS, withCode } from './helpers/db.js';
+import { makeDb, SESSIONS, withCode, CTX } from './helpers/db.js';
 import { addSchedule, enrollStudents, dropEnrollment, setClassStatus } from '../src/handlers/classes.js';
 
 // A third class with no schedule yet. CLS-0001 meets MON 08:00-10:00 in RM-0001
@@ -19,7 +19,7 @@ const slot = (fields) => ({ class_id: 'CLS-0003', day_of_week: 'MON', start_time
 
 function clashMessage(db, input) {
   try {
-    addSchedule(db, input, SESSIONS.admin);
+    addSchedule(db, input, SESSIONS.admin, CTX);
   } catch (error) {
     withCode('VALIDATION_ERROR')(error);
     return error.fields.start_time;
@@ -51,7 +51,7 @@ describe('schedule overlap is rejected', () => {
 
   it('accepts a back-to-back slot (10:00 start right after a 10:00 end)', () => {
     const db = dbWithNewClass({ instructor: 'INS-0001', section: 'SEC-0001' });
-    const result = addSchedule(db, slot({ room_id: 'RM-0001', start_time: '10:00', end_time: '11:00' }), SESSIONS.admin);
+    const result = addSchedule(db, slot({ room_id: 'RM-0001', start_time: '10:00', end_time: '11:00' }), SESSIONS.admin, CTX);
     assert.equal(result.schedule_id, 'SCH-0003');
     assert.equal(db.Schedules.length, 3);
   });
@@ -59,13 +59,13 @@ describe('schedule overlap is rejected', () => {
   it('ignores schedules of inactive classes', () => {
     const db = dbWithNewClass();
     db.Classes[0].status = 'inactive';
-    addSchedule(db, slot({ room_id: 'RM-0001' }), SESSIONS.admin);
+    addSchedule(db, slot({ room_id: 'RM-0001' }), SESSIONS.admin, CTX);
     assert.equal(db.Schedules.length, 3);
   });
 
   it('rejects an end time that is not after the start time', () => {
     const db = dbWithNewClass();
-    assert.throws(() => addSchedule(db, slot({ start_time: '11:00', end_time: '11:00' }), SESSIONS.admin), (error) =>
+    assert.throws(() => addSchedule(db, slot({ start_time: '11:00', end_time: '11:00' }), SESSIONS.admin, CTX), (error) =>
       withCode('VALIDATION_ERROR')(error) && error.fields.end_time === 'End time must be after the start time.');
   });
 });
@@ -75,7 +75,7 @@ describe('enrollment is unique per class and student', () => {
 
   it('enrolling an already-enrolled student adds nothing', () => {
     const db = makeDb();
-    const result = enrollStudents(db, { class_id: 'CLS-0001', student_ids: ['STU-0001'] }, SESSIONS.admin);
+    const result = enrollStudents(db, { class_id: 'CLS-0001', student_ids: ['STU-0001'] }, SESSIONS.admin, CTX);
     assert.equal(result.added, 0);
     assert.equal(rowsFor(db, 'CLS-0001', 'STU-0001').length, 1);
     assert.equal(db.AuditLog.length, 0);
@@ -83,16 +83,16 @@ describe('enrollment is unique per class and student', () => {
 
   it('the same student twice in one request creates one row', () => {
     const db = makeDb();
-    const result = enrollStudents(db, { class_id: 'CLS-0001', student_ids: ['STU-0004', 'STU-0004'] }, SESSIONS.admin);
+    const result = enrollStudents(db, { class_id: 'CLS-0001', student_ids: ['STU-0004', 'STU-0004'] }, SESSIONS.admin, CTX);
     assert.equal(result.added, 1);
     assert.equal(rowsFor(db, 'CLS-0001', 'STU-0004').length, 1);
   });
 
   it('re-enrolling after a drop reuses the same row', () => {
     const db = makeDb();
-    dropEnrollment(db, { class_id: 'CLS-0001', student_id: 'STU-0002', reason: 'Changed section' }, SESSIONS.admin);
+    dropEnrollment(db, { class_id: 'CLS-0001', student_id: 'STU-0002', reason: 'Changed section' }, SESSIONS.admin, CTX);
     assert.equal(rowsFor(db, 'CLS-0001', 'STU-0002')[0].status, 'dropped');
-    enrollStudents(db, { class_id: 'CLS-0001', student_ids: 'STU-0002' }, SESSIONS.admin);
+    enrollStudents(db, { class_id: 'CLS-0001', student_ids: 'STU-0002' }, SESSIONS.admin, CTX);
     const rows = rowsFor(db, 'CLS-0001', 'STU-0002');
     assert.deepEqual(rows.map((r) => [r.enrollment_id, r.status]), [['ENR-0002', 'enrolled']]);
   });
@@ -100,14 +100,14 @@ describe('enrollment is unique per class and student', () => {
   it('refuses inactive students', () => {
     const db = makeDb();
     db.Students[3].account_status = 'inactive';
-    assert.throws(() => enrollStudents(db, { class_id: 'CLS-0001', student_ids: ['STU-0004'] }, SESSIONS.admin), withCode('VALIDATION_ERROR'));
+    assert.throws(() => enrollStudents(db, { class_id: 'CLS-0001', student_ids: ['STU-0004'] }, SESSIONS.admin, CTX), withCode('VALIDATION_ERROR'));
     assert.equal(rowsFor(db, 'CLS-0001', 'STU-0004').length, 0);
   });
 });
 
 // BUG-3: an inactive class's slots are ignored, so re-activating must re-check them.
 describe('re-activating a class re-checks its schedules', () => {
-  const activate = (db, classId) => setClassStatus(db, { class_id: classId, status: 'active' }, SESSIONS.admin);
+  const activate = (db, classId) => setClassStatus(db, { class_id: classId, status: 'active' }, SESSIONS.admin, CTX);
 
   it('re-activates when nothing clashes', () => {
     const db = makeDb();
@@ -119,7 +119,7 @@ describe('re-activating a class re-checks its schedules', () => {
   it('rejects a room clash, names the class and time, and changes nothing', () => {
     const db = dbWithNewClass();
     db.Classes[0].status = 'inactive';
-    addSchedule(db, slot({ room_id: 'RM-0001' }), SESSIONS.admin);
+    addSchedule(db, slot({ room_id: 'RM-0001' }), SESSIONS.admin, CTX);
     const auditRows = db.AuditLog.length;
     assert.throws(() => activate(db, 'CLS-0001'), (error) => withCode('VALIDATION_ERROR')(error)
       && /CPE-101 is already used by CPE303 on MON 09:00–11:00/.test(error.message));
@@ -130,7 +130,7 @@ describe('re-activating a class re-checks its schedules', () => {
   it('ignores slots of classes that are still inactive', () => {
     const db = dbWithNewClass();
     db.Classes[0].status = 'inactive';
-    addSchedule(db, slot({ room_id: 'RM-0001' }), SESSIONS.admin);
+    addSchedule(db, slot({ room_id: 'RM-0001' }), SESSIONS.admin, CTX);
     db.Classes[2].status = 'inactive';
     activate(db, 'CLS-0001');
     assert.equal(db.Classes[0].status, 'active');

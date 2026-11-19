@@ -67,6 +67,9 @@ function countedSessions(db, classId) {
     .sort((a, b) => a.session_date.localeCompare(b.session_date) || a.scheduled_start.localeCompare(b.scheduled_start));
 }
 
+// An open session that has not started yet (early tap) is not held.
+const heldCount = (sessions, now) => sessions.filter((s) => sessionPhase(s, now) !== 'upcoming').length;
+
 function recordOf(db, sessionId, studentId) {
   return db.Attendance.find((row) => row.session_id === sessionId && row.student_id === studentId) ?? null;
 }
@@ -129,6 +132,7 @@ function describeSession(db, maps, session, roster, now) {
     room_code: maps.rooms.get(session.room_id)?.room_code ?? '',
     source: session.source,
     status: session.status,
+    phase: sessionPhase(session, now),
     reason: session.override_reason || '',
     ...sessionCounts(db, session, roster, now),
   };
@@ -175,7 +179,7 @@ function classSummary(db, maps, klass, now) {
   return {
     ...classInfo(db, maps, klass),
     enrolled: roster.length,
-    sessions_held: sessions.length,
+    sessions_held: heldCount(sessions, now),
     last_session_date: sessions.length ? sessions[sessions.length - 1].session_date : null,
     attendance_rate: totals.rate,
     totals,
@@ -220,6 +224,7 @@ export function instructorDashboard(db, { date }, session, ctx) {
           room_code: maps.rooms.get(slot.room_id)?.room_code ?? '',
           source: 'auto',
           status,
+          phase: sessionPhase({ status: 'open', session_date: date, scheduled_start: slot.start_time, scheduled_end: slot.end_time }, now),
           reason: '',
           enrolled: roster.length,
           present: null,
@@ -399,7 +404,7 @@ export function instructorCorrectAttendance(db, request, session, ctx) {
     before: { status: before },
     after: { status },
     reason,
-  });
+  }, ctx);
   return { session_id: sessionId, student_id: studentId, status };
 }
 
@@ -472,7 +477,7 @@ export function instructorClassRoster(db, { class_id: classId }, session, ctx) {
     };
   }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
   return {
-    class: { ...classInfo(db, maps, klass), enrolled: students.length, sessions_held: held.length },
+    class: { ...classInfo(db, maps, klass), enrolled: students.length, sessions_held: heldCount(held, now) },
     students,
   };
 }

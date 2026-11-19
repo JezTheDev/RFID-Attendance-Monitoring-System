@@ -2,7 +2,7 @@
 // and which students are enrolled. The Instructor and Student portals and the
 // RFID session lookup all read from these three tables.
 import {
-  AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId,
+  AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId,
 } from '../utils.js';
 
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -145,7 +145,7 @@ function graceValue(errors, value) {
   return String(number);
 }
 
-export function createClass(db, input, session) {
+export function createClass(db, input, session, ctx) {
   const m = maps(db);
   const errors = {};
   const value = {
@@ -179,13 +179,13 @@ export function createClass(db, input, session) {
 
   // Default: the whole section is enrolled. The admin can adjust afterwards.
   const sectionStudents = db.Students.filter((row) => row.section_id === value.section_id && row.account_status === 'active');
-  sectionStudents.forEach((student) => enroll(db, klass.class_id, student.student_id));
+  sectionStudents.forEach((student) => enroll(db, ctx, klass.class_id, student.student_id));
 
-  writeAudit(db, session, { action: 'CLASS_CREATE', entityType: 'Classes', entityId: klass.class_id, after: { ...klass, enrolled: sectionStudents.length } });
+  writeAudit(db, session, { action: 'CLASS_CREATE', entityType: 'Classes', entityId: klass.class_id, after: { ...klass, enrolled: sectionStudents.length } }, ctx);
   return { class_id: klass.class_id, class_label: klass.class_label, enrolled: sectionStudents.length };
 }
 
-export function updateClass(db, input, session) {
+export function updateClass(db, input, session, ctx) {
   const m = maps(db);
   const klass = findClass(db, input.class_id);
   const errors = {};
@@ -204,11 +204,11 @@ export function updateClass(db, input, session) {
   const before = { instructor_id: klass.instructor_id, late_grace_minutes: klass.late_grace_minutes };
   klass.instructor_id = instructorId;
   klass.late_grace_minutes = lateGrace;
-  writeAudit(db, session, { action: 'CLASS_UPDATE', entityType: 'Classes', entityId: klass.class_id, before, after: { instructor_id: instructorId, late_grace_minutes: lateGrace } });
+  writeAudit(db, session, { action: 'CLASS_UPDATE', entityType: 'Classes', entityId: klass.class_id, before, after: { instructor_id: instructorId, late_grace_minutes: lateGrace } }, ctx);
   return { class_id: klass.class_id };
 }
 
-export function setClassStatus(db, { class_id: classId, status }, session) {
+export function setClassStatus(db, { class_id: classId, status }, session, ctx) {
   const klass = findClass(db, classId);
   if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
   if (klass.status === status) throw new AppError('NO_CHANGE', `This class is already ${status}.`);
@@ -229,7 +229,7 @@ export function setClassStatus(db, { class_id: classId, status }, session) {
   }
   const before = { status: klass.status };
   klass.status = status;
-  writeAudit(db, session, { action: status === 'active' ? 'CLASS_ACTIVATE' : 'CLASS_DEACTIVATE', entityType: 'Classes', entityId: classId, before, after: { status } });
+  writeAudit(db, session, { action: status === 'active' ? 'CLASS_ACTIVATE' : 'CLASS_DEACTIVATE', entityType: 'Classes', entityId: classId, before, after: { status } }, ctx);
   return { class_id: classId, status };
 }
 
@@ -258,7 +258,7 @@ function scheduleClash(db, m, { classId, termId, instructorId, sectionId, roomId
   return '';
 }
 
-export function addSchedule(db, input, session) {
+export function addSchedule(db, input, session, ctx) {
   const m = maps(db);
   const klass = findClass(db, input.class_id);
   if (klass.status !== 'active') throw new AppError('CLASS_INACTIVE', 'Activate this class before adding a schedule.');
@@ -289,22 +289,22 @@ export function addSchedule(db, input, session) {
 
   const row = { schedule_id: nextId(db.Schedules, 'schedule_id', 'SCH'), class_id: klass.class_id, ...slot, status: 'active' };
   db.Schedules.push(row);
-  writeAudit(db, session, { action: 'SCHEDULE_CREATE', entityType: 'Schedules', entityId: row.schedule_id, after: row });
+  writeAudit(db, session, { action: 'SCHEDULE_CREATE', entityType: 'Schedules', entityId: row.schedule_id, after: row }, ctx);
   return { schedule_id: row.schedule_id };
 }
 
-export function removeSchedule(db, { schedule_id: scheduleId }, session) {
+export function removeSchedule(db, { schedule_id: scheduleId }, session, ctx) {
   const row = db.Schedules.find((item) => item.schedule_id === scheduleId);
   if (!row || row.status !== 'active') throw new AppError('NOT_FOUND', 'Schedule not found.');
   // Kept as "inactive" so past sessions still point to a real schedule.
   row.status = 'inactive';
-  writeAudit(db, session, { action: 'SCHEDULE_REMOVE', entityType: 'Schedules', entityId: scheduleId, before: { status: 'active' }, after: { status: 'inactive' } });
+  writeAudit(db, session, { action: 'SCHEDULE_REMOVE', entityType: 'Schedules', entityId: scheduleId, before: { status: 'active' }, after: { status: 'inactive' } }, ctx);
   return { schedule_id: scheduleId };
 }
 
 /* ---------------- enrollments ---------------- */
 
-function enroll(db, classId, studentId) {
+function enroll(db, ctx, classId, studentId) {
   const existing = db.Enrollments.find((row) => row.class_id === classId && row.student_id === studentId);
   if (existing) {
     if (existing.status === 'enrolled') return false;
@@ -316,12 +316,12 @@ function enroll(db, classId, studentId) {
     class_id: classId,
     student_id: studentId,
     status: 'enrolled',
-    enrolled_at: manilaNow().iso,
+    enrolled_at: toManilaIso(ctx.now()),
   });
   return true;
 }
 
-export function enrollStudents(db, input, session) {
+export function enrollStudents(db, input, session, ctx) {
   const klass = findClass(db, input.class_id);
   const m = maps(db);
   let ids = Array.isArray(input.student_ids) ? input.student_ids : String(input.student_ids ?? '').split(',');
@@ -333,14 +333,14 @@ export function enrollStudents(db, input, session) {
   const invalid = ids.find((id) => m.students.get(id)?.account_status !== 'active');
   if (invalid) throw validationError({ student_ids: 'Only active students can be enrolled.' });
 
-  const added = [...new Set(ids)].filter((id) => enroll(db, klass.class_id, id));
+  const added = [...new Set(ids)].filter((id) => enroll(db, ctx, klass.class_id, id));
   if (added.length) {
-    writeAudit(db, session, { action: 'ENROLL_ADD', entityType: 'Enrollments', entityId: klass.class_id, after: { student_ids: added } });
+    writeAudit(db, session, { action: 'ENROLL_ADD', entityType: 'Enrollments', entityId: klass.class_id, after: { student_ids: added } }, ctx);
   }
   return { class_id: klass.class_id, added: added.length };
 }
 
-export function dropEnrollment(db, { class_id: classId, student_id: studentId, reason = '' }, session) {
+export function dropEnrollment(db, { class_id: classId, student_id: studentId, reason = '' }, session, ctx) {
   findClass(db, classId);
   const row = db.Enrollments.find((item) => item.class_id === classId && item.student_id === studentId && item.status === 'enrolled');
   if (!row) throw new AppError('NOT_FOUND', 'This student is not enrolled in the class.');
@@ -350,15 +350,15 @@ export function dropEnrollment(db, { class_id: classId, student_id: studentId, r
   writeAudit(db, session, {
     action: 'ENROLL_DROP', entityType: 'Enrollments', entityId: row.enrollment_id,
     before: { status: 'enrolled' }, after: { status: 'dropped' }, reason: cleanReason,
-  });
+  }, ctx);
   return { class_id: classId, student_id: studentId };
 }
 
 // Used when a new student is added: join every active class of their section
 // in the active term, so they show up in their instructors' rosters at once.
-export function enrollInSectionClasses(db, studentId, sectionId) {
+export function enrollInSectionClasses(db, ctx, studentId, sectionId) {
   const activeTerm = db.Terms.find((row) => row.is_active === 'TRUE');
   return db.Classes
     .filter((row) => row.section_id === sectionId && row.status === 'active' && (!activeTerm || row.term_id === activeTerm.term_id))
-    .filter((row) => enroll(db, row.class_id, studentId)).length;
+    .filter((row) => enroll(db, ctx, row.class_id, studentId)).length;
 }

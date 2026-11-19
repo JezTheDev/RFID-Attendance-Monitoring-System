@@ -170,7 +170,7 @@ Also run `node --check <file>` on changed JS files.
   `secrets.h`). Secrets live in Apps Script Script Properties.
 - **All Sheet cells are plain text.** Dates `YYYY-MM-DD`, times `HH:mm` (24h).
 - **Time zone is Asia/Manila.** Timestamps are ISO with `+08:00`
-  (use `manilaNow()` from `backend/src/utils.js`).
+  (`toManilaIso(ctx.now())` / `manilaAt(ctx.now())` from `backend/src/utils.js`; ctx.now() is the one clock, also for `writeAudit(db, session, entry, ctx)`).
 - Handlers throw `AppError(code, message, fields?)`; Server.gs turns it into
   `{ ok:false, error:{ code, message, fields } }` and saves nothing.
 - Bundle.gs must stay ES2020 (the build script refuses newer syntax).

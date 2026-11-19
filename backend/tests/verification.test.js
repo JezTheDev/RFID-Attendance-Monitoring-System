@@ -3,12 +3,12 @@
 // Part B: confirmed bugs, written as the CORRECT behaviour and marked `todo`.
 //         They run and fail today; node:test reports them as TODO so the suite
 //         stays green. When a bug is fixed, remove its `todo` option.
-import { describe, it, mock } from 'node:test';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDb, SESSIONS, CTX, clockAt } from './helpers/db.js';
 import { makeCtx } from './helpers/auth.js';
 import { ACTIONS, READ } from '../src/actions.js';
-import { manilaNow, writeAudit, nextId } from '../src/utils.js';
+import { manilaAt, writeAudit, nextId } from '../src/utils.js';
 import * as portal from '../src/handlers/portal.js';
 import * as classes from '../src/handlers/classes.js';
 import { updateStudent } from '../src/handlers/students.js';
@@ -65,15 +65,9 @@ describe('verified: read actions', () => {
 
 describe('verified: Asia/Manila day boundary', () => {
   it('23:59:59 and 00:00:00 Manila fall on different dates (server clock in UTC)', () => {
-    mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 18, 15, 59, 59) });
-    try {
-      assert.equal(manilaNow().iso, '2026-11-18T23:59:59+08:00');
-      mock.timers.setTime(Date.UTC(2026, 10, 18, 16, 0, 0));
-      assert.equal(manilaNow().date, '2026-11-19');
-      assert.equal(manilaNow().time, '00:00');
-    } finally {
-      mock.timers.reset();
-    }
+    assert.equal(manilaAt(Date.UTC(2026, 10, 18, 15, 59, 59)).iso, '2026-11-18T23:59:59+08:00');
+    const next = manilaAt(Date.UTC(2026, 10, 18, 16, 0, 0));
+    assert.deepEqual([next.date, next.time], ['2026-11-19', '00:00']);
   });
 
   it('the admin dashboard "today" follows Manila time, not UTC', () => {
@@ -102,11 +96,11 @@ describe('known bugs (todo until fixed)', () => {
 
   it('BUG-3 re-activating a class cannot double-book a room', () => {
     const db = makeDb();
-    classes.setClassStatus(db, { class_id: 'CLS-0001', status: 'inactive' }, SESSIONS.admin);
+    classes.setClassStatus(db, { class_id: 'CLS-0001', status: 'inactive' }, SESSIONS.admin, CTX);
     db.Subjects.push({ subject_id: 'SUB-0004', subject_code: 'CPE304', subject_title: 'Robotics', units: '3', status: 'active' });
-    const { class_id: newClass } = classes.createClass(db, { term_id: 'TRM-0001', subject_id: 'SUB-0004', section_id: 'SEC-0002', instructor_id: 'INS-0002' }, SESSIONS.admin);
-    classes.addSchedule(db, { class_id: newClass, day_of_week: 'MON', start_time: '08:00', end_time: '10:00', room_id: 'RM-0001' }, SESSIONS.admin);
-    assert.throws(() => classes.setClassStatus(db, { class_id: 'CLS-0001', status: 'active' }, SESSIONS.admin),
+    const { class_id: newClass } = classes.createClass(db, { term_id: 'TRM-0001', subject_id: 'SUB-0004', section_id: 'SEC-0002', instructor_id: 'INS-0002' }, SESSIONS.admin, CTX);
+    classes.addSchedule(db, { class_id: newClass, day_of_week: 'MON', start_time: '08:00', end_time: '10:00', room_id: 'RM-0001' }, SESSIONS.admin, CTX);
+    assert.throws(() => classes.setClassStatus(db, { class_id: 'CLS-0001', status: 'active' }, SESSIONS.admin, CTX),
       (error) => error.code === 'VALIDATION_ERROR' && /CPE-101 is already used by CPE304/.test(error.message),
       'CLS-0001 and the new class now both own RM-0001 on MON 08:00-10:00');
   });
@@ -114,7 +108,7 @@ describe('known bugs (todo until fixed)', () => {
   it('BUG-4 admin dashboard attendance rate never exceeds 100%', { todo: 'BUG-4: dashboard.js:23 counts records of dropped students' }, () => {
     const db = makeDb();
     db.Attendance.push({ ...db.Attendance[0], attendance_id: 'ATT-00009', student_id: 'STU-0003' });
-    classes.dropEnrollment(db, { class_id: 'CLS-0001', student_id: 'STU-0003', reason: 'shifted' }, SESSIONS.admin);
+    classes.dropEnrollment(db, { class_id: 'CLS-0001', student_id: 'STU-0003', reason: 'shifted' }, SESSIONS.admin, CTX);
     const rate = getAdminDashboard(db, { date: '2026-11-16' }, null, CTX).stats.attendance_rate;
     assert.ok(rate <= 1, `rate is ${rate}`);
   });
@@ -122,7 +116,7 @@ describe('known bugs (todo until fixed)', () => {
   it('BUG-5 writeAudit works with a large AuditLog', () => {
     const db = makeDb();
     db.AuditLog = Array.from({ length: 200000 }, (_, i) => ({ audit_id: `AUD-${String(i + 1).padStart(4, '0')}` }));
-    writeAudit(db, SESSIONS.admin, { action: 'X', entityType: 'X', entityId: 'X' });
+    writeAudit(db, SESSIONS.admin, { action: 'X', entityType: 'X', entityId: 'X' }, CTX);
     assert.equal(db.AuditLog.at(-1).audit_id, 'AUD-200001');
   });
 
