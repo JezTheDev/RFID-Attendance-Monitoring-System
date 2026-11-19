@@ -38,7 +38,7 @@ New tests added on this branch:
 - `backend/tests/verification.test.js`: every READ action leaves the db unchanged (Server.gs never saves after a read);
   Asia/Manila day boundary at 23:59:59 vs 00:00; 8 bug tests marked `todo`.
 - `backend/tests/server-gs.test.js`: write actions take and release the script lock, reads do not; a busy lock
-  answers `BUSY` and saves nothing. (Checked that the lock test fails if Server.gs locks every request.)
+  answers `SERVER_BUSY` (renamed in step 4d, spec 6.4) and saves nothing. (Checked that the lock test fails if Server.gs locks every request.)
 
 **Password hash iterations:** already **300** on this branch (commit `9b58e71`), from your benchmark
 (1.197 ms × 300 ≈ 359 ms per hash). Old 1500-iteration hashes still verify (`auth.test.js`:
@@ -201,7 +201,7 @@ For every action I checked: input validation, role + ownership, data written, er
 | Area | What I checked | Evidence |
 |---|---|---|
 | Routing + roles | Unknown action → `UNKNOWN_ACTION`; `__proto__` / `toString` are not actions; role checked before running; must-change gate | `auth.test.js` sessions/roles tests |
-| Lock | Every WRITE action locks (`Server.gs:76-83`); reads do not; busy → `BUSY`, nothing saved | `server-gs.test.js` lock tests |
+| Lock | Every WRITE action locks (`Server.gs:76-83`); reads do not; busy → `SERVER_BUSY` (step 4d), nothing saved | `server-gs.test.js` lock tests |
 | Read actions are read-only | All 25 READ actions leave the db unchanged, so skipping the save is safe | `verification.test.js` |
 | Failed actions save nothing | `Server.gs:89` saves only on success; failed logins are the one deliberate exception (`:94`) | `server-gs.test.js` "full login flow" |
 | Ownership | Instructor: `ownClass()` on every class/session action. Student: `linkedId()`, ignores IDs in the request | `portal.test.js` |

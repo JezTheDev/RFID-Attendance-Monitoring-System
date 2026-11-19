@@ -51,45 +51,66 @@ function doPost(e) {
 
 // Opening the Web App URL in a browser shows this, so you can check the deployment.
 function doGet() {
-  return reply_({ ok: true, server_time: new Date().toISOString(), data: { service: 'RFID Attendance API', status: 'running' } });
+  return reply_({ ok: true, server_time: serverTime_(), data: { service: 'RFID Attendance API', status: 'running' } });
 }
 
 function reply_(body) {
   return ContentService.createTextOutput(JSON.stringify(body)).setMimeType(ContentService.MimeType.JSON);
 }
 
+// One clock for the whole request: ctx.now() (authContext_) and server_time.
+function nowMs_() {
+  return Date.now();
+}
+
+// Manila ISO with +08:00 (Device_API_Spec 5.1): the device checks its clock drift with it.
+function serverTime_() {
+  return RFID.toManilaIso(nowMs_());
+}
+
 function success_(data) {
-  return { ok: true, server_time: new Date().toISOString(), data: data };
+  return { ok: true, server_time: serverTime_(), data: data };
 }
 
 function failure_(code, message, fields) {
   var error = { code: code, message: message };
   if (fields) error.fields = fields;
-  return { ok: false, server_time: new Date().toISOString(), error: error };
+  return { ok: false, server_time: serverTime_(), error: error };
 }
 
 /* ===================== Router ===================== */
-// Every action (auth.*, admin.*, instructor.*, student.*) is in Bundle.gs:
-// RFID.runAction checks the session, the role and the forced password change.
+// Every action is in Bundle.gs. User actions (auth.*, admin.*, instructor.*,
+// student.*): RFID.runAction checks the session, the role and the forced
+// password change. ESP32 actions (device.*: device_id + device_key in the body):
+// RFID.runDeviceAction checks the device key; no user session is used.
+// Both: only the declared tabs are loaded; writes run under the script lock and
+// are saved in ONE batchUpdate (all or nothing), so ok:true means saved.
 
 function handleRequest_(request) {
   var action = String((request && request.action) || '');
-  if (action.indexOf('device.') === 0) return handleDeviceRequest_(request);
-  var entry = RFID.findAction(action);
-  if (!entry) return failure_('UNKNOWN_ACTION', 'Unknown action: ' + action);
+  var isDevice = action.indexOf('device.') === 0;
+  var spec;
+  var isWrite;
+  if (isDevice) {
+    spec = RFID.deviceTabsFor(action);
+    isWrite = spec.write.length > 0;
+  } else {
+    var entry = RFID.findAction(action);
+    if (!entry) return failure_('UNKNOWN_ACTION', 'Unknown action: ' + action);
+    spec = RFID.tabsFor(action);
+    isWrite = entry.mode === RFID.WRITE;
+  }
 
-  var isWrite = entry.mode === RFID.WRITE;
   var lock = null;
   var state = null;
   try {
     if (isWrite) {
       lock = LockService.getScriptLock();
-      if (!lock.tryLock(LOCK_WAIT_MS)) return failure_('BUSY', 'The server is busy. Please try again.');
+      if (!lock.tryLock(LOCK_WAIT_MS)) return failure_('SERVER_BUSY', 'The server is busy. Please try again.');
     }
     var ctx = authContext_();
-    // Only the tabs this action declares (actions.js); see loadDb_.
-    state = loadDb_(RFID.tabsFor(action), action, isWrite);
-    var data = RFID.runAction(state.db, request, ctx);
+    state = loadDb_(spec, action, isWrite);
+    var data = isDevice ? RFID.runDeviceAction(state.db, request, ctx) : RFID.runAction(state.db, request, ctx);
     if (isWrite) saveDb_(state);
     return success_(data);
   } catch (error) {
@@ -106,20 +127,6 @@ function handleRequest_(request) {
   }
 }
 
-// ESP32 requests: { action: "device.*", device_id, device_key, ... }. Checked by
-// device key (RFID.runDeviceAction), never by a user session. Read-only for now
-// (no device action exists yet), so no lock and nothing is saved.
-function handleDeviceRequest_(request) {
-  try {
-    var state = loadDb_(RFID.DEVICE_TABS, String(request.action), false);
-    return success_(RFID.runDeviceAction(state.db, request, authContext_()));
-  } catch (error) {
-    if (error && typeof error.code === 'string') return failure_(error.code, error.message, error.fields || null);
-    console.error(error && error.stack ? error.stack : error);
-    return failure_('SERVER_ERROR', 'Unexpected server error. Please try again.');
-  }
-}
-
 /* ===================== Auth wiring ===================== */
 
 function props_() {
@@ -133,7 +140,7 @@ function authContext_() {
   return RFID.createAuthContext({
     crypto: RFID.appsScriptCrypto(),
     getProperty: function (name) { return all[name] || null; },
-    now: function () { return Date.now(); },
+    now: nowMs_,
   });
 }
 

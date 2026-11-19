@@ -139,12 +139,20 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
 - Hash = **one** SHA-256 of `PASSWORD_PEPPER + " " + key` (`ctx.deviceKeyHash`),
   NOT the 300-iteration password hash: the key is long and random, so it cannot
   be guessed, and every tap stays fast (the password hash costs ~360 ms).
-- `device.*` requests: Server.gs routes them before the normal action lookup,
-  loads only `Devices` and calls `RFID.runDeviceAction` → `authenticateDevice`.
+- `device.*` requests: same Server.gs path as user actions (declared tabs from
+  `DEVICE_ACTIONS` / `deviceTabsFor`, lock for writes, one batchUpdate) but
+  `RFID.runDeviceAction` → `authenticateDevice` instead of a user session.
   The key is checked first: unknown device or wrong key → `INVALID_DEVICE_KEY`
   (same error), then `DEVICE_DISABLED` (not active), `DEVICE_NOT_ASSIGNED`.
-  Missing fields → `BAD_REQUEST`. No user session is used or created. No device
-  action exists yet, so an authenticated request gets `UNKNOWN_ACTION`.
+  Missing fields → `BAD_REQUEST`. Unknown `device.*` → `UNKNOWN_ACTION` (after
+  the key check, loads only `Devices`). Busy lock → `SERVER_BUSY`.
+- `device.submitScans` (step 4d, `handlers/device.js`): 1–20 scans; bad item →
+  `BAD_REQUEST` for all; `scan_id` must start with the device's own id; resent
+  `scan_id` → `ALREADY_RECORDED` + `original_result`, no rows; every new scan →
+  one ScanLog row; ACCEPTED → new session (if any) + Attendance. Reads
+  ScanLog and Attendance fully (idempotency + DUPLICATE). heartbeat/getRoster: 4e.
+- `server_time` in every reply is Manila ISO `+08:00` (`serverTime_()`, same
+  clock as `ctx.now()`).
 - `issueTestDeviceKey(device_id)` (editor-only, **TEST Sheet only**) logs a new
   key once for firmware tests; production keys come from the Admin portal.
 

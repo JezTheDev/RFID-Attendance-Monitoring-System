@@ -214,7 +214,11 @@ export function makeServer(props = PROPS, { sheetsApi = true } = {}) {
     },
   };
   if (sheetsApi) globals.Sheets = fakeSheetsApi(ss, sheets, stats);
+  // clock.ms = epoch ms pins Date.now() inside the script (null = real time).
+  const clock = { ms: null };
+  globals.__clock = clock;
   const context = vm.createContext(globals);
+  vm.runInContext('(function (real) { Date.now = function () { return __clock.ms === null ? real() : __clock.ms; }; })(Date.now);', context);
   vm.runInContext(source, context);
   vm.runInContext('setupViews = function () {};', context); // formulas are not under test
   const post = (body) => JSON.parse(context.doPost({ postData: { contents: JSON.stringify(body) } }).text);
@@ -223,5 +227,5 @@ export function makeServer(props = PROPS, { sheetsApi = true } = {}) {
     return rows.filter((r) => r.some((v) => v !== '' && v !== undefined)).map((r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ''])));
   };
   const usersTab = () => tab('Users');
-  return { context, ss, post, logs, usersTab, tab, locks, stats, resetStats };
+  return { context, ss, post, logs, usersTab, tab, locks, stats, resetStats, clock };
 }

@@ -162,13 +162,13 @@ describe('Server.gs in a fake Apps Script', () => {
     assert.match(logs.at(-1), /Nothing to change/);
   });
 
-  it('a busy lock answers BUSY and saves nothing', () => {
+  it('a busy lock answers SERVER_BUSY (spec 6.4) and saves nothing', () => {
     const { context, post, locks, usersTab } = makeServer();
     context.setupSheets();
     const before = JSON.stringify(usersTab());
     locks.available = false;
     const reply = post({ action: 'auth.login', username: 'admin.test', password: 'wrong-pass1' });
-    assert.equal(reply.error.code, 'BUSY');
+    assert.equal(reply.error.code, 'SERVER_BUSY');
     assert.equal(JSON.stringify(usersTab()), before);
   });
 });
@@ -424,6 +424,79 @@ describe('Server.gs device route and device keys', () => {
     assert.ok(!JSON.stringify(tab('AuditLog')).includes(hash), 'hash in AuditLog');
   });
 
+  // Seed: CLS-0001 in ROM-0001 MON 07:30-09:00; STU-0001 has card 04B50101.
+  // Monday 2026-11-23 has no ClassSession yet.
+  const MON = '2026-11-23T07:40:00+08:00';
+  const submit = (s, scans) => s.post({
+    action: 'device.submitScans', device_id: s.deviceId, device_key: s.key,
+    sent_at: Math.floor(Date.parse(MON) / 1000), firmware_version: '0.3.0', scans,
+  });
+  const scanOf = (s, n, uid = '04B50101', iso = '2026-11-23T07:35:00+08:00') => ({
+    scan_id: `${s.deviceId}-000001-${String(n).padStart(6, '0')}`, rfid_uid: uid, scanned_at: Date.parse(iso) / 1000, time_quality: 'ntp', sync_mode: 'live',
+  });
+  function tapReady() {
+    const s = withDevice();
+    s.clock.ms = Date.parse(MON);
+    return s;
+  }
+
+  it('device.submitScans: ACCEPTED, under the lock, declared tabs only, ONE batchUpdate of 4 rows', () => {
+    const s = tapReady();
+    const taken = s.locks.taken;
+    const reply = submit(s, [scanOf(s, 1)]);
+    assert.equal(reply.ok, true, JSON.stringify(reply.error));
+    assert.deepEqual(reply.data.results.map((r) => [r.result, r.lcd_line2]), [['ACCEPTED', 'J. Dela Cruz']]);
+    assert.equal(s.locks.taken, taken + 1);
+    assert.deepEqual([...s.stats.tabsRead].sort(), [...s.context.RFID.deviceTabsFor('device.submitScans').read].sort());
+    assert.deepEqual([s.stats.batchUpdates, s.stats.rowsWritten], [1, 4]); // ClassSessions, Attendance, ScanLog, Devices
+    const att = s.tab('Attendance').at(-1);
+    assert.deepEqual([att.student_id, att.scan_id, att.status, att.scanned_at], ['STU-0001', scanOf(s, 1).scan_id, 'present', '2026-11-23T07:35:00+08:00']);
+    assert.equal(s.tab('Devices').find((d) => d.device_id === s.deviceId).last_seen_at, MON);
+  });
+
+  it('device.submitScans resent: ALREADY_RECORDED and no new rows in the Sheet', () => {
+    const s = tapReady();
+    submit(s, [scanOf(s, 1)]);
+    const lengths = () => ['ClassSessions', 'Attendance', 'ScanLog'].map((n) => s.tab(n).length);
+    const before = lengths();
+    const reply = submit(s, [scanOf(s, 1)]);
+    assert.deepEqual([reply.data.results[0].result, reply.data.results[0].original_result], ['ALREADY_RECORDED', 'ACCEPTED']);
+    assert.deepEqual(lengths(), before);
+  });
+
+  it('device.submitScans with a wrong key: INVALID_DEVICE_KEY and nothing written', () => {
+    const s = tapReady();
+    const before = allCells(s.ss);
+    const reply = s.post({ action: 'device.submitScans', device_id: s.deviceId, device_key: 'f'.repeat(64), sent_at: 0, scans: [scanOf(s, 1)] });
+    assert.equal(reply.error.code, 'INVALID_DEVICE_KEY');
+    assert.equal(s.stats.batchUpdates, 0);
+    assert.equal(allCells(s.ss), before);
+  });
+
+  it('device.submitScans when the write fails: SERVER_ERROR and nothing half-saved', () => {
+    const s = tapReady();
+    const before = allCells(s.ss);
+    s.stats.failNext = true;
+    const reply = submit(s, [scanOf(s, 1), scanOf(s, 2, '04B50201')]);
+    assert.deepEqual([reply.ok, reply.error.code], [false, 'SERVER_ERROR']);
+    assert.equal(allCells(s.ss), before);
+  });
+
+  it('device.submitScans when the lock is busy: SERVER_BUSY and nothing saved', () => {
+    const s = tapReady();
+    const before = allCells(s.ss);
+    s.locks.available = false;
+    assert.equal(submit(s, [scanOf(s, 1)]).error.code, 'SERVER_BUSY');
+    assert.equal(allCells(s.ss), before);
+  });
+
+  it('device.submitScans with a bad item: BAD_REQUEST and nothing saved', () => {
+    const s = tapReady();
+    const before = allCells(s.ss);
+    assert.equal(submit(s, [scanOf(s, 1, 'XYZ')]).error.code, 'BAD_REQUEST');
+    assert.equal(allCells(s.ss), before);
+  });
+
   it('issueTestDeviceKey refuses without TEST_SEED_PASSWORD (production Sheet)', () => {
     const { context } = makeServer({ PASSWORD_PEPPER: 'vm-test-pepper' });
     assert.throws(() => context.issueTestDeviceKey('DEV-RM301-01'), /NOT_TEST_SHEET/);
@@ -440,5 +513,22 @@ describe('Server.gs device route and device keys', () => {
     const device = tab('Devices').find((d) => d.device_id === 'DEV-RM301-01');
     assert.match(device.device_key_hash, /^[0-9a-f]{64}$/);
     assert.notEqual(device.device_key_hash, key);
+  });
+});
+
+describe('server_time (spec 5.1): Manila ISO with +08:00 from the same clock', () => {
+  it('success, failure, bad JSON, doGet and device replies', () => {
+    const { context, post, clock } = ready();
+    clock.ms = Date.UTC(2026, 10, 20, 0, 5, 13);
+    const want = '2026-11-20T08:05:13+08:00';
+    const replies = [
+      post({ action: 'auth.login', username: 'admin.test', password: 'NewAdmin99' }),
+      post({ action: 'nope.nothing' }),
+      JSON.parse(context.doPost({ postData: { contents: '{not json' } }).text),
+      JSON.parse(context.doGet().text),
+      post({ action: 'device.submitScans', device_id: 'DEV-NOPE-01', device_key: 'x' }),
+    ];
+    assert.equal(replies[0].ok, true);
+    replies.forEach((reply) => assert.equal(reply.server_time, want));
   });
 });

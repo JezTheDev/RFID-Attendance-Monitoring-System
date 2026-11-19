@@ -272,7 +272,7 @@ Every place that must be removed or replaced for the new login model.
 | ISS-06 | **HIGH** | Integration / docs | Repo root | `PROJECT_CONTEXT.md` (primary requirements) and `firmware/` are missing from the repo. | Requirements and hardware progress can't be verified; firmware not version-controlled. | Add both (firmware with `secrets.h` ignored — rule already in `.gitignore:1-2`). |
 | ISS-07 | **MEDIUM** | Correctness / data integrity | `portal.js:353-357` | Instructor correction **deletes** the Attendance row when set to Absent and **edits device rows in place** (`record.status = status`). | Violates arch §7.2 rule 4 ("device-created rows are never edited in place"); deleting breaks `scan_id` idempotency later (a retried scan could re-create the row). `backend/README.md:157-159` already notes it. | Add `voided`/`override_status` columns; never delete; keep original device status. |
 | ISS-08 | **MEDIUM** | Performance | `Server.gs:231-255, 260-267` | Every request (reads too) loads **every tab**, including ever-growing ScanLog/Attendance/AuditLog, and JSON-snapshots all of them on writes (`:269-275`). | Device scans need fast replies (arch §10 "Apps Script response delay"); this gets slower every day. | Load only the tabs an action needs; cache rarely-changing tabs with `CacheService`; archive per term. |
-| ISS-09 | **MEDIUM** | Integration | `Server.gs:80` vs `Device_API_Spec.md:265` | Server returns error code `BUSY`; spec says `SERVER_BUSY`. | Firmware written to spec won't recognise the busy case. | Rename to `SERVER_BUSY` (or update the spec). |
+| ISS-09 | **MEDIUM** | Integration | `Server.gs:80` vs `Device_API_Spec.md:265` | Server returns error code `BUSY`; spec says `SERVER_BUSY`. | Firmware written to spec won't recognise the busy case. | **FIXED in step 4d** (`SERVER_BUSY`). |
 | ISS-10 | **MEDIUM** | Correctness | `students.js:207-233` | Changing a student's section does not update enrollments in old/new section classes. | Student stays on the old instructors' rosters and is missing from the new ones. | On section change, offer to drop old-section classes and `enrollInSectionClasses` for the new one. |
 | ISS-11 | **MEDIUM** | Security | `index.html:8-9`, all portal HTML (e.g. `admin/index.html:7-8,14`) | Bootstrap CSS/JS from jsDelivr without SRI hashes (also noted in `frontend/README.md:132`). | A compromised CDN file could steal session tokens. | Add `integrity` + `crossorigin` attributes. |
 | ISS-12 | **MEDIUM** | Docs / consistency | `frontend/assets/js/config.js:7` vs `frontend/README.md:32` | README says `demo` is the current mode; code is `live`. Opening the site uses the real backend. | Teammates may think they are on fake data while editing the real Sheet. | Decide the default; document it. |
@@ -395,7 +395,7 @@ KNOWN BUGS / RISKS
   ALLOW_TEST_LOGIN=true on server, anyone can sign in as admin. Turn off now.
 - Corrections delete/edit device Attendance rows (portal.js:353-357).
 - Every request loads all tabs (slow as logs grow).
-- Server error code BUSY vs spec SERVER_BUSY; server_time in UTC not +08:00.
+- ~~Server error code BUSY vs spec SERVER_BUSY; server_time in UTC not +08:00.~~ Fixed in step 4d.
 - Section change doesn't update enrollments; class re-activate skips clash check.
 - Docs/READMEs outdated (Google Sign-In, "backend not built", "portals not started").
 
