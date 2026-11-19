@@ -1,9 +1,10 @@
-// Admin-side account management: creating accounts with usernames and default
+// Admin-side account management: creating accounts with usernames and temporary
 // passwords, reset password, unlock, last-admin protection.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDb, SESSIONS, withCode } from './helpers/db.js';
 import { makeCtx, setPassword, TEST_PROPS } from './helpers/auth.js';
+import { TEMP_PASSWORD_PATTERN } from '../src/auth/passwords.js';
 import { runAction } from '../src/actions.js';
 import { createStudent, updateStudent, getStudent } from '../src/handlers/students.js';
 import { createInstructor, updateInstructor, listInstructors } from '../src/handlers/instructors.js';
@@ -17,24 +18,25 @@ const userOfLinked = (db, linked) => db.Users.find((u) => u.linked_id === linked
 const newStudent = (extra = {}) => ({ student_number: '2024000010', first_name: 'Gino', last_name: 'Dela Cruz', section_id: 'SEC-0001', ...extra });
 const newInstructor = (extra = {}) => ({ username: 'carlo.d', first_name: 'Carlo', last_name: 'Diaz', department: 'CpE', ...extra });
 
-function expectFreshAccount(ctx, user, role, defaultPassword) {
+function expectFreshAccount(ctx, user, role, tempPassword) {
+  assert.match(tempPassword, TEMP_PASSWORD_PATTERN);
   assert.equal(user.role, role);
   assert.equal(user.must_change_password, 'TRUE');
   assert.equal(user.failed_attempts, '0');
   assert.equal(user.locked_until, '');
   assert.equal(user.account_status, 'active');
-  assert.ok(ctx.verify(defaultPassword, user.password_hash));
+  assert.ok(ctx.verify(tempPassword, user.password_hash));
   assert.equal('google_sub' in user, false);
 }
 
 describe('creating accounts', () => {
-  it('student: username = student number, default student password, must change', () => {
+  it('student: username = student number, temporary password, must change', () => {
     const db = makeDb();
     const ctx = makeCtx();
-    const { student_id: id } = createStudent(db, newStudent(), SESSIONS.admin, ctx);
+    const { student_id: id, temp_password: temp } = createStudent(db, newStudent(), SESSIONS.admin, ctx);
     const user = userOfLinked(db, id);
     assert.equal(user.username, '2024000010');
-    expectFreshAccount(ctx, user, 'student', TEST_PROPS.DEFAULT_STUDENT_PASSWORD);
+    expectFreshAccount(ctx, user, 'student', temp);
   });
 
   it('student: email is optional but must be valid when given', () => {
@@ -51,16 +53,16 @@ describe('creating accounts', () => {
     assert.throws(() => createStudent(db, newStudent(), SESSIONS.admin, ctx), fieldError('student_number'));
   });
 
-  it('instructor: username required, trimmed + lowercased, default instructor password', () => {
+  it('instructor: username required, trimmed + lowercased, temporary password', () => {
     const db = makeDb();
     const ctx = makeCtx();
     assert.throws(() => createInstructor(db, newInstructor({ username: '' }), SESSIONS.admin, ctx), fieldError('username'));
     assert.throws(() => createInstructor(db, newInstructor({ username: 'has space' }), SESSIONS.admin, ctx), fieldError('username'));
     assert.throws(() => createInstructor(db, newInstructor({ username: 'ab' }), SESSIONS.admin, ctx), fieldError('username'));
-    const { instructor_id: id } = createInstructor(db, newInstructor({ username: '  Carlo.D ', email: '' }), SESSIONS.admin, ctx);
+    const { instructor_id: id, temp_password: temp } = createInstructor(db, newInstructor({ username: '  Carlo.D ', email: '' }), SESSIONS.admin, ctx);
     const user = userOfLinked(db, id);
     assert.equal(user.username, 'carlo.d');
-    expectFreshAccount(ctx, user, 'instructor', TEST_PROPS.DEFAULT_INSTRUCTOR_PASSWORD);
+    expectFreshAccount(ctx, user, 'instructor', temp);
   });
 
   it('usernames are unique across ALL roles, ignoring case', () => {
@@ -71,19 +73,19 @@ describe('creating accounts', () => {
     assert.throws(() => createAdmin(db, { username: 'Ana', display_name: 'Ana Two' }, SESSIONS.admin, ctx), fieldError('username'));
   });
 
-  it('admin: username + display name, default admin password, must change', () => {
+  it('admin: username + display name, temporary password, must change', () => {
     const db = makeDb();
     const ctx = makeCtx();
-    const { user_id: id } = createAdmin(db, { username: 'registrar', display_name: 'Registrar Office' }, SESSIONS.admin, ctx);
+    const { user_id: id, temp_password: temp } = createAdmin(db, { username: 'registrar', display_name: 'Registrar Office' }, SESSIONS.admin, ctx);
     const user = userById(db, id);
     assert.equal(user.username, 'registrar');
     assert.equal(user.display_name, 'Registrar Office');
-    expectFreshAccount(ctx, user, 'admin', TEST_PROPS.DEFAULT_ADMIN_PASSWORD);
+    expectFreshAccount(ctx, user, 'admin', temp);
   });
 
-  it('fails with NOT_CONFIGURED and changes nothing when the default password property is missing', () => {
+  it('fails with NOT_CONFIGURED and changes nothing when PASSWORD_PEPPER is missing', () => {
     const db = makeDb();
-    const ctx = makeCtx({ props: { ...TEST_PROPS, DEFAULT_STUDENT_PASSWORD: '', DEFAULT_INSTRUCTOR_PASSWORD: '' } });
+    const ctx = makeCtx({ props: { ...TEST_PROPS, PASSWORD_PEPPER: '' } });
     const before = JSON.stringify(db);
     assert.throws(() => createStudent(db, newStudent(), SESSIONS.admin, ctx), withCode('NOT_CONFIGURED'));
     assert.throws(() => createInstructor(db, newInstructor(), SESSIONS.admin, ctx), withCode('NOT_CONFIGURED'));
@@ -117,7 +119,7 @@ describe('updating accounts', () => {
 });
 
 describe('admin.resetPassword', () => {
-  it('sets the role default, forces a change, clears the lock and signs the user out everywhere', () => {
+  it('issues a temporary password, forces a change, clears the lock and signs the user out everywhere', () => {
     const db = makeDb();
     const ctx = makeCtx();
     const ana = setPassword(db, ctx, 'USR-0002', 'AnaPass123');
@@ -126,11 +128,13 @@ describe('admin.resetPassword', () => {
     ana.locked_until = '2099-01-01T00:00:00+08:00';
 
     const result = resetPassword(db, { user_id: 'USR-0002' }, SESSIONS.admin, ctx);
-    assert.deepEqual(result, { user_id: 'USR-0002', must_change_password: true, sessions_revoked: 1 });
-    expectFreshAccount(ctx, ana, 'instructor', TEST_PROPS.DEFAULT_INSTRUCTOR_PASSWORD);
+    const { temp_password: temp, temp_password_expires_at: expires, ...rest } = result;
+    assert.deepEqual(rest, { user_id: 'USR-0002', must_change_password: true, sessions_revoked: 1 });
+    assert.equal(expires, ana.temp_password_expires_at);
+    expectFreshAccount(ctx, ana, 'instructor', temp);
     assert.throws(() => runAction(db, { action: 'auth.me', session_token: token }, ctx), withCode('NOT_SIGNED_IN'));
     assert.equal(db.AuditLog.at(-1).action, 'PASSWORD_RESET');
-    assert.ok(!JSON.stringify(db.AuditLog).includes(TEST_PROPS.DEFAULT_INSTRUCTOR_PASSWORD));
+    assert.ok(!JSON.stringify(db.AuditLog).includes(temp));
   });
 
   it('refuses your own account and unknown users', () => {

@@ -14,9 +14,7 @@ export const TEST_PEPPER = 'test-pepper-not-a-secret';
 // FAKE values for tests only.
 export const TEST_PROPS = Object.freeze({
   PASSWORD_PEPPER: TEST_PEPPER,
-  DEFAULT_STUDENT_PASSWORD: 'Student2026',
-  DEFAULT_INSTRUCTOR_PASSWORD: 'Teach2026',
-  DEFAULT_ADMIN_PASSWORD: 'Admin2026',
+  TEST_SEED_PASSWORD: 'Seed2026x',
 });
 
 // ctx.clock.ms is the fake "now"; move it forward to test lockouts and expiry.

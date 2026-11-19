@@ -1,7 +1,7 @@
-// Account helpers for the admin side: usernames, new Users rows with the role's
-// default password, admin.resetPassword and admin.unlockUser.
+// Account helpers for the admin side: usernames, new Users rows, temporary
+// passwords, admin.resetPassword and admin.unlockUser.
 import { AppError, toManilaIso, writeAudit, nextId } from '../utils.js';
-import { normalizeUsername } from './account.js';
+import { normalizeUsername, positiveSetting } from './account.js';
 import { revokeSessions, isTrue } from './session.js';
 
 // Column order of the Users tab.
@@ -9,7 +9,10 @@ export const USER_COLUMNS = Object.freeze([
   'user_id', 'username', 'email', 'role', 'linked_id', 'account_status',
   'password_hash', 'must_change_password', 'failed_attempts', 'locked_until', 'password_changed_at',
   'created_by', 'last_login_at', 'created_at', 'updated_at', 'display_name',
+  'temp_password_expires_at',
 ]);
+
+const DAY = 24 * 60 * 60000;
 
 // Instructors and admins. Students use their 10-digit student number.
 export const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/;
@@ -42,10 +45,20 @@ export function accountSummary(user, ctx) {
   };
 }
 
-// Builds (does not save) a Users row whose password is the role's default.
-// Hashing happens first, so a missing Script Property stops before any change.
+// Gives the user a new random temporary password: stores only its hash, forces
+// a change, starts the expiry. Returns the plain value ONCE, for the admin's
+// response only; never write it to the Sheet, the AuditLog or a log.
+export function issueTempPassword(db, ctx, user) {
+  const tempPassword = ctx.newTempPassword();
+  user.password_hash = ctx.hash(tempPassword);
+  user.must_change_password = 'TRUE';
+  user.temp_password_expires_at = toManilaIso(ctx.now() + positiveSetting(db, 'temp_password_days', 7) * DAY);
+  return { temp_password: tempPassword, temp_password_expires_at: user.temp_password_expires_at };
+}
+
+// Builds (does not save) a Users row with no password yet: the caller gives it
+// one with issueTempPassword() before saving it.
 export function newUserRow(db, ctx, { username, email = '', role, linkedId = '', displayName = '' }, session) {
-  const passwordHash = ctx.hash(ctx.defaultPassword(role));
   const now = toManilaIso(ctx.now());
   return {
     user_id: nextId(db.Users, 'user_id', 'USR'),
@@ -54,7 +67,7 @@ export function newUserRow(db, ctx, { username, email = '', role, linkedId = '',
     role,
     linked_id: linkedId,
     account_status: 'active',
-    password_hash: passwordHash,
+    password_hash: '',
     must_change_password: 'TRUE',
     failed_attempts: '0',
     locked_until: '',
@@ -64,6 +77,7 @@ export function newUserRow(db, ctx, { username, email = '', role, linkedId = '',
     created_at: now,
     updated_at: now,
     display_name: displayName,
+    temp_password_expires_at: '',
   };
 }
 
@@ -78,17 +92,16 @@ export function resetPassword(db, { user_id: userId }, session, ctx) {
   if (user.user_id === session.user_id) {
     throw new AppError('BAD_REQUEST', 'Use Change password for your own account.');
   }
-  user.password_hash = ctx.hash(ctx.defaultPassword(user.role));
-  user.must_change_password = 'TRUE';
+  const issued = issueTempPassword(db, ctx, user);
   user.failed_attempts = '0';
   user.locked_until = '';
   user.updated_at = toManilaIso(ctx.now());
   const revoked = revokeSessions(db, user.user_id);
   writeAudit(db, session, {
     action: 'PASSWORD_RESET', entityType: 'Users', entityId: user.user_id,
-    reason: `Reset to the ${user.role} default password; ${revoked} session(s) signed out`,
+    reason: `New temporary password issued; ${revoked} session(s) signed out`,
   });
-  return { user_id: user.user_id, must_change_password: true, sessions_revoked: revoked };
+  return { user_id: user.user_id, must_change_password: true, sessions_revoked: revoked, ...issued };
 }
 
 export function unlockUser(db, { user_id: userId }, session, ctx) {

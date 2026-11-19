@@ -5,8 +5,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { makeDb, withCode } from './helpers/db.js';
 import { makeCtx, TEST_PROPS } from './helpers/auth.js';
-import { migrateUsersToPasswordLogin, createBootstrapAdmin } from '../src/auth/migration.js';
-import { USER_COLUMNS } from '../src/auth/admin-users.js';
+import { migrateUsersToPasswordLogin, createBootstrapAdmin, seedTestPasswords } from '../src/auth/migration.js';
+import { USER_COLUMNS, resetPassword } from '../src/auth/admin-users.js';
 import { runAction } from '../src/actions.js';
 
 // The Users/Settings tabs as they were before this change (Google Sign-In era).
@@ -29,7 +29,7 @@ function googleEraDb() {
 const byId = (db, id) => db.Users.find((u) => u.user_id === id);
 
 describe('migrateUsersToPasswordLogin', () => {
-  it('gives every user a username, the role default password and must_change TRUE', () => {
+  it('gives every user a username and every column, but NO shared password', () => {
     const db = googleEraDb();
     const ctx = makeCtx();
     const changes = migrateUsersToPasswordLogin(db, ctx);
@@ -44,10 +44,8 @@ describe('migrateUsersToPasswordLogin', () => {
 
     for (const user of db.Users) {
       assert.deepEqual(Object.keys(user).sort(), [...USER_COLUMNS].sort(), user.user_id);
-      assert.equal(user.must_change_password, 'TRUE');
       assert.equal(user.failed_attempts, '0');
-      const role = user.role.toUpperCase();
-      assert.ok(ctx.verify(TEST_PROPS[`DEFAULT_${role}_PASSWORD`], user.password_hash), user.user_id);
+      assert.equal(user.password_hash, ''); // an admin must reset them (temporary password)
     }
     assert.equal(byId(db, 'USR-0003').account_status, 'disabled'); // status untouched
   });
@@ -60,6 +58,7 @@ describe('migrateUsersToPasswordLogin', () => {
     assert.ok(!keys.includes('allowed_email_rule'));
     assert.equal(db.Settings.find((s) => s.key === 'max_login_attempts').value, '5');
     assert.equal(db.Settings.find((s) => s.key === 'lockout_minutes').value, '15');
+    assert.equal(db.Settings.find((s) => s.key === 'temp_password_days').value, '7');
   });
 
   it('logs what it changed, never a password', () => {
@@ -79,7 +78,7 @@ describe('migrateUsersToPasswordLogin', () => {
     assert.equal(JSON.stringify(db), after);
   });
 
-  it('signs out old sessions (e.g. from the test sign-in) of users who got a default password', () => {
+  it('signs out old sessions (e.g. from the test sign-in) of users without a password', () => {
     const db = googleEraDb();
     db.AuthSessions = [
       { token_hash: 'a', user_id: 'USR-0001', created_at: '', expires_at: '2099-01-01T00:00:00+08:00', revoked: 'FALSE' },
@@ -105,20 +104,14 @@ describe('migrateUsersToPasswordLogin', () => {
     assert.equal(byId(db, 'USR-0007').username, 'ana.reyes2');
   });
 
-  it('migrated users can sign in with the role default and are forced to change it', () => {
+  it('migrated users without a password cannot sign in until an admin resets them', () => {
     const db = googleEraDb();
     const ctx = makeCtx();
     migrateUsersToPasswordLogin(db, ctx);
-    const data = runAction(db, { action: 'auth.login', username: '2024000001', password: TEST_PROPS.DEFAULT_STUDENT_PASSWORD }, ctx);
-    assert.equal(data.must_change_password, true);
-  });
-
-  it('stops before changing anything when a needed default password is missing', () => {
-    const db = googleEraDb();
-    const before = JSON.stringify(db);
-    const ctx = makeCtx({ props: { ...TEST_PROPS, DEFAULT_ADMIN_PASSWORD: '' } });
-    assert.throws(() => migrateUsersToPasswordLogin(db, ctx), withCode('NOT_CONFIGURED'));
-    assert.equal(JSON.stringify(db), before);
+    const login = (password) => runAction(db, { action: 'auth.login', username: '2024000001', password }, ctx);
+    assert.throws(() => login(''), withCode('INVALID_CREDENTIALS'));
+    const { temp_password: temp } = resetPassword(db, { user_id: 'USR-0004' }, { user_id: 'USR-0001', role: 'admin' }, ctx);
+    assert.equal(login(temp).must_change_password, true);
   });
 });
 
@@ -187,14 +180,27 @@ describe('seed data (FAKE, for a TEST Sheet)', () => {
     assert.equal(value('lockout_minutes'), '15');
   });
 
-  it('after seeding, the migration only sets password fields', () => {
+  it('has temp_password_days = 7', () => {
+    assert.equal(seed.Settings.find((s) => s.key === 'temp_password_days')?.value, '7');
+  });
+
+  it('seedTestPasswords gives the FAKE users TEST_SEED_PASSWORD, must change, nothing else', () => {
     const db = JSON.parse(JSON.stringify(seed));
     const ctx = makeCtx();
-    migrateUsersToPasswordLogin(db, ctx);
+    const lines = seedTestPasswords(db, ctx);
+    assert.ok(!lines.join(' ').includes(TEST_PROPS.TEST_SEED_PASSWORD));
     db.Users.forEach((u, i) => {
       assert.equal(u.username, seed.Users[i].username);
       assert.equal(u.must_change_password, 'TRUE');
-      assert.ok(u.password_hash.startsWith('v1$'));
+      assert.ok(ctx.verify(TEST_PROPS.TEST_SEED_PASSWORD, u.password_hash));
     });
+    assert.deepEqual(seedTestPasswords(db, ctx), ['0 test user(s) got the TEST_SEED_PASSWORD (must change at first sign-in).']);
+  });
+
+  it('seedTestPasswords stops with NOT_CONFIGURED when TEST_SEED_PASSWORD is missing', () => {
+    const db = JSON.parse(JSON.stringify(seed));
+    const before = JSON.stringify(db);
+    assert.throws(() => seedTestPasswords(db, makeCtx({ props: { PASSWORD_PEPPER: 'p' } })), withCode('NOT_CONFIGURED'));
+    assert.equal(JSON.stringify(db), before);
   });
 });

@@ -1,6 +1,6 @@
 import { AppError, validationError, manilaNow, cleanText, writeAudit, nextId } from '../utils.js';
 import { normalizeUsername } from '../auth/account.js';
-import { newUserRow, usernameProblem, accountSummary } from '../auth/admin-users.js';
+import { newUserRow, issueTempPassword, usernameProblem, accountSummary } from '../auth/admin-users.js';
 
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -68,12 +68,13 @@ function validateInstructor(db, input, existing = null) {
 export function createInstructor(db, input, session, ctx) {
   const { value, username } = validateInstructor(db, input);
   const instructor = { instructor_id: nextId(db.Instructors, 'instructor_id', 'INS'), ...value, account_status: 'active' };
-  // Password = DEFAULT_INSTRUCTOR_PASSWORD (must be changed at first sign-in).
+  // A random temporary password, shown to the admin once.
   const user = newUserRow(db, ctx, { username, email: value.email, role: 'instructor', linkedId: instructor.instructor_id }, session);
+  const issued = issueTempPassword(db, ctx, user);
   db.Instructors.push(instructor);
   db.Users.push(user);
   writeAudit(db, session, { action: 'INSTRUCTOR_CREATE', entityType: 'Instructors', entityId: instructor.instructor_id, after: instructor });
-  return { instructor_id: instructor.instructor_id };
+  return { instructor_id: instructor.instructor_id, ...issued };
 }
 
 export function updateInstructor(db, input, session) {

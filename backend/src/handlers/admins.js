@@ -4,7 +4,7 @@ import {
   AppError, validationError, manilaNow, cleanText, writeAudit,
 } from '../utils.js';
 import { normalizeUsername } from '../auth/account.js';
-import { newUserRow, usernameProblem, accountSummary } from '../auth/admin-users.js';
+import { newUserRow, issueTempPassword, usernameProblem, accountSummary } from '../auth/admin-users.js';
 
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -58,11 +58,12 @@ export function listAdmins(db, _request, session, ctx) {
 
 export function createAdmin(db, input, session, ctx) {
   const value = validate(db, input);
-  // Password = DEFAULT_ADMIN_PASSWORD (must be changed at first sign-in).
+  // A random temporary password, shown to the admin once.
   const row = newUserRow(db, ctx, { username: value.username, email: value.email, role: 'admin', displayName: value.display_name }, session);
+  const issued = issueTempPassword(db, ctx, row);
   db.Users.push(row);
   writeAudit(db, session, { action: 'ADMIN_CREATE', entityType: 'Users', entityId: row.user_id, after: { username: row.username, email: row.email, display_name: row.display_name } });
-  return { user_id: row.user_id };
+  return { user_id: row.user_id, ...issued };
 }
 
 export function updateAdmin(db, input, session) {

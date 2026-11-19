@@ -237,7 +237,6 @@ describe('auth.changePassword', () => {
     assert.throws(() => change(db, ctx, token, ANA_PW, 'Short1'), fieldError('new_password'));
     assert.throws(() => change(db, ctx, token, ANA_PW, 'lettersonly'), fieldError('new_password'));
     assert.throws(() => change(db, ctx, token, ANA_PW, '1234567890'), fieldError('new_password'));
-    assert.throws(() => change(db, ctx, token, ANA_PW, TEST_PROPS.DEFAULT_INSTRUCTOR_PASSWORD), fieldError('new_password'));
     assert.throws(() => change(db, ctx, token, ANA_PW, ANA_PW), fieldError('new_password'));
     assert.throws(() => change(db, ctx, token, ANA_PW, `A1${'x'.repeat(127)}`), fieldError('new_password'));
     assert.equal(ana(db).password_hash, before);
@@ -266,12 +265,12 @@ describe('auth.changePassword', () => {
     assert.equal(audits(db, 'PASSWORD_CHANGED').length, 1);
   });
 
-  it('fails clearly when the role default password property is missing', () => {
+  it('needs no DEFAULT_*_PASSWORD property (only the pepper)', () => {
     const db = makeDb();
-    const ctx = makeCtx({ props: { ...TEST_PROPS, DEFAULT_INSTRUCTOR_PASSWORD: '' } });
+    const ctx = makeCtx({ props: { PASSWORD_PEPPER: TEST_PROPS.PASSWORD_PEPPER } });
     setPassword(db, ctx, 'USR-0002', ANA_PW);
     const { session_token: token } = login(db, ctx, 'ana', ANA_PW);
-    assert.throws(() => change(db, ctx, token, ANA_PW, 'NewPass456'), withCode('NOT_CONFIGURED'));
+    assert.equal(change(db, ctx, token, ANA_PW, 'NewPass456').must_change_password, false);
   });
 });
 

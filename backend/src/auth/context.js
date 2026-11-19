@@ -1,13 +1,7 @@
 // The "ctx" every auth-aware handler receives: hashing, Script Properties and
 // the clock, injected so the same code runs in Apps Script and in Node tests.
 import { AppError } from '../utils.js';
-import { PASSWORD_HASH_ITERATIONS, hashPassword, verifyPassword, sha256Hex } from './passwords.js';
-
-export const DEFAULT_PASSWORD_PROPERTY = Object.freeze({
-  student: 'DEFAULT_STUDENT_PASSWORD',
-  instructor: 'DEFAULT_INSTRUCTOR_PASSWORD',
-  admin: 'DEFAULT_ADMIN_PASSWORD',
-});
+import { PASSWORD_HASH_ITERATIONS, hashPassword, verifyPassword, sha256Hex, generateTempPassword } from './passwords.js';
 
 function notConfigured(name) {
   return new AppError('NOT_CONFIGURED', `The server is missing the ${name} setting. Ask the administrator to finish the setup.`);
@@ -28,13 +22,7 @@ export function createAuthContext({ crypto, getProperty, now, iterations = PASSW
     pepper,
     hash: (password) => hashPassword(crypto, pepper(), password, iterations),
     verify: (password, stored) => verifyPassword(crypto, pepper(), password, stored),
-    defaultPassword(role) {
-      const name = DEFAULT_PASSWORD_PROPERTY[role];
-      if (!name) throw new AppError('BAD_REQUEST', 'Unknown role.');
-      const value = property(name);
-      if (!value) throw notConfigured(name);
-      return value;
-    },
+    newTempPassword: () => generateTempPassword(crypto),
     newToken: () => crypto.randomHex(32),
     tokenHash: (token) => sha256Hex(crypto, token),
   };

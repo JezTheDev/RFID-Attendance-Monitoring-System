@@ -82,3 +82,21 @@ export function constantTimeEqual(a, b) {
 export function sha256Hex(crypto, text) {
   return toHex(crypto.sha256(crypto.utf8(text)));
 }
+
+// Temporary passwords (new account / admin reset): 10 characters without the
+// look-alikes 0 O o 1 l I, shown and typed as two groups: "k7Pmx-92Qwa".
+const TEMP_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz'; // 56 characters
+export const TEMP_PASSWORD_PATTERN = /^[2-9A-HJ-NP-Za-km-np-z]{5}-[2-9A-HJ-NP-Za-km-np-z]{5}$/;
+
+export function generateTempPassword(crypto) {
+  let chars = '';
+  while (chars.length < 10) {
+    const hex = crypto.randomHex(16);
+    for (let i = 0; i < hex.length && chars.length < 10; i += 2) {
+      const byte = parseInt(hex.slice(i, i + 2), 16);
+      // 224 = 4 * 56: skipping bytes >= 224 keeps every character equally likely.
+      if (byte < 224) chars += TEMP_ALPHABET[byte % 56];
+    }
+  }
+  return `${chars.slice(0, 5)}-${chars.slice(5)}`;
+}

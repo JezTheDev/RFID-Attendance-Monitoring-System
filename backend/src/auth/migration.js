@@ -1,6 +1,7 @@
 // One-time account jobs run from the Apps Script editor (see Server.gs):
 //   migrateUsersToPasswordLogin - Google-era Users tab -> username + password
 //   createBootstrapAdmin         - first admin when there is none
+//   seedTestPasswords            - FAKE seeded users of a TEST Sheet get TEST_SEED_PASSWORD
 // Both return/throw without saving; Server.gs saves only when they succeed.
 import { AppError, validationError, writeAudit } from '../utils.js';
 import { normalizeUsername, validateNewPassword } from './account.js';
@@ -10,6 +11,7 @@ import { revokeSessions } from './session.js';
 const LOGIN_SETTINGS = [
   { key: 'max_login_attempts', value: '5', description: 'Failed sign-ins in a row before the account is locked', source: 'Login design (Step 2)' },
   { key: 'lockout_minutes', value: '15', description: 'How long a locked account stays locked', source: 'Login design (Step 2)' },
+  { key: 'temp_password_days', value: '7', description: 'Days a temporary password (new account / reset) can be used', source: 'Temporary passwords' },
 ];
 const REMOVED_SETTINGS = ['allowed_email_rule'];
 const ROLE_ORDER = { student: 0, instructor: 1, admin: 2 };
@@ -30,14 +32,6 @@ function uniqueUsername(base, taken) {
 // Never logs passwords or hashes.
 export function migrateUsersToPasswordLogin(db, ctx) {
   const changes = [];
-
-  // Check every needed property first, so a missing one stops before any change.
-  ctx.pepper();
-  const needsPassword = db.Users.filter((user) => !user.password_hash);
-  const defaults = {};
-  needsPassword.forEach((user) => {
-    if (!(user.role in defaults)) defaults[user.role] = ctx.defaultPassword(user.role);
-  });
 
   // 1. Columns: every Users column exists; google_sub is removed.
   db.Users = db.Users.map((user) => {
@@ -82,14 +76,11 @@ export function migrateUsersToPasswordLogin(db, ctx) {
     changes.push(`${user.user_id}: username set to "${user.username}"`);
   });
 
-  // 3. Default password (hashed) + forced change, only where there is no password yet.
+  // 3. Users without a password are NOT given a shared one (anyone could guess
+  //    it). They cannot sign in until an admin resets their password, which
+  //    issues a temporary one. Their old sessions are signed out.
   db.Users.forEach((user) => {
     if (user.password_hash) return;
-    user.password_hash = ctx.hash(defaults[user.role]);
-    user.must_change_password = 'TRUE';
-    user.failed_attempts = '0';
-    user.locked_until = '';
-    changes.push(`${user.user_id}: default ${user.role} password set, must change at first sign-in`);
     const revoked = revokeSessions(db, user.user_id);
     if (revoked) changes.push(`${user.user_id}: ${revoked} old session(s) signed out`);
   });
@@ -107,6 +98,20 @@ export function migrateUsersToPasswordLogin(db, ctx) {
   return changes;
 }
 
+// TEST Sheet only: every seeded FAKE user without a password gets the
+// TEST_SEED_PASSWORD Script Property (hashed) and must change it.
+export function seedTestPasswords(db, ctx) {
+  const password = ctx.property('TEST_SEED_PASSWORD');
+  if (!password) throw new AppError('NOT_CONFIGURED', 'Set the TEST_SEED_PASSWORD Script Property first (fake test users only).');
+  const users = db.Users.filter((user) => !user.password_hash);
+  users.forEach((user) => {
+    user.password_hash = ctx.hash(password);
+    user.must_change_password = 'TRUE';
+    user.failed_attempts = '0';
+  });
+  return [`${users.length} test user(s) got the TEST_SEED_PASSWORD (must change at first sign-in).`];
+}
+
 // Creates the first admin from BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD.
 export function createBootstrapAdmin(db, ctx) {
   const username = normalizeUsername(ctx.property('BOOTSTRAP_ADMIN_USERNAME'));
@@ -118,7 +123,7 @@ export function createBootstrapAdmin(db, ctx) {
   }
   const problem = usernameProblem(db, username);
   if (problem) throw validationError({ username: problem });
-  validateNewPassword(ctx, 'admin', null, password);
+  validateNewPassword(null, password);
 
   const row = newUserRow(db, ctx, { username, role: 'admin', displayName: 'Administrator' }, { user_id: 'bootstrap' });
   row.password_hash = ctx.hash(password);

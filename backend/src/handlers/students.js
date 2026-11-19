@@ -2,7 +2,7 @@ import {
   AppError, validationError, manilaNow, indexBy, fullName, cleanText, writeAudit, nextId,
 } from '../utils.js';
 import { enrollInSectionClasses } from './classes.js';
-import { newUserRow, usernameTaken, accountSummary } from '../auth/admin-users.js';
+import { newUserRow, issueTempPassword, usernameTaken, accountSummary } from '../auth/admin-users.js';
 
 const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
@@ -188,13 +188,14 @@ export function createStudent(db, input, session, ctx) {
     email: value.email,
     account_status: 'active',
   };
-  // Username = student number; password = DEFAULT_STUDENT_PASSWORD (must be changed at first sign-in).
+  // Username = student number; a random temporary password, shown to the admin once.
   const user = newUserRow(db, ctx, { username: value.student_number, email: value.email, role: 'student', linkedId: student.student_id }, session);
+  const issued = issueTempPassword(db, ctx, user);
   db.Students.push(student);
   db.Users.push(user);
   const classesJoined = enrollInSectionClasses(db, student.student_id, student.section_id);
   writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } });
-  return { student_id: student.student_id, classes_joined: classesJoined };
+  return { student_id: student.student_id, classes_joined: classesJoined, ...issued };
 }
 
 export function updateStudent(db, input, session) {

@@ -18,7 +18,7 @@ export function findUserByUsername(db, username) {
   return db.Users.find((row) => normalizeUsername(row.username) === wanted) ?? null;
 }
 
-function positiveSetting(db, key, fallback) {
+export function positiveSetting(db, key, fallback) {
   const value = Math.floor(Number(setting(db, key, fallback)));
   return value > 0 ? value : fallback;
 }
@@ -87,6 +87,12 @@ export function login(db, request, _session, ctx) {
     throw saved(new AppError('ACCOUNT_DISABLED', 'Your account is disabled. Contact the administrator.'));
   }
 
+  // Checked only after the right password, so a guesser learns nothing.
+  if (Date.parse(user.temp_password_expires_at) <= nowMs) {
+    audit(db, user, 'LOGIN_FAILED', 'temporary password expired');
+    throw saved(new AppError('TEMP_PASSWORD_EXPIRED', 'Your temporary password has expired. Ask the admin to reset your password.'));
+  }
+
   user.failed_attempts = '0';
   user.locked_until = '';
   if (hashIterations(user.password_hash) < ctx.iterations) user.password_hash = ctx.hash(password);
@@ -133,12 +139,11 @@ export function me(db, _request, session) {
 }
 
 // Throws VALIDATION_ERROR { new_password } if the new password breaks a rule.
-export function validateNewPassword(ctx, role, oldPassword, newPassword) {
+export function validateNewPassword(oldPassword, newPassword) {
   let problem = '';
   if (newPassword.length < MIN_PASSWORD) problem = `Use at least ${MIN_PASSWORD} characters.`;
   else if (newPassword.length > MAX_PASSWORD) problem = `Use ${MAX_PASSWORD} characters or fewer.`;
   else if (!/\p{L}/u.test(newPassword) || !/\d/.test(newPassword)) problem = 'Use both letters and numbers.';
-  else if (newPassword === ctx.defaultPassword(role)) problem = 'Choose a password different from the default password.';
   else if (oldPassword !== null && newPassword === oldPassword) problem = 'Choose a password different from your current one.';
   if (problem) throw validationError({ new_password: problem });
 }
@@ -151,11 +156,12 @@ export function changePassword(db, request, session, ctx) {
   if (!user.password_hash || !ctx.verify(oldPassword, user.password_hash)) {
     throw validationError({ old_password: 'Your current password is incorrect.' });
   }
-  validateNewPassword(ctx, user.role, oldPassword, newPassword);
+  validateNewPassword(oldPassword, newPassword);
 
   const now = toManilaIso(ctx.now());
   user.password_hash = ctx.hash(newPassword);
   user.must_change_password = 'FALSE';
+  user.temp_password_expires_at = '';
   user.password_changed_at = now;
   user.failed_attempts = '0';
   user.locked_until = '';
