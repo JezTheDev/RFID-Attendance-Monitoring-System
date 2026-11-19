@@ -1244,47 +1244,47 @@ var RFID = (function () {
     const { AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus } = __m["utils"];
     const { enrollInSectionClasses } = __m["handlers/classes"];
     const { newUserRow, issueTempPassword, usernameTaken, accountSummary } = __m["auth/admin-users"];
-
+    
     const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
     const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
     const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const UID_PATTERN = /^(?:[0-9A-F]{8}|[0-9A-F]{14}|[0-9A-F]{20})$/;
     const REPLACE_REASONS = { lost: 'lost', damaged: 'revoked', other: 'revoked' };
-
+    
     function normalizeUid(value) {
       return String(value ?? '').toUpperCase().replace(/[\s:-]/g, '');
     }
-
+    
     function sectionLabel(db, sectionId) {
       const section = db.Sections.find((row) => row.section_id === sectionId);
       if (!section) return '';
       const program = db.Programs.find((row) => row.program_id === section.program_id);
       return `${program?.program_code ?? ''} ${section.section_name}`.trim();
     }
-
+    
     function activeCardOf(db, studentId) {
       return db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active') ?? null;
     }
-
+    
     function userOf(db, studentId) {
       return db.Users.find((row) => row.role === 'student' && row.linked_id === studentId) ?? null;
     }
-
+    
     function findStudent(db, studentId) {
       const student = db.Students.find((row) => row.student_id === studentId);
       if (!student) throw new AppError('NOT_FOUND', 'Student not found.');
       return student;
     }
-
+    
     function bumpRosterVersion(db) {
       const row = db.Settings.find((item) => item.key === 'roster_version');
       if (row) row.value = String(Number(row.value || 0) + 1);
     }
-
+    
     function cardSummary(card) {
       return card ? { card_id: card.card_id, rfid_uid: card.rfid_uid, status: card.status, assigned_at: card.assigned_at } : null;
     }
-
+    
     function toListItem(db, student) {
       return {
         student_id: student.student_id,
@@ -1299,7 +1299,7 @@ var RFID = (function () {
         card: cardSummary(activeCardOf(db, student.student_id)),
       };
     }
-
+    
     function getStudentOptions(db) {
       return {
         sections: db.Sections
@@ -1308,7 +1308,7 @@ var RFID = (function () {
           .sort((a, b) => a.label.localeCompare(b.label)),
       };
     }
-
+    
     function listStudents(db, { search = '', section_id = '', status = 'active', card = 'all', page = 1, page_size = 20 }) {
       if (!['active', 'inactive', 'all'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status filter.');
       if (!['all', 'with', 'without'].includes(card)) throw new AppError('BAD_REQUEST', 'Invalid card filter.');
@@ -1316,7 +1316,7 @@ var RFID = (function () {
       const pageSize = Math.min(100, Math.max(1, Math.floor(Number(page_size)) || 20));
       const term = cleanText(search).toLowerCase();
       const uidTerm = normalizeUid(search);
-
+    
       const matches = db.Students.filter((student) => {
         if (status !== 'all' && student.account_status !== status) return false;
         if (section_id && student.section_id !== section_id) return false;
@@ -1327,7 +1327,7 @@ var RFID = (function () {
         const haystack = `${student.first_name} ${student.last_name} ${student.last_name} ${student.first_name} ${student.student_number} ${student.email}`.toLowerCase();
         return haystack.includes(term) || (uidTerm.length >= 4 && activeCard?.rfid_uid.includes(uidTerm));
       }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-
+    
       const activeStudents = db.Students.filter((row) => row.account_status === 'active');
       return {
         items: matches.slice((pageNumber - 1) * pageSize, pageNumber * pageSize).map((row) => toListItem(db, row)),
@@ -1341,7 +1341,7 @@ var RFID = (function () {
         },
       };
     }
-
+    
     function getStudent(db, { student_id }, _session, ctx) {
       const student = findStudent(db, student_id);
       const user = userOf(db, student_id);
@@ -1373,7 +1373,7 @@ var RFID = (function () {
         },
       };
     }
-
+    
     function validateStudentInput(db, input, existing = null) {
       const errors = {};
       const ownUserId = existing ? userOf(db, existing.student_id)?.user_id ?? null : null;
@@ -1384,7 +1384,7 @@ var RFID = (function () {
         section_id: cleanText(input.section_id),
         email: cleanText(input.email).toLowerCase(),
       };
-
+    
       if (!STUDENT_NUMBER_PATTERN.test(value.student_number)) {
         errors.student_number = 'Student number must be exactly 10 digits.';
       } else if (db.Students.some((row) => row.student_number === value.student_number && row.student_id !== existing?.student_id)) {
@@ -1393,28 +1393,28 @@ var RFID = (function () {
         // The student number is the student's username, and usernames are unique across all accounts.
         errors.student_number = 'This student number is already used as a username by another account.';
       }
-
+    
       for (const field of ['first_name', 'last_name']) {
         if (!value[field]) errors[field] = 'This field is required.';
         else if (value[field].length > 60) errors[field] = 'Use 60 characters or fewer.';
         else if (!NAME_PATTERN.test(value[field])) errors[field] = 'Use letters, spaces, periods, apostrophes, or hyphens only.';
       }
-
+    
       if (!db.Sections.some((row) => row.section_id === value.section_id && row.status === 'active')) {
         errors.section_id = 'Choose a section.';
       }
-
+    
       // Email is optional; when given it must be valid and not used by another account.
       if (value.email && (!EMAIL_PATTERN.test(value.email) || value.email.length > 120)) {
         errors.email = 'Enter a valid email address.';
       } else if (value.email && db.Users.some((row) => row.email === value.email && row.user_id !== ownUserId)) {
         errors.email = 'This email is already registered to another account.';
       }
-
+    
       if (Object.keys(errors).length) throw validationError(errors);
       return value;
     }
-
+    
     function createStudent(db, input, session, ctx) {
       const value = validateStudentInput(db, input);
       const section = db.Sections.find((row) => row.section_id === value.section_id);
@@ -1438,7 +1438,7 @@ var RFID = (function () {
       writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } }, ctx);
       return { student_id: student.student_id, classes_joined: classesJoined, ...issued };
     }
-
+    
     function updateStudent(db, input, session, ctx) {
       const student = findStudent(db, input.student_id);
       const value = validateStudentInput(db, input, student);
@@ -1453,25 +1453,27 @@ var RFID = (function () {
         section_id: section.section_id,
         email: value.email,
       });
-
+    
+      if (before.first_name !== student.first_name || before.last_name !== student.last_name) bumpRosterVersion(db); // roster names
+    
       const user = userOf(db, student.student_id);
       if (user) {
         user.username = value.student_number; // the username follows the student number
         user.email = value.email;
         user.updated_at = toManilaIso(ctx.now());
       }
-
+    
       writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before, after: { ...student } }, ctx);
       return { student_id: student.student_id };
     }
-
+    
     function setStudentStatus(db, { student_id, status, reason }, session, ctx) {
       const student = findStudent(db, student_id);
       if (!['active', 'inactive'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status.');
       if (student.account_status === status) throw new AppError('NO_CHANGE', `This student is already ${status}.`);
       const cleanReason = cleanText(reason);
       if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
-
+    
       const now = toManilaIso(ctx.now());
       const user = userOf(db, student_id);
       const before = { account_status: student.account_status };
@@ -1480,7 +1482,7 @@ var RFID = (function () {
         user.account_status = status === 'active' ? 'active' : 'disabled';
         user.updated_at = now;
       }
-
+    
       let revokedCard = null;
       if (status === 'inactive') {
         const card = activeCardOf(db, student_id);
@@ -1489,17 +1491,17 @@ var RFID = (function () {
           card.revoked_at = now;
           card.notes = cleanText(`${card.notes} Revoked: student deactivated.`);
           revokedCard = card.card_id;
-          bumpRosterVersion(db);
         }
       }
-
+      bumpRosterVersion(db); // every status change: covers legacy inactive students who kept an active card
+    
       writeAudit(db, session, {
         action: status === 'active' ? 'STUDENT_ACTIVATE' : 'STUDENT_DEACTIVATE',
         entityType: 'Students', entityId: student_id, before, after: { account_status: status, revoked_card: revokedCard }, reason: cleanReason,
       }, ctx);
       return { student_id, account_status: status, revoked_card_id: revokedCard };
     }
-
+    
     function assignCard(db, { student_id, rfid_uid, replace_reason = '', note = '' }, session, ctx) {
       const student = findStudent(db, student_id);
       if (student.account_status !== 'active') {
@@ -1509,7 +1511,7 @@ var RFID = (function () {
       if (!UID_PATTERN.test(uid)) {
         throw validationError({ rfid_uid: 'UID must be 8, 14, or 20 hexadecimal characters (0–9, A–F).' });
       }
-
+    
       const activeWithUid = db.RfidCards.find((row) => row.rfid_uid === uid && row.status === 'active');
       if (activeWithUid && activeWithUid.student_id === student_id) {
         throw validationError({ rfid_uid: 'This card is already the student\'s active card.' });
@@ -1522,7 +1524,7 @@ var RFID = (function () {
       if (otherHistory) {
         throw validationError({ rfid_uid: `This card was previously registered to another student and is marked ${otherHistory.status}. Use a different card.` });
       }
-
+    
       const current = activeCardOf(db, student_id);
       const now = toManilaIso(ctx.now());
       const cleanNote = cleanText(note).slice(0, 200);
@@ -1532,7 +1534,7 @@ var RFID = (function () {
         current.revoked_at = now;
         current.notes = cleanText(`${current.notes} Replaced (${replace_reason}).`);
       }
-
+    
       const card = {
         card_id: nextId(db.RfidCards, 'card_id', 'CRD'),
         rfid_uid: uid,
@@ -1554,7 +1556,7 @@ var RFID = (function () {
       }, ctx);
       return { card_id: card.card_id, replaced_card_id: current?.card_id ?? null };
     }
-
+    
     function revokeCard(db, { student_id, reason }, session, ctx) {
       findStudent(db, student_id);
       const card = activeCardOf(db, student_id);
@@ -1571,7 +1573,7 @@ var RFID = (function () {
       }, ctx);
       return { card_id: card.card_id };
     }
-
+    
     function listUnregisteredUids(db) {
       const knownUids = new Set(db.RfidCards.map((row) => row.rfid_uid));
       const rooms = indexBy(db.Rooms, 'room_id');
@@ -3213,10 +3215,10 @@ var RFID = (function () {
     const devices = __m["handlers/devices"];
     const { authenticateDevice } = __m["auth/device-auth"];
     const { submitScans, heartbeat, getRoster } = __m["handlers/device"];
-
+    
     const READ = 'read';
     const WRITE = 'write';
-
+    
     // Tabs: Server.gs loads only what an action declares (step 4a).
     //   reads   - loaded fully (space-separated tab names)
     //   writes  - may change; saved if they did (also loaded fully)
@@ -3226,7 +3228,7 @@ var RFID = (function () {
     const AUTH_TABS = Object.freeze(['AuthSessions', 'Users']);
     const CLASS_REF = 'Terms Programs Sections Subjects Rooms Instructors Students Classes Schedules Enrollments';
     const PORTAL = `${CLASS_REF} ClassSessions Attendance RfidCards`;
-
+    
     const ACTIONS = Object.freeze({
       'auth.login': { run: account.login, mode: WRITE, role: PUBLIC,
         reads: 'Users Settings AuthSessions Instructors Students', writes: 'Users AuthSessions', appends: 'AuditLog' },
@@ -3249,7 +3251,7 @@ var RFID = (function () {
       'admin.createStudent': { run: createStudent, mode: WRITE, role: 'admin',
         reads: 'Classes Enrollments Programs Sections Settings Students Terms', writes: 'Students Users Enrollments', appends: 'AuditLog' },
       'admin.updateStudent': { run: updateStudent, mode: WRITE, role: 'admin',
-        reads: 'Programs Sections Students', writes: 'Students Users', appends: 'AuditLog' },
+        reads: 'Programs Sections Settings Students', writes: 'Students Users Settings', appends: 'AuditLog' },
       'admin.setStudentStatus': { run: setStudentStatus, mode: WRITE, role: 'admin',
         reads: 'RfidCards Settings Students', writes: 'Students Users RfidCards Settings', appends: 'AuditLog' },
       'admin.assignCard': { run: assignCard, mode: WRITE, role: 'admin',
@@ -3368,9 +3370,9 @@ var RFID = (function () {
       'student.getProfile': { run: portal.studentGetProfile, mode: READ, role: 'student',
         reads: PORTAL },
     });
-
+    
     const words = (text) => (text ? text.split(' ') : []);
-
+    
     // { read, write, append } tab names for an action, or null if it is unknown.
     function tabsFor(name) {
       const action = findAction(name);
@@ -3379,9 +3381,9 @@ var RFID = (function () {
       const read = [...new Set([...(action.role === PUBLIC ? [] : AUTH_TABS), ...words(action.reads), ...write])];
       return { read, write, append: words(action.appends).filter((tab) => !read.includes(tab)) };
     }
-
+    
     const isTab = (name) => typeof name === 'string' && /^[A-Z]/.test(name);
-
+    
     // Wraps a db that holds only the declared tabs:
     // - rows of read-only and append tabs are frozen (and read-only arrays too),
     //   so an undeclared change throws instead of being silently not saved;
@@ -3412,11 +3414,11 @@ var RFID = (function () {
         },
       });
     }
-
+    
     function findAction(name) {
       return Object.prototype.hasOwnProperty.call(ACTIONS, name) ? ACTIONS[name] : null;
     }
-
+    
     // Looks the action up, checks the session, the role and the forced password
     // change, then runs it. Throws AppError; error.commit === true means the
     // changes made so far must still be saved (failed logins).
@@ -3425,7 +3427,7 @@ var RFID = (function () {
       const action = findAction(name);
       if (!action) throw new AppError('UNKNOWN_ACTION', `Unknown action: ${name}`);
       if (action.role === PUBLIC) return action.run(db, request, null, ctx);
-
+    
       const session = authorize(db, request.session_token, ctx);
       if (action.role !== ANY && session.role !== action.role) {
         throw new AppError('FORBIDDEN', 'You do not have access to this information.');
@@ -3435,28 +3437,28 @@ var RFID = (function () {
       }
       return action.run(db, request, session, ctx);
     }
-
+    
     // device.* requests (ESP32): no user session; the device key is checked first
     // (authenticateDevice). Same tab rules as ACTIONS; a device action with writes
     // runs under the lock. Unknown device.* actions load only Devices for the check.
     const DEVICE_TABS = Object.freeze({ read: ['Devices'], write: [], append: [] });
-
+    
     const DEVICE_ACTIONS = Object.freeze({
       'device.submitScans': { run: submitScans,
         reads: 'Terms Classes Schedules Enrollments RfidCards Students Settings', writes: 'Devices ClassSessions Attendance ScanLog' },
       'device.heartbeat': { run: heartbeat, reads: 'Settings', writes: 'Devices' },
       'device.getRoster': { run: getRoster, reads: 'Devices RfidCards Students Settings' },
     });
-
+    
     const findDeviceAction = (name) => (Object.prototype.hasOwnProperty.call(DEVICE_ACTIONS, name) ? DEVICE_ACTIONS[name] : null);
-
+    
     function deviceTabsFor(name) {
       const action = findDeviceAction(name);
       if (!action) return DEVICE_TABS;
       const write = words(action.writes);
       return { read: [...new Set([...words(action.reads), ...write])], write, append: words(action.appends) };
     }
-
+    
     function runDeviceAction(db, request, ctx) {
       const device = authenticateDevice(db, request, ctx);
       const name = String(request.action || '');

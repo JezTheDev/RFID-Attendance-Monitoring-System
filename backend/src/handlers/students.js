@@ -213,6 +213,8 @@ export function updateStudent(db, input, session, ctx) {
     email: value.email,
   });
 
+  if (before.first_name !== student.first_name || before.last_name !== student.last_name) bumpRosterVersion(db); // roster names
+
   const user = userOf(db, student.student_id);
   if (user) {
     user.username = value.student_number; // the username follows the student number
@@ -248,9 +250,9 @@ export function setStudentStatus(db, { student_id, status, reason }, session, ct
       card.revoked_at = now;
       card.notes = cleanText(`${card.notes} Revoked: student deactivated.`);
       revokedCard = card.card_id;
-      bumpRosterVersion(db);
     }
   }
+  bumpRosterVersion(db); // every status change: covers legacy inactive students who kept an active card
 
   writeAudit(db, session, {
     action: status === 'active' ? 'STUDENT_ACTIVATE' : 'STUDENT_DEACTIVATE',

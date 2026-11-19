@@ -8,6 +8,7 @@ import { makeCtx } from './helpers/auth.js';
 import { createDevice, generateDeviceKey, setDeviceStatus } from '../src/handlers/devices.js';
 import { getAdminDashboard } from '../src/handlers/dashboard.js';
 import { runDeviceAction } from '../src/actions.js';
+import { assignCard, revokeCard, setStudentStatus, updateStudent } from '../src/handlers/students.js';
 
 const NOW = '2026-11-23T08:10:00+08:00';
 
@@ -134,5 +135,37 @@ describe('device.getRoster', () => {
   it('wrong device key → INVALID_DEVICE_KEY', () => {
     const { roster } = setup();
     assert.equal(codeOf(() => roster({ device_key: 'f'.repeat(64) })), 'INVALID_DEVICE_KEY');
+  });
+});
+
+describe('roster_version bumps', () => {
+  const version = (db) => Number(db.Settings.find((r) => r.key === 'roster_version').value);
+  const stu1 = { student_id: 'STU-0001', student_number: '2024000001', first_name: 'Carla', last_name: 'Santos', section_id: 'SEC-0001', email: 's1@example.com' };
+  const actions = {
+    'assignCard (new card)': (db, ctx) => assignCard(db, { student_id: 'STU-0002', rfid_uid: '04000002' }, SESSIONS.admin, ctx),
+    'assignCard (replace)': (db, ctx) => assignCard(db, { student_id: 'STU-0001', rfid_uid: '04000009', replace_reason: 'lost' }, SESSIONS.admin, ctx),
+    revokeCard: (db, ctx) => revokeCard(db, { student_id: 'STU-0001', reason: 'lost card' }, SESSIONS.admin, ctx),
+    'setStudentStatus inactive': (db, ctx) => setStudentStatus(db, { student_id: 'STU-0001', status: 'inactive', reason: 'dropped' }, SESSIONS.admin, ctx),
+    'setStudentStatus active': (db, ctx) => setStudentStatus(db, { student_id: 'STU-0001', status: 'active', reason: 'returned' }, SESSIONS.admin, ctx),
+    'updateStudent (last name)': (db, ctx) => updateStudent(db, { ...stu1, last_name: 'Santos-Reyes' }, SESSIONS.admin, ctx),
+    'updateStudent (first name)': (db, ctx) => updateStudent(db, { ...stu1, first_name: 'Karla' }, SESSIONS.admin, ctx),
+  };
+  Object.entries(actions).forEach(([name, run]) => {
+    it(`${name} bumps roster_version and getRoster sees the change`, () => {
+      const { db, ctx, roster } = setup();
+      // legacy data: an inactive student who kept an active card
+      if (name === 'setStudentStatus active') db.Students.find((s) => s.student_id === 'STU-0001').account_status = 'inactive';
+      const before = roster({ known_version: 0 });
+      run(db, ctx);
+      assert.equal(version(db), 2);
+      assert.equal(roster({ known_version: 1 }).changed, true);
+      assert.notDeepEqual(roster({ known_version: 0 }).cards, before.cards);
+    });
+  });
+
+  it('updateStudent changing only the email does not bump', () => {
+    const { db, ctx } = setup();
+    updateStudent(db, { ...stu1, email: 'new@example.com' }, SESSIONS.admin, ctx);
+    assert.equal(version(db), 1);
   });
 });
