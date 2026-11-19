@@ -21,6 +21,7 @@ import * as portal from './handlers/portal.js';
 import * as classes from './handlers/classes.js';
 import * as admins from './handlers/admins.js';
 import * as devices from './handlers/devices.js';
+import * as settings from './handlers/settings.js';
 import { authenticateDevice } from './auth/device-auth.js';
 import { submitScans, heartbeat, getRoster } from './handlers/device.js';
 
@@ -137,6 +138,10 @@ export const ACTIONS = Object.freeze({
     reads: 'Settings', writes: 'Users AuthSessions', appends: 'AuditLog' },
   'admin.unlockUser': { run: adminUsers.unlockUser, mode: WRITE, role: 'admin',
     writes: 'Users', appends: 'AuditLog' },
+  'admin.getSettings': { run: settings.getSettings, mode: READ, role: 'admin',
+    reads: 'Settings' },
+  'admin.updateSettings': { run: settings.updateSettings, mode: WRITE, role: 'admin',
+    writes: 'Settings', appends: 'AuditLog' },
   'admin.getClassOptions': { run: classes.getClassOptions, mode: READ, role: 'admin',
     reads: CLASS_REF },
   'admin.listClasses': { run: classes.listClasses, mode: READ, role: 'admin',

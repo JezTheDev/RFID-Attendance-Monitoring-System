@@ -1,5 +1,5 @@
 import {
-  AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus,
+  AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, bumpRosterVersion,
 } from '../utils.js';
 import { enrollInSectionClasses } from './classes.js';
 import { newUserRow, issueTempPassword, usernameTaken, accountSummary } from '../auth/admin-users.js';
@@ -33,11 +33,6 @@ function findStudent(db, studentId) {
   const student = db.Students.find((row) => row.student_id === studentId);
   if (!student) throw new AppError('NOT_FOUND', 'Student not found.');
   return student;
-}
-
-function bumpRosterVersion(db) {
-  const row = db.Settings.find((item) => item.key === 'roster_version');
-  if (row) row.value = String(Number(row.value || 0) + 1);
 }
 
 function cardSummary(card) {

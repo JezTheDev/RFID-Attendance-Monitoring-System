@@ -68,6 +68,8 @@ const CASES = [
   ['admin.setAdminStatus', 'admin', { user_id: 'USR-0009', status: 'inactive' }, (db) => db.Users.push({ ...db.Users[0], user_id: 'USR-0009', username: 'admin9' })],
   ['admin.resetPassword', 'admin', { user_id: 'USR-0004' }],
   ['admin.unlockUser', 'admin', { user_id: 'USR-0004' }, (db) => Object.assign(db.Users[3], { failed_attempts: '5', locked_until: later })],
+  ['admin.getSettings', 'admin', {}],
+  ['admin.updateSettings', 'admin', { changes: { duplicate_window_minutes: 10, lockout_minutes: 30 } }],
   ['admin.getClassOptions', 'admin', {}],
   ['admin.listClasses', 'admin', {}],
   ['admin.getClass', 'admin', { class_id: 'CLS-0001' }],

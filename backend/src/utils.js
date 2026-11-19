@@ -18,6 +18,12 @@ export function setting(db, key, fallback) {
   return row ? row.value : fallback;
 }
 
+// Devices re-download the roster (getRoster) when this number changes.
+export function bumpRosterVersion(db) {
+  const row = db.Settings.find((item) => item.key === 'roster_version');
+  if (row) row.value = String(Number(row.value || 0) + 1);
+}
+
 // Epoch ms -> "YYYY-MM-DDTHH:mm:ss+08:00". Manila has no daylight saving, so a
 // fixed +8 h offset is exact.
 export function toManilaIso(ms) {

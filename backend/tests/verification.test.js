@@ -33,6 +33,7 @@ const READ_CALLS = {
   'admin.listDevices': [SESSIONS.admin, {}],
   'admin.listInstructors': [SESSIONS.admin, {}],
   'admin.listAdmins': [SESSIONS.admin, {}],
+  'admin.getSettings': [SESSIONS.admin, {}],
   'admin.getClassOptions': [SESSIONS.admin, {}],
   'admin.listClasses': [SESSIONS.admin, {}],
   'admin.getClass': [SESSIONS.admin, { class_id: 'CLS-0001' }],
