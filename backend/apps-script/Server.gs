@@ -16,18 +16,19 @@
  * Script properties (Project Settings > Script properties). Never commit their values.
  *   PASSWORD_PEPPER              long random secret mixed into every password hash.
  *                                Changing it later makes EVERY password invalid.
- *   DEFAULT_STUDENT_PASSWORD     first password of new/reset student accounts
- *   DEFAULT_INSTRUCTOR_PASSWORD  first password of new/reset instructor accounts
- *   DEFAULT_ADMIN_PASSWORD       first password of new/reset admin accounts
+ *   TEST_SEED_PASSWORD           TEST Sheet only: password of the FAKE seeded users (setupSheets)
  *   BOOTSTRAP_ADMIN_USERNAME     only for createBootstrapAdmin()
  *   BOOTSTRAP_ADMIN_PASSWORD     only for createBootstrapAdmin(); DELETE it afterwards
  *   SPREADSHEET_ID               only if this script is NOT created from inside the Sheet
+ * New and reset accounts get a random temporary password, shown to the admin
+ * once (DEFAULT_*_PASSWORD properties are no longer used).
  */
 
 var AUTH_SESSION_HEADERS = ['token_hash', 'user_id', 'created_at', 'expires_at', 'revoked'];
 var LOCK_WAIT_MS = 20000;
 var VIEW_PREFIX = 'View - ';
-var REQUIRED_PROPERTIES = ['PASSWORD_PEPPER', 'DEFAULT_STUDENT_PASSWORD', 'DEFAULT_INSTRUCTOR_PASSWORD', 'DEFAULT_ADMIN_PASSWORD'];
+var REQUIRED_PROPERTIES = ['PASSWORD_PEPPER'];
+var OBSOLETE_PROPERTIES = ['GOOGLE_CLIENT_ID', 'ALLOW_TEST_LOGIN', 'DEFAULT_STUDENT_PASSWORD', 'DEFAULT_INSTRUCTOR_PASSWORD', 'DEFAULT_ADMIN_PASSWORD'];
 
 function isViewTab_(name) {
   return name.indexOf(VIEW_PREFIX) === 0;
@@ -165,14 +166,18 @@ function createBootstrapAdmin() {
  * MAKE A COPY OF THE SPREADSHEET FIRST (File > Make a copy).
  * - adds the missing Users columns, removes google_sub
  * - usernames: students = student number; instructors/admins = email local part
- * - users without a password get their role's default password + must change
+ * - users without a password get NO password (no shared default): an admin
+ *   must use Reset password, which gives them a temporary one
  * - Settings: removes allowed_email_rule, adds max_login_attempts / lockout_minutes
  * Safe to run again: the second run reports "nothing to change".
  */
 function migrateUsersToPasswordLogin() {
   runEditorJob_(function (db, ctx) {
     var changes = RFID.migrateUsersToPasswordLogin(db, ctx);
-    return changes.length ? changes : ['Nothing to change: the Users tab is already migrated.'];
+    var lines = changes.length ? changes : ['Nothing to change: the Users tab is already migrated.'];
+    var noPassword = db.Users.filter(function (u) { return !u.password_hash; }).length;
+    if (noPassword) lines.push('WARNING: ' + noPassword + ' user(s) have no password and cannot sign in. An admin must use Reset password for each.');
+    return lines;
   });
   dropEmptyColumn_('Users', 'google_sub');
 }
@@ -324,8 +329,9 @@ function defaultHeaders_(name) {
  * Creates every tab with its column names, formatted as plain text.
  * Tabs that are still EMPTY are filled with the FAKE test data, so the portals
  * have something to show. Tabs that already have records are never touched.
- * The seed data has NO passwords: seeded users get their role's default
- * password (from Script Properties) and must change it at first sign-in.
+ * The seed data has NO passwords: the FAKE seeded users all get the
+ * TEST_SEED_PASSWORD Script Property (hashed) and must change it at first
+ * sign-in. TEST_SEED_PASSWORD is for fake test users only, never real people.
  * Safe to run more than once. TEST spreadsheet only.
  */
 function setupSheets() {
@@ -334,8 +340,8 @@ function setupSheets() {
   var usersSheet = ss.getSheetByName('Users');
   var seedsUsers = !usersSheet || usersSheet.getLastRow() <= 1;
   if (seedsUsers) {
-    var missing = REQUIRED_PROPERTIES.filter(function (name) { return !props_().getProperty(name); });
-    if (missing.length) throw new Error('Set these Script Properties first (seeded users need default passwords): ' + missing.join(', '));
+    var missing = REQUIRED_PROPERTIES.concat(['TEST_SEED_PASSWORD']).filter(function (name) { return !props_().getProperty(name); });
+    if (missing.length) throw new Error('Set these Script Properties first (the fake seeded users need a password): ' + missing.join(', '));
   }
   Object.keys(SEED_DATA).forEach(function (name) {
     var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
@@ -356,8 +362,7 @@ function setupSheets() {
   if (blank && ss.getSheets().length > 1 && blank.getLastRow() === 0) ss.deleteSheet(blank);
   console.log(report.join('\n'));
   if (seedsUsers) {
-    // Fill the password hashes of the seeded test users (same code as the migration).
-    runEditorJob_(function (db, ctx) { return RFID.migrateUsersToPasswordLogin(db, ctx); });
+    runEditorJob_(function (db, ctx) { return RFID.seedTestPasswords(db, ctx); });
   }
   setupViews();
 }
@@ -445,9 +450,9 @@ function checkSetup() {
   // Only says whether each property is set, never its value.
   REQUIRED_PROPERTIES.forEach(function (name) { console.log(name + ' set: ' + Boolean(props[name])); });
   if (props.BOOTSTRAP_ADMIN_PASSWORD) console.warn('BOOTSTRAP_ADMIN_PASSWORD is still set. Delete it once the first admin exists.');
-  ['GOOGLE_CLIENT_ID', 'ALLOW_TEST_LOGIN'].forEach(function (name) {
-    if (props[name]) console.warn(name + ' is no longer used. Delete this Script Property.');
+  OBSOLETE_PROPERTIES.forEach(function (name) {
+    if (props[name]) console.warn(name + ' is no longer used: safe to delete this Script Property.');
   });
   var noPassword = (db.Users || []).filter(function (u) { return !u.password_hash; }).length;
-  if (noPassword) console.warn(noPassword + ' user(s) have no password yet. Run migrateUsersToPasswordLogin.');
+  if (noPassword) console.warn(noPassword + ' user(s) have no password and cannot sign in. An admin must use Reset password for each.');
 }
