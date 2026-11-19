@@ -103,13 +103,14 @@ describe('known bugs (todo until fixed)', () => {
     assert.ok(enrolled.includes('CLS-0002'), `still enrolled only in ${enrolled.join(', ')} (old section)`);
   });
 
-  it('BUG-3 re-activating a class cannot double-book a room', { todo: 'BUG-3: classes.js:215-220 skips scheduleClash on activate' }, () => {
+  it('BUG-3 re-activating a class cannot double-book a room', () => {
     const db = makeDb();
     classes.setClassStatus(db, { class_id: 'CLS-0001', status: 'inactive' }, SESSIONS.admin);
     db.Subjects.push({ subject_id: 'SUB-0004', subject_code: 'CPE304', subject_title: 'Robotics', units: '3', status: 'active' });
     const { class_id: newClass } = classes.createClass(db, { term_id: 'TRM-0001', subject_id: 'SUB-0004', section_id: 'SEC-0002', instructor_id: 'INS-0002' }, SESSIONS.admin);
     classes.addSchedule(db, { class_id: newClass, day_of_week: 'MON', start_time: '08:00', end_time: '10:00', room_id: 'RM-0001' }, SESSIONS.admin);
     assert.throws(() => classes.setClassStatus(db, { class_id: 'CLS-0001', status: 'active' }, SESSIONS.admin),
+      (error) => error.code === 'VALIDATION_ERROR' && /CPE-101 is already used by CPE304/.test(error.message),
       'CLS-0001 and the new class now both own RM-0001 on MON 08:00-10:00');
   });
 

@@ -2,7 +2,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDb, SESSIONS, withCode } from './helpers/db.js';
-import { addSchedule, enrollStudents, dropEnrollment } from '../src/handlers/classes.js';
+import { addSchedule, enrollStudents, dropEnrollment, setClassStatus } from '../src/handlers/classes.js';
 
 // A third class with no schedule yet. CLS-0001 meets MON 08:00-10:00 in RM-0001
 // (instructor INS-0001, section SEC-0001).
@@ -102,5 +102,37 @@ describe('enrollment is unique per class and student', () => {
     db.Students[3].account_status = 'inactive';
     assert.throws(() => enrollStudents(db, { class_id: 'CLS-0001', student_ids: ['STU-0004'] }, SESSIONS.admin), withCode('VALIDATION_ERROR'));
     assert.equal(rowsFor(db, 'CLS-0001', 'STU-0004').length, 0);
+  });
+});
+
+// BUG-3: an inactive class's slots are ignored, so re-activating must re-check them.
+describe('re-activating a class re-checks its schedules', () => {
+  const activate = (db, classId) => setClassStatus(db, { class_id: classId, status: 'active' }, SESSIONS.admin);
+
+  it('re-activates when nothing clashes', () => {
+    const db = makeDb();
+    db.Classes[0].status = 'inactive';
+    assert.deepEqual(activate(db, 'CLS-0001'), { class_id: 'CLS-0001', status: 'active' });
+    assert.equal(db.Classes[0].status, 'active');
+  });
+
+  it('rejects a room clash, names the class and time, and changes nothing', () => {
+    const db = dbWithNewClass();
+    db.Classes[0].status = 'inactive';
+    addSchedule(db, slot({ room_id: 'RM-0001' }), SESSIONS.admin);
+    const auditRows = db.AuditLog.length;
+    assert.throws(() => activate(db, 'CLS-0001'), (error) => withCode('VALIDATION_ERROR')(error)
+      && /CPE-101 is already used by CPE303 on MON 09:00–11:00/.test(error.message));
+    assert.equal(db.Classes[0].status, 'inactive');
+    assert.equal(db.AuditLog.length, auditRows);
+  });
+
+  it('ignores slots of classes that are still inactive', () => {
+    const db = dbWithNewClass();
+    db.Classes[0].status = 'inactive';
+    addSchedule(db, slot({ room_id: 'RM-0001' }), SESSIONS.admin);
+    db.Classes[2].status = 'inactive';
+    activate(db, 'CLS-0001');
+    assert.equal(db.Classes[0].status, 'active');
   });
 });

@@ -282,12 +282,12 @@ var RFID = (function () {
     function sha256Hex(crypto, text) {
       return toHex(crypto.sha256(crypto.utf8(text)));
     }
-
+    
     // Temporary passwords (new account / admin reset): 10 characters without the
     // look-alikes 0 O o 1 l I, shown and typed as two groups: "k7Pmx-92Qwa".
     const TEMP_ALPHABET = '23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz'; // 56 characters
     const TEMP_PASSWORD_PATTERN = /^[2-9A-HJ-NP-Za-km-np-z]{5}-[2-9A-HJ-NP-Za-km-np-z]{5}$/;
-
+    
     function generateTempPassword(crypto) {
       let chars = '';
       while (chars.length < 10) {
@@ -1001,6 +1001,15 @@ var RFID = (function () {
         if (db.Classes.some((row) => row.class_id !== classId && row.term_id === klass.term_id && row.subject_id === klass.subject_id
           && row.section_id === klass.section_id && row.status === 'active')) {
           throw new AppError('IN_USE', 'Another active class already covers this subject and section.');
+        }
+        // While inactive, this class's slots were ignored, so another class may have taken them.
+        const m = maps(db);
+        for (const slot of activeSchedules(db, classId)) {
+          const clash = scheduleClash(db, m, {
+            classId, termId: klass.term_id, instructorId: klass.instructor_id,
+            sectionId: klass.section_id, roomId: slot.room_id, slots: [slot],
+          });
+          if (clash) throw new AppError('VALIDATION_ERROR', `Cannot activate: ${clash}`, { status: clash });
         }
       }
       const before = { status: klass.status };
