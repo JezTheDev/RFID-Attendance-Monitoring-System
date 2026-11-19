@@ -28,6 +28,8 @@
 5. **Unknown UID:** first of `FFFFFF00`, `FFFFFF01`, … not present in RfidCards (any status).
 6. **Repeat tests expected results** (only the 3 enrolled UIDs exist, all already ACCEPTED after the live scan): 20-scan offline batch = 20 × `DUPLICATE` (UIDs cycled, `sync_mode: 'offline'`, `scanned_at` = now−60…now−41); 40 sequential and 10 parallel single scans = `DUPLICATE`, except the parallel ones also accept request-level `SERVER_BUSY` (counted, not a FAIL).
 
+**Changed after review (user, 2026-11-20):** `prepareLiveTest` logs ALL enrolled carded students as `LIVE_UIDS` and picks the class with the most of them. The tool computes expected results per UID (first scan = ACCEPTED, later = DUPLICATE, resent scan_id = ALREADY_RECORDED); the offline batch takes half of the not-yet-scanned students (real saves), the 40 sequential scans the rest. It prints single-scan timing per result (ACCEPTED vs DUPLICATE) and a clear SERVER_BUSY count (not a FAIL).
+
 ## Review Focus
 
 1. Run near midnight (e.g. 23:30) → slot clamped to `23:59`, still valid; before 00:10 → start clamps `00:00`. Test both.
