@@ -29,7 +29,9 @@ backend/
     actions.js         Action table: name -> { run, mode, role, reads, writes, appends }
                        + runAction() gate, tabsFor(), guardDb()
                        (role: 'public' | 'any' | 'admin' | 'instructor' | 'student')
-    maintenance.js     Editor-only jobs: backfillOverrideReasons, findScheduleClashes
+    maintenance.js     Editor-only jobs: backfillOverrideReasons, findScheduleClashes,
+                       prepareLiveTest / cleanupLiveTest (TEST Sheet; marker = AuditLog
+                       LIVE_TEST_SCHEDULE row)
     sessions.js        Session engine (pure): resolveScan (tap -> session decision, no writes),
                        sessionPhase, missingStatus ('not_scanned' until the end, then 'absent')
     auth/              passwords (hash/verify), context (ctx), session, account
@@ -50,7 +52,8 @@ backend/
     Server.gs          Hand-written: calls RFID.runAction, Sheet read/write, editor-only
                        jobs (setupSheets, createBootstrapAdmin, migrateUsersToPasswordLogin,
                        backfillOverrideReasons, listScheduleClashes, benchmarkPasswordHash,
-                       checkSetup, issueTestDeviceKey [TEST Sheet only])
+                       checkSetup, issueTestDeviceKey, prepareLiveTest,
+                       cleanupLiveTest [last three: TEST Sheet only])
     Bundle.gs          GENERATED from backend/src — do not edit
     SeedData.gs        GENERATED from backend/seed/seed-data.json — do not edit
     appsscript.json    Manifest (Asia/Manila, V8)
@@ -60,6 +63,8 @@ tools/
   build_apps_script.mjs   backend/src + seed JSON -> Bundle.gs + SeedData.gs
   xlsx_to_seed_data.py    docs/RFID_Test_Data.xlsx -> backend/seed/seed-data.json (needs openpyxl)
   measure_device_api.mjs  tabs/rows read + written per device.* action (fake Apps Script)
+  live_device_test.mjs    step 4f: real device requests to the DEPLOYED Web App (env vars;
+                          backend/README.md "Live test (4f)")
 docs/                  Architecture, Device API spec, audit report, plans/specs
 ```
 

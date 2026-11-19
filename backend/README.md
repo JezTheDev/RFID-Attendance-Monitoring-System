@@ -213,6 +213,65 @@ salt, the `PASSWORD_PEPPER`, iterated SHA-256, constant-time comparison.
   sign-in still saves the failure counter, lock and audit row (`error.commit`).
 - **Absent is not stored.** It is computed: enrolled students minus those with a Present/Late row.
 
+## Live test (4f)
+
+Tests the REAL deployed Web App the way the ESP32 does, from your computer.
+**TEST Sheet only** (the helpers refuse unless `TEST_SEED_PASSWORD` is set).
+It writes real test rows (ScanLog, Attendance, one class session); they are
+fake test data and are never deleted.
+
+1. **Deploy the current code** (TEST Sheet's script): `npm test`,
+   `node tools/build_apps_script.mjs`, paste `Server.gs`, `Bundle.gs`,
+   `SeedData.gs` → Save → **Deploy → Manage deployments → Edit → New version → Deploy**.
+2. **Open a class now:** in the editor run `prepareLiveTest`. The log shows the
+   device, room, class and time slot (now − 10 min to now + 60 min), plus lines like:
+   ```
+   DEVICE_ID=DEV-RM302-01
+   LIVE_UIDS=04A1B2C3,04D5E6F7,...
+   NOT_ENROLLED_UID=04112233
+   UNKNOWN_UID=FFFFFF00
+   ```
+   Running it again within the slot reuses the same slot (nothing new is written).
+3. **Get a device key** for that `DEVICE_ID`. Add a one-line wrapper (the editor
+   dropdown cannot pass arguments), run it, copy the key from the log:
+   ```js
+   function issueKeyForLiveTest() { issueTestDeviceKey('DEV-RM302-01'); }
+   ```
+   Delete the wrapper afterwards. Never paste the key into a file in the repo.
+4. **Set the environment variables** (same terminal you run the tool in).
+   PowerShell:
+   ```powershell
+   $env:API_URL = 'https://script.google.com/macros/s/XXXX/exec'
+   $env:DEVICE_ID = 'DEV-RM302-01'
+   $env:DEVICE_KEY = Read-Host 'Device key'        # typed, not saved in history
+   $env:LIVE_UIDS = '04A1B2C3,04D5E6F7'
+   $env:NOT_ENROLLED_UID = '04112233'
+   $env:UNKNOWN_UID = 'FFFFFF00'
+   ```
+   Git Bash:
+   ```bash
+   export API_URL='https://script.google.com/macros/s/XXXX/exec'
+   export DEVICE_ID='DEV-RM302-01'
+   read -rs -p 'Device key: ' DEVICE_KEY && export DEVICE_KEY && echo
+   export LIVE_UIDS='04A1B2C3,04D5E6F7'
+   export NOT_ENROLLED_UID='04112233'
+   export UNKNOWN_UID='FFFFFF00'
+   ```
+5. **Run:** `node tools/live_device_test.mjs` (a minute or two). It runs heartbeat,
+   getRoster, a live scan (ACCEPTED), the same scan_id again (ALREADY_RECORDED),
+   a new scan of the same student (DUPLICATE), a not-enrolled and an unknown UID,
+   a 20-scan offline batch, a wrong key (INVALID_DEVICE_KEY), 40 sequential and
+   10 parallel single scans. It prints `test | expected | got | PASS/FAIL | ms`,
+   the time of ACCEPTED vs DUPLICATE requests (cost of a real save) and how many
+   parallel requests got `SERVER_BUSY` (counted, not a failure). Exit code 1 if
+   any result is wrong.
+   Expected results assume nobody in `LIVE_UIDS` was scanned yet in this slot.
+   To run it **again**, first do step 6 and step 2 (a new slot = a new session).
+6. **Clean up:** run `cleanupLiveTest` (sets the LIVE TEST schedules inactive;
+   rerun says "Nothing to change"). Close the terminal (or `Remove-Item Env:DEVICE_KEY`
+   / `unset DEVICE_KEY`). Optional: run `generateDeviceKey` in the Admin portal
+   so the logged key stops working.
+
 ## Limits to keep in mind
 
 - **Speed:** each request reads the Sheet (~1–3 s per page). Cache rarely-changing tabs if it gets slow.

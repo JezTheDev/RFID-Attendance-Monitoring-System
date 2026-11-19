@@ -173,4 +173,5 @@ async function main() {
   process.exit(rows.every((r) => r.pass) ? 0 : 1);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+// `node --test` also picks up *_test.mjs files: do nothing there (tests import the exports).
+if (!process.env.NODE_TEST_CONTEXT && process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
