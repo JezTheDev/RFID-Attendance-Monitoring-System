@@ -2736,72 +2736,189 @@ var RFID = (function () {
     const READ = 'read';
     const WRITE = 'write';
 
+    // Tabs: Server.gs loads only what an action declares (step 4a).
+    //   reads   - loaded fully (space-separated tab names)
+    //   writes  - may change; saved if they did (also loaded fully)
+    //   appends - append-only: only the header and LAST row are loaded (enough
+    //             for the next id); loaded rows are frozen, new rows are appended
+    // Signed-in actions also read AUTH_TABS (the session check).
+    const AUTH_TABS = Object.freeze(['AuthSessions', 'Users']);
+    const CLASS_REF = 'Terms Programs Sections Subjects Rooms Instructors Students Classes Schedules Enrollments';
+    const PORTAL = `${CLASS_REF} ClassSessions Attendance RfidCards`;
+
     const ACTIONS = Object.freeze({
-      'auth.login': { run: account.login, mode: WRITE, role: PUBLIC },
-      'auth.logout': { run: account.logout, mode: WRITE, role: PUBLIC },
-      'auth.me': { run: account.me, mode: READ, role: ANY },
-      'auth.changePassword': { run: account.changePassword, mode: WRITE, role: ANY },
-      'admin.getDashboard': { run: getAdminDashboard, mode: READ, role: 'admin' },
-      'admin.getStudentOptions': { run: getStudentOptions, mode: READ, role: 'admin' },
-      'admin.listStudents': { run: listStudents, mode: READ, role: 'admin' },
-      'admin.getStudent': { run: getStudent, mode: READ, role: 'admin' },
-      'admin.listUnregisteredUids': { run: listUnregisteredUids, mode: READ, role: 'admin' },
-      'admin.createStudent': { run: createStudent, mode: WRITE, role: 'admin' },
-      'admin.updateStudent': { run: updateStudent, mode: WRITE, role: 'admin' },
-      'admin.setStudentStatus': { run: setStudentStatus, mode: WRITE, role: 'admin' },
-      'admin.assignCard': { run: assignCard, mode: WRITE, role: 'admin' },
-      'admin.revokeCard': { run: revokeCard, mode: WRITE, role: 'admin' },
-      'admin.listTerms': { run: academic.listTerms, mode: READ, role: 'admin' },
-      'admin.createTerm': { run: academic.createTerm, mode: WRITE, role: 'admin' },
-      'admin.updateTerm': { run: academic.updateTerm, mode: WRITE, role: 'admin' },
-      'admin.setActiveTerm': { run: academic.setActiveTerm, mode: WRITE, role: 'admin' },
-      'admin.listPrograms': { run: academic.listPrograms, mode: READ, role: 'admin' },
-      'admin.createProgram': { run: academic.createProgram, mode: WRITE, role: 'admin' },
-      'admin.updateProgram': { run: academic.updateProgram, mode: WRITE, role: 'admin' },
-      'admin.setProgramStatus': { run: academic.setProgramStatus, mode: WRITE, role: 'admin' },
-      'admin.listSections': { run: academic.listSections, mode: READ, role: 'admin' },
-      'admin.createSection': { run: academic.createSection, mode: WRITE, role: 'admin' },
-      'admin.updateSection': { run: academic.updateSection, mode: WRITE, role: 'admin' },
-      'admin.setSectionStatus': { run: academic.setSectionStatus, mode: WRITE, role: 'admin' },
-      'admin.listSubjects': { run: academic.listSubjects, mode: READ, role: 'admin' },
-      'admin.createSubject': { run: academic.createSubject, mode: WRITE, role: 'admin' },
-      'admin.updateSubject': { run: academic.updateSubject, mode: WRITE, role: 'admin' },
-      'admin.setSubjectStatus': { run: academic.setSubjectStatus, mode: WRITE, role: 'admin' },
-      'admin.listRooms': { run: academic.listRooms, mode: READ, role: 'admin' },
-      'admin.createRoom': { run: academic.createRoom, mode: WRITE, role: 'admin' },
-      'admin.updateRoom': { run: academic.updateRoom, mode: WRITE, role: 'admin' },
-      'admin.setRoomStatus': { run: academic.setRoomStatus, mode: WRITE, role: 'admin' },
-      'admin.listInstructors': { run: instructors.listInstructors, mode: READ, role: 'admin' },
-      'admin.createInstructor': { run: instructors.createInstructor, mode: WRITE, role: 'admin' },
-      'admin.updateInstructor': { run: instructors.updateInstructor, mode: WRITE, role: 'admin' },
-      'admin.setInstructorStatus': { run: instructors.setInstructorStatus, mode: WRITE, role: 'admin' },
+      'auth.login': { run: account.login, mode: WRITE, role: PUBLIC,
+        reads: 'Users Settings AuthSessions Instructors Students', writes: 'Users AuthSessions', appends: 'AuditLog' },
+      'auth.logout': { run: account.logout, mode: WRITE, role: PUBLIC,
+        reads: 'AuthSessions', writes: 'AuthSessions' },
+      'auth.me': { run: account.me, mode: READ, role: ANY,
+        reads: 'Instructors Students' },
+      'auth.changePassword': { run: account.changePassword, mode: WRITE, role: ANY,
+        writes: 'Users AuthSessions', appends: 'AuditLog' },
+      'admin.getDashboard': { run: getAdminDashboard, mode: READ, role: 'admin',
+        reads: 'Attendance ClassSessions Classes Devices Enrollments Instructors RfidCards Rooms ScanLog Schedules Settings Students Subjects Terms' },
+      'admin.getStudentOptions': { run: getStudentOptions, mode: READ, role: 'admin',
+        reads: 'Programs Sections' },
+      'admin.listStudents': { run: listStudents, mode: READ, role: 'admin',
+        reads: 'Programs RfidCards Sections Students' },
+      'admin.getStudent': { run: getStudent, mode: READ, role: 'admin',
+        reads: 'Attendance Classes Enrollments Programs RfidCards Sections Students Subjects' },
+      'admin.listUnregisteredUids': { run: listUnregisteredUids, mode: READ, role: 'admin',
+        reads: 'Devices RfidCards Rooms ScanLog' },
+      'admin.createStudent': { run: createStudent, mode: WRITE, role: 'admin',
+        reads: 'Classes Enrollments Programs Sections Settings Students Terms', writes: 'Students Users Enrollments', appends: 'AuditLog' },
+      'admin.updateStudent': { run: updateStudent, mode: WRITE, role: 'admin',
+        reads: 'Programs Sections Students', writes: 'Students Users', appends: 'AuditLog' },
+      'admin.setStudentStatus': { run: setStudentStatus, mode: WRITE, role: 'admin',
+        reads: 'RfidCards Settings Students', writes: 'Students Users RfidCards Settings', appends: 'AuditLog' },
+      'admin.assignCard': { run: assignCard, mode: WRITE, role: 'admin',
+        reads: 'RfidCards Settings Students', writes: 'RfidCards Settings', appends: 'AuditLog' },
+      'admin.revokeCard': { run: revokeCard, mode: WRITE, role: 'admin',
+        reads: 'RfidCards Settings Students', writes: 'RfidCards Settings', appends: 'AuditLog' },
+      'admin.listTerms': { run: academic.listTerms, mode: READ, role: 'admin',
+        reads: 'Classes Terms' },
+      'admin.createTerm': { run: academic.createTerm, mode: WRITE, role: 'admin',
+        reads: 'ClassSessions Classes Terms', writes: 'Terms', appends: 'AuditLog' },
+      'admin.updateTerm': { run: academic.updateTerm, mode: WRITE, role: 'admin',
+        reads: 'ClassSessions Classes Terms', writes: 'Terms', appends: 'AuditLog' },
+      'admin.setActiveTerm': { run: academic.setActiveTerm, mode: WRITE, role: 'admin',
+        reads: 'Terms', writes: 'Terms', appends: 'AuditLog' },
+      'admin.listPrograms': { run: academic.listPrograms, mode: READ, role: 'admin',
+        reads: 'Programs Sections Students' },
+      'admin.createProgram': { run: academic.createProgram, mode: WRITE, role: 'admin',
+        reads: 'Programs', writes: 'Programs', appends: 'AuditLog' },
+      'admin.updateProgram': { run: academic.updateProgram, mode: WRITE, role: 'admin',
+        reads: 'Programs', writes: 'Programs', appends: 'AuditLog' },
+      'admin.setProgramStatus': { run: academic.setProgramStatus, mode: WRITE, role: 'admin',
+        reads: 'Programs Sections Students', writes: 'Programs', appends: 'AuditLog' },
+      'admin.listSections': { run: academic.listSections, mode: READ, role: 'admin',
+        reads: 'Classes Programs Sections Students' },
+      'admin.createSection': { run: academic.createSection, mode: WRITE, role: 'admin',
+        reads: 'Programs Sections Students', writes: 'Sections', appends: 'AuditLog' },
+      'admin.updateSection': { run: academic.updateSection, mode: WRITE, role: 'admin',
+        reads: 'Programs Sections Students', writes: 'Sections', appends: 'AuditLog' },
+      'admin.setSectionStatus': { run: academic.setSectionStatus, mode: WRITE, role: 'admin',
+        reads: 'Classes Sections Students', writes: 'Sections', appends: 'AuditLog' },
+      'admin.listSubjects': { run: academic.listSubjects, mode: READ, role: 'admin',
+        reads: 'Classes Subjects' },
+      'admin.createSubject': { run: academic.createSubject, mode: WRITE, role: 'admin',
+        reads: 'Subjects', writes: 'Subjects', appends: 'AuditLog' },
+      'admin.updateSubject': { run: academic.updateSubject, mode: WRITE, role: 'admin',
+        reads: 'Subjects', writes: 'Subjects', appends: 'AuditLog' },
+      'admin.setSubjectStatus': { run: academic.setSubjectStatus, mode: WRITE, role: 'admin',
+        reads: 'Classes Subjects', writes: 'Subjects', appends: 'AuditLog' },
+      'admin.listRooms': { run: academic.listRooms, mode: READ, role: 'admin',
+        reads: 'Devices Rooms Schedules' },
+      'admin.createRoom': { run: academic.createRoom, mode: WRITE, role: 'admin',
+        reads: 'Rooms', writes: 'Rooms', appends: 'AuditLog' },
+      'admin.updateRoom': { run: academic.updateRoom, mode: WRITE, role: 'admin',
+        reads: 'Rooms', writes: 'Rooms', appends: 'AuditLog' },
+      'admin.setRoomStatus': { run: academic.setRoomStatus, mode: WRITE, role: 'admin',
+        reads: 'Devices Rooms Schedules Classes', writes: 'Rooms', appends: 'AuditLog' },
+      'admin.listInstructors': { run: instructors.listInstructors, mode: READ, role: 'admin',
+        reads: 'Classes Instructors' },
+      'admin.createInstructor': { run: instructors.createInstructor, mode: WRITE, role: 'admin',
+        reads: 'Instructors Settings', writes: 'Instructors Users', appends: 'AuditLog' },
+      'admin.updateInstructor': { run: instructors.updateInstructor, mode: WRITE, role: 'admin',
+        reads: 'Instructors', writes: 'Instructors Users', appends: 'AuditLog' },
+      'admin.setInstructorStatus': { run: instructors.setInstructorStatus, mode: WRITE, role: 'admin',
+        reads: 'Classes Instructors', writes: 'Instructors Users', appends: 'AuditLog' },
       'admin.listAdmins': { run: admins.listAdmins, mode: READ, role: 'admin' },
-      'admin.createAdmin': { run: admins.createAdmin, mode: WRITE, role: 'admin' },
-      'admin.updateAdmin': { run: admins.updateAdmin, mode: WRITE, role: 'admin' },
-      'admin.setAdminStatus': { run: admins.setAdminStatus, mode: WRITE, role: 'admin' },
-      'admin.resetPassword': { run: adminUsers.resetPassword, mode: WRITE, role: 'admin' },
-      'admin.unlockUser': { run: adminUsers.unlockUser, mode: WRITE, role: 'admin' },
-      'admin.getClassOptions': { run: classes.getClassOptions, mode: READ, role: 'admin' },
-      'admin.listClasses': { run: classes.listClasses, mode: READ, role: 'admin' },
-      'admin.getClass': { run: classes.getClass, mode: READ, role: 'admin' },
-      'admin.createClass': { run: classes.createClass, mode: WRITE, role: 'admin' },
-      'admin.updateClass': { run: classes.updateClass, mode: WRITE, role: 'admin' },
-      'admin.setClassStatus': { run: classes.setClassStatus, mode: WRITE, role: 'admin' },
-      'admin.addSchedule': { run: classes.addSchedule, mode: WRITE, role: 'admin' },
-      'admin.removeSchedule': { run: classes.removeSchedule, mode: WRITE, role: 'admin' },
-      'admin.enrollStudents': { run: classes.enrollStudents, mode: WRITE, role: 'admin' },
-      'admin.dropEnrollment': { run: classes.dropEnrollment, mode: WRITE, role: 'admin' },
-      'instructor.getDashboard': { run: portal.instructorDashboard, mode: READ, role: 'instructor' },
-      'instructor.listSessions': { run: portal.instructorListSessions, mode: READ, role: 'instructor' },
-      'instructor.getSession': { run: portal.instructorGetSession, mode: READ, role: 'instructor' },
-      'instructor.correctAttendance': { run: portal.instructorCorrectAttendance, mode: WRITE, role: 'instructor' },
-      'instructor.getClassReport': { run: portal.instructorClassReport, mode: READ, role: 'instructor' },
-      'instructor.getClassRoster': { run: portal.instructorClassRoster, mode: READ, role: 'instructor' },
-      'instructor.getStudentHistory': { run: portal.instructorStudentHistory, mode: READ, role: 'instructor' },
-      'student.getOverview': { run: portal.studentOverview, mode: READ, role: 'student' },
-      'student.getHistory': { run: portal.studentHistory, mode: READ, role: 'student' },
-      'student.getProfile': { run: portal.studentGetProfile, mode: READ, role: 'student' },
+      'admin.createAdmin': { run: admins.createAdmin, mode: WRITE, role: 'admin',
+        reads: 'Settings', writes: 'Users', appends: 'AuditLog' },
+      'admin.updateAdmin': { run: admins.updateAdmin, mode: WRITE, role: 'admin',
+        writes: 'Users', appends: 'AuditLog' },
+      'admin.setAdminStatus': { run: admins.setAdminStatus, mode: WRITE, role: 'admin',
+        writes: 'Users AuthSessions', appends: 'AuditLog' },
+      'admin.resetPassword': { run: adminUsers.resetPassword, mode: WRITE, role: 'admin',
+        reads: 'Settings', writes: 'Users AuthSessions', appends: 'AuditLog' },
+      'admin.unlockUser': { run: adminUsers.unlockUser, mode: WRITE, role: 'admin',
+        writes: 'Users', appends: 'AuditLog' },
+      'admin.getClassOptions': { run: classes.getClassOptions, mode: READ, role: 'admin',
+        reads: CLASS_REF },
+      'admin.listClasses': { run: classes.listClasses, mode: READ, role: 'admin',
+        reads: CLASS_REF },
+      'admin.getClass': { run: classes.getClass, mode: READ, role: 'admin',
+        reads: CLASS_REF },
+      'admin.createClass': { run: classes.createClass, mode: WRITE, role: 'admin',
+        reads: CLASS_REF, writes: 'Classes Enrollments', appends: 'AuditLog' },
+      'admin.updateClass': { run: classes.updateClass, mode: WRITE, role: 'admin',
+        reads: CLASS_REF, writes: 'Classes', appends: 'AuditLog' },
+      'admin.setClassStatus': { run: classes.setClassStatus, mode: WRITE, role: 'admin',
+        reads: CLASS_REF, writes: 'Classes', appends: 'AuditLog' },
+      'admin.addSchedule': { run: classes.addSchedule, mode: WRITE, role: 'admin',
+        reads: CLASS_REF, writes: 'Schedules', appends: 'AuditLog' },
+      'admin.removeSchedule': { run: classes.removeSchedule, mode: WRITE, role: 'admin',
+        reads: CLASS_REF, writes: 'Schedules', appends: 'AuditLog' },
+      'admin.enrollStudents': { run: classes.enrollStudents, mode: WRITE, role: 'admin',
+        reads: CLASS_REF, writes: 'Enrollments', appends: 'AuditLog' },
+      'admin.dropEnrollment': { run: classes.dropEnrollment, mode: WRITE, role: 'admin',
+        reads: CLASS_REF, writes: 'Enrollments', appends: 'AuditLog' },
+      'instructor.getDashboard': { run: portal.instructorDashboard, mode: READ, role: 'instructor',
+        reads: PORTAL },
+      'instructor.listSessions': { run: portal.instructorListSessions, mode: READ, role: 'instructor',
+        reads: PORTAL },
+      'instructor.getSession': { run: portal.instructorGetSession, mode: READ, role: 'instructor',
+        reads: PORTAL },
+      'instructor.correctAttendance': { run: portal.instructorCorrectAttendance, mode: WRITE, role: 'instructor',
+        reads: PORTAL, writes: 'Attendance', appends: 'AuditLog' },
+      'instructor.getClassReport': { run: portal.instructorClassReport, mode: READ, role: 'instructor',
+        reads: PORTAL },
+      'instructor.getClassRoster': { run: portal.instructorClassRoster, mode: READ, role: 'instructor',
+        reads: PORTAL },
+      'instructor.getStudentHistory': { run: portal.instructorStudentHistory, mode: READ, role: 'instructor',
+        reads: PORTAL },
+      'student.getOverview': { run: portal.studentOverview, mode: READ, role: 'student',
+        reads: PORTAL },
+      'student.getHistory': { run: portal.studentHistory, mode: READ, role: 'student',
+        reads: PORTAL },
+      'student.getProfile': { run: portal.studentGetProfile, mode: READ, role: 'student',
+        reads: PORTAL },
     });
+
+    const words = (text) => (text ? text.split(' ') : []);
+
+    // { read, write, append } tab names for an action, or null if it is unknown.
+    function tabsFor(name) {
+      const action = findAction(name);
+      if (!action) return null;
+      const write = words(action.writes);
+      const read = [...new Set([...(action.role === PUBLIC ? [] : AUTH_TABS), ...words(action.reads), ...write])];
+      return { read, write, append: words(action.appends).filter((tab) => !read.includes(tab)) };
+    }
+
+    const isTab = (name) => typeof name === 'string' && /^[A-Z]/.test(name);
+
+    // Wraps a db that holds only the declared tabs:
+    // - rows of read-only and append tabs are frozen (and read-only arrays too),
+    //   so an undeclared change throws instead of being silently not saved;
+    // - replacing a tab that is not declared as written throws;
+    // - reading a tab that was not loaded calls onMissing(tab), whose result is
+    //   kept (and may change). Tests throw there; Server.gs loads the tab and warns.
+    function guardDb(db, spec, onMissing) {
+      const lazy = new Set();
+      Object.keys(db).forEach((tab) => {
+        if (spec.write.includes(tab)) return;
+        db[tab].forEach((row) => Object.freeze(row));
+        if (!spec.append.includes(tab)) Object.freeze(db[tab]);
+      });
+      return new Proxy(db, {
+        get(target, prop) {
+          if (isTab(prop) && !(prop in target)) {
+            target[prop] = onMissing(prop);
+            lazy.add(prop);
+          }
+          return target[prop];
+        },
+        set(target, prop, value) {
+          if (isTab(prop) && !spec.write.includes(prop) && !lazy.has(prop)) {
+            throw new Error(`Tab ${prop} is not declared as written by this action.`);
+          }
+          target[prop] = value;
+          return true;
+        },
+      });
+    }
 
     function findAction(name) {
       return Object.prototype.hasOwnProperty.call(ACTIONS, name) ? ACTIONS[name] : null;
@@ -2825,7 +2942,7 @@ var RFID = (function () {
       }
       return action.run(db, request, session, ctx);
     }
-    return { READ, WRITE, ACTIONS, findAction, runAction };
+    return { READ, WRITE, AUTH_TABS, ACTIONS, tabsFor, guardDb, findAction, runAction };
   })();
 
   // ---- auth/context.js ----
