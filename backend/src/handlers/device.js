@@ -125,5 +125,37 @@ export function submitScans(db, request, device, ctx) {
   if (typeof request.firmware_version === 'string' && request.firmware_version.trim()) {
     device.firmware_version = request.firmware_version.trim();
   }
-  return { results, roster_version: Number(setting(db, 'roster_version', 0)) || 0 };
+  return { results, roster_version: rosterVersion(db) };
+}
+
+const rosterVersion = (db) => Number(setting(db, 'roster_version', 0)) || 0;
+
+const HEARTBEAT_FIELDS = {
+  battery_voltage: (v) => typeof v === 'number' && v >= 0 && v <= 6,
+  wifi_rssi: (v) => Number.isInteger(v) && v >= -127 && v <= 0,
+  queue_count: (v) => Number.isInteger(v) && v >= 0,
+  time_synced: (v) => typeof v === 'boolean',
+  firmware_version: (v) => typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 32,
+  uptime_seconds: (v) => Number.isInteger(v) && v >= 0,
+};
+
+// device.heartbeat (Device_API_Spec 6.2), every ~5 minutes per device: updates
+// only this device's row. No AuditLog row (it would flood the log).
+export function heartbeat(db, request, device, ctx) {
+  Object.entries(HEARTBEAT_FIELDS).forEach(([field, valid]) => {
+    if (!valid(request[field])) throw new AppError('BAD_REQUEST', `${field} is missing or invalid.`);
+  });
+  const now = toManilaIso(ctx.now());
+  const volts = Math.round(request.battery_voltage * 100) / 100; // stored value = compared value
+  Object.assign(device, {
+    battery_voltage: String(volts),
+    wifi_rssi: String(request.wifi_rssi),
+    queue_count: String(request.queue_count),
+    time_synced: request.time_synced ? 'TRUE' : 'FALSE',
+    firmware_version: request.firmware_version.trim(),
+    last_heartbeat_at: now,
+    last_seen_at: now,
+  });
+  const lowBattery = volts < Number(setting(db, 'low_battery_voltage', 3.5));
+  return { roster_version: rosterVersion(db), low_battery: lowBattery };
 }

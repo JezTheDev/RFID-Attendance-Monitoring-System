@@ -3015,15 +3015,15 @@ var RFID = (function () {
     const { AppError, nextId, setting, toManilaIso } = __m["utils"];
     const { resolveScan } = __m["sessions"];
     const { normalizeUid, UID_PATTERN } = __m["handlers/students"];
-
+    
     const MAX_SCANS = 20;
     const TIME_QUALITIES = ['ntp', 'backfilled', 'unverified'];
     const SYNC_MODES = ['live', 'offline'];
     const LCD_WIDTH = 16;
     const SEQUENCE_PATTERN = /^\d{6}-\d{6}$/; // <boot_count>-<sequence> after "<device_id>-"
-
+    
     const isEpoch = (value) => Number.isInteger(value) && value >= 0;
-
+    
     // Any bad item is a firmware bug: BAD_REQUEST for the whole request.
     function validScans(request, deviceId) {
       const { scans, sent_at: sentAt } = request;
@@ -3047,14 +3047,14 @@ var RFID = (function () {
         return { ...scan, rfid_uid: uid };
       });
     }
-
+    
     // "J. Dela Cruz", at most 16 characters (LCD line 2).
     function shortName(student) {
       if (!student) return '';
       const initial = student.first_name ? `${student.first_name[0]}. ` : '';
       return `${initial}${student.last_name}`.slice(0, LCD_WIDTH);
     }
-
+    
     function answer(db, scanId, result, studentId) {
       const student = studentId ? db.Students.find((row) => row.student_id === studentId) : null;
       return {
@@ -3065,14 +3065,14 @@ var RFID = (function () {
         lcd_line2: result === 'ACCEPTED' || result === 'DUPLICATE' ? shortName(student) : '',
       };
     }
-
+    
     function handleScan(db, scan, device, settings, nowMs, receivedAt) {
       const original = db.ScanLog.find((row) => row.scan_id === scan.scan_id);
       if (original) {
         const first = answer(db, scan.scan_id, original.result, original.student_id);
         return { ...first, result: 'ALREADY_RECORDED', original_result: original.result };
       }
-
+    
       const card = db.RfidCards.find((row) => row.rfid_uid === scan.rfid_uid && row.status === 'active');
       const student = card ? db.Students.find((row) => row.student_id === card.student_id && row.account_status === 'active') : null;
       let decision;
@@ -3080,7 +3080,7 @@ var RFID = (function () {
       if (scan.time_quality === 'unverified' || scan.scanned_at === 0) decision = { result: 'INVALID_TIME' };
       else if (!student) decision = { result: 'UNREGISTERED' };
       else decision = resolveScan(db, { room_id: device.room_id, scanned_at: scan.scanned_at, student_id: student.student_id }, settings, nowMs);
-
+    
       const scannedAt = scan.scanned_at ? toManilaIso(scan.scanned_at * 1000) : '';
       let attendanceId = '';
       if (decision.result === 'ACCEPTED') {
@@ -3123,21 +3123,53 @@ var RFID = (function () {
       });
       return answer(db, scan.scan_id, decision.result, student && student.student_id);
     }
-
+    
     function submitScans(db, request, device, ctx) {
       const scans = validScans(request, device.device_id);
       const nowMs = ctx.now();
       const receivedAt = toManilaIso(nowMs);
       const settings = Object.fromEntries(db.Settings.map((row) => [row.key, row.value]));
       const results = scans.map((scan) => handleScan(db, scan, device, settings, nowMs, receivedAt));
-
+    
       device.last_seen_at = receivedAt;
       if (typeof request.firmware_version === 'string' && request.firmware_version.trim()) {
         device.firmware_version = request.firmware_version.trim();
       }
-      return { results, roster_version: Number(setting(db, 'roster_version', 0)) || 0 };
+      return { results, roster_version: rosterVersion(db) };
     }
-    return { submitScans };
+    
+    const rosterVersion = (db) => Number(setting(db, 'roster_version', 0)) || 0;
+    
+    const HEARTBEAT_FIELDS = {
+      battery_voltage: (v) => typeof v === 'number' && v >= 0 && v <= 6,
+      wifi_rssi: (v) => Number.isInteger(v) && v >= -127 && v <= 0,
+      queue_count: (v) => Number.isInteger(v) && v >= 0,
+      time_synced: (v) => typeof v === 'boolean',
+      firmware_version: (v) => typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 32,
+      uptime_seconds: (v) => Number.isInteger(v) && v >= 0,
+    };
+    
+    // device.heartbeat (Device_API_Spec 6.2), every ~5 minutes per device: updates
+    // only this device's row. No AuditLog row (it would flood the log).
+    function heartbeat(db, request, device, ctx) {
+      Object.entries(HEARTBEAT_FIELDS).forEach(([field, valid]) => {
+        if (!valid(request[field])) throw new AppError('BAD_REQUEST', `${field} is missing or invalid.`);
+      });
+      const now = toManilaIso(ctx.now());
+      const volts = Math.round(request.battery_voltage * 100) / 100; // stored value = compared value
+      Object.assign(device, {
+        battery_voltage: String(volts),
+        wifi_rssi: String(request.wifi_rssi),
+        queue_count: String(request.queue_count),
+        time_synced: request.time_synced ? 'TRUE' : 'FALSE',
+        firmware_version: request.firmware_version.trim(),
+        last_heartbeat_at: now,
+        last_seen_at: now,
+      });
+      const lowBattery = volts < Number(setting(db, 'low_battery_voltage', 3.5));
+      return { roster_version: rosterVersion(db), low_battery: lowBattery };
+    }
+    return { submitScans, heartbeat };
   })();
 
   // ---- actions.js ----
@@ -3161,7 +3193,7 @@ var RFID = (function () {
     const admins = __m["handlers/admins"];
     const devices = __m["handlers/devices"];
     const { authenticateDevice } = __m["auth/device-auth"];
-    const { submitScans } = __m["handlers/device"];
+    const { submitScans, heartbeat } = __m["handlers/device"];
 
     const READ = 'read';
     const WRITE = 'write';
@@ -3393,6 +3425,7 @@ var RFID = (function () {
     const DEVICE_ACTIONS = Object.freeze({
       'device.submitScans': { run: submitScans,
         reads: 'Terms Classes Schedules Enrollments RfidCards Students Settings', writes: 'Devices ClassSessions Attendance ScanLog' },
+      'device.heartbeat': { run: heartbeat, reads: 'Settings', writes: 'Devices' },
     });
 
     const findDeviceAction = (name) => (Object.prototype.hasOwnProperty.call(DEVICE_ACTIONS, name) ? DEVICE_ACTIONS[name] : null);

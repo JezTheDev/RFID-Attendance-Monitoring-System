@@ -398,7 +398,7 @@ describe('Server.gs device route and device keys', () => {
   it('device.* with the right key: authenticated, then UNKNOWN_ACTION; reads only Devices, writes nothing, no session', () => {
     const { post, stats, tab, deviceId, key } = withDevice();
     const sessionsBefore = tab('AuthSessions').length;
-    const reply = post({ action: 'device.heartbeat', device_id: deviceId, device_key: key });
+    const reply = post({ action: 'device.nope', device_id: deviceId, device_key: key });
     assert.equal(reply.error.code, 'UNKNOWN_ACTION');
     assert.deepEqual(stats.tabsRead, ['Devices']);
     assert.equal(stats.rowsWritten, 0);
@@ -407,11 +407,11 @@ describe('Server.gs device route and device keys', () => {
 
   it('device.* with a wrong key or unknown device: the same INVALID_DEVICE_KEY', () => {
     const { post, deviceId, key } = withDevice();
-    const wrong = post({ action: 'device.heartbeat', device_id: deviceId, device_key: 'f'.repeat(64) });
-    const unknown = post({ action: 'device.heartbeat', device_id: 'DEV-NOPE-99', device_key: key });
+    const wrong = post({ action: 'device.nope', device_id: deviceId, device_key: 'f'.repeat(64) });
+    const unknown = post({ action: 'device.nope', device_id: 'DEV-NOPE-99', device_key: key });
     assert.equal(wrong.error.code, 'INVALID_DEVICE_KEY');
     assert.deepEqual(unknown.error, wrong.error);
-    assert.equal(post({ action: 'device.heartbeat' }).error.code, 'BAD_REQUEST');
+    assert.equal(post({ action: 'device.nope' }).error.code, 'BAD_REQUEST');
   });
 
   it('a generated device key is in the response only: no Sheet cell, no log; only its hash is stored', () => {
@@ -452,6 +452,24 @@ describe('Server.gs device route and device keys', () => {
     const att = s.tab('Attendance').at(-1);
     assert.deepEqual([att.student_id, att.scan_id, att.status, att.scanned_at], ['STU-0001', scanOf(s, 1).scan_id, 'present', '2026-11-23T07:35:00+08:00']);
     assert.equal(s.tab('Devices').find((d) => d.device_id === s.deviceId).last_seen_at, MON);
+  });
+
+  it('device.heartbeat: under the lock, declared tabs only, ONE row written, no AuditLog row', () => {
+    const s = tapReady();
+    const taken = s.locks.taken;
+    const audit = s.tab('AuditLog').length;
+    const reply = s.post({
+      action: 'device.heartbeat', device_id: s.deviceId, device_key: s.key, sent_at: Math.floor(Date.parse(MON) / 1000),
+      battery_voltage: 3.82, wifi_rssi: -61, queue_count: 0, time_synced: true, firmware_version: '0.3.0', uptime_seconds: 5400,
+    });
+    assert.equal(reply.ok, true, JSON.stringify(reply.error));
+    assert.equal(reply.data.low_battery, false);
+    assert.equal(s.locks.taken, taken + 1);
+    assert.deepEqual([...s.stats.tabsRead].sort(), [...s.context.RFID.deviceTabsFor('device.heartbeat').read].sort());
+    assert.deepEqual([s.stats.batchUpdates, s.stats.rowsWritten], [1, 1]);
+    assert.equal(s.tab('AuditLog').length, audit);
+    const row = s.tab('Devices').find((d) => d.device_id === s.deviceId);
+    assert.deepEqual([row.battery_voltage, row.last_heartbeat_at, row.last_seen_at], ['3.82', MON, MON]);
   });
 
   it('device.submitScans resent: ALREADY_RECORDED and no new rows in the Sheet', () => {
