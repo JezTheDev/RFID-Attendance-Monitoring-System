@@ -48,7 +48,7 @@ describe('creating accounts issues a temporary password', () => {
     const user = userOfLinked(db, a.student_id);
     assert.equal(user.must_change_password, 'TRUE');
     assert.ok(user.password_hash.startsWith('v1$300$'));
-    assert.ok(ctx.verify(a.temp_password, user.password_hash));
+    assert.ok(ctx.verify(a.temp_password.replace('-', ''), user.password_hash)); // dash is display-only
     assert.equal(user.temp_password_expires_at, '2026-11-25T08:00:00+08:00'); // fake now 2026-11-18 08:00 Manila + 7 days
     assert.equal(a.temp_password_expires_at, user.temp_password_expires_at);
   });
@@ -119,10 +119,63 @@ describe('signing in with a temporary password', () => {
     const db = makeDb();
     const ctx = makeCtx();
     createStudent(db, newStudent(), SESSIONS.admin, ctx);
-    db.Users.at(-1).password_hash = ctx.hash('Abcde-23456'); // a known temp-style value
+    db.Users.at(-1).password_hash = ctx.hash('Abcde23456'); // a known temp value (stored without the dash)
     const { session_token: token } = login(db, ctx, '2024000010', 'Abcde-23456');
-    assert.throws(() => call(db, ctx, 'auth.changePassword', token, { old_password: 'Abcde-23456', new_password: 'Abcde-23456' }),
-      (e) => withCode('VALIDATION_ERROR')(e) && /current/.test(e.fields.new_password));
+    for (const again of ['Abcde-23456', 'Abcde23456']) {
+      assert.throws(() => call(db, ctx, 'auth.changePassword', token, { old_password: 'Abcde-23456', new_password: again }),
+        (e) => withCode('VALIDATION_ERROR')(e) && /current/.test(e.fields.new_password));
+    }
+  });
+});
+
+describe('the dash (and spaces) in a temporary password are optional', () => {
+  function created() {
+    const db = makeDb();
+    const ctx = makeCtx();
+    const { temp_password: temp } = createStudent(db, newStudent(), SESSIONS.admin, ctx);
+    return { db, ctx, temp, user: db.Users.at(-1) };
+  }
+
+  it('is hashed without the dash; the response still shows it with the dash', () => {
+    const { ctx, temp, user } = created();
+    assert.match(temp, TEMP_PASSWORD_PATTERN);
+    assert.ok(ctx.verify(temp.replace('-', ''), user.password_hash));
+    assert.ok(!ctx.verify(temp, user.password_hash));
+  });
+
+  for (const [label, typed] of [
+    ['with the dash', (t) => t],
+    ['without the dash', (t) => t.replace('-', '')],
+    ['with spaces instead of the dash', (t) => ` ${t.replace('-', ' ')} `],
+    ['with spaces and the dash', (t) => t.replace('-', ' - ')],
+  ]) {
+    it(`signs in ${label}`, () => {
+      const { db, ctx, temp } = created();
+      assert.equal(login(db, ctx, '2024000010', typed(temp)).must_change_password, true);
+    });
+  }
+
+  it('the current (temporary) password in changePassword may also be typed without the dash', () => {
+    const { db, ctx, temp, user } = created();
+    const { session_token: token } = login(db, ctx, '2024000010', temp);
+    call(db, ctx, 'auth.changePassword', token, { old_password: temp.replace('-', ''), new_password: 'MyOwnPass99' });
+    assert.equal(user.must_change_password, 'FALSE');
+  });
+
+  it('a wrong temporary password still counts as a failed attempt', () => {
+    const { db, ctx, temp, user } = created();
+    const wrong = `${temp.slice(0, -1)}${temp.endsWith('2') ? '3' : '2'}`;
+    assert.throws(() => login(db, ctx, '2024000010', wrong), withCode('INVALID_CREDENTIALS'));
+    assert.equal(user.failed_attempts, '1');
+  });
+
+  it('a user-chosen password containing "-" or spaces is compared exactly (no stripping)', () => {
+    const { db, ctx, temp } = created();
+    const { session_token: token } = login(db, ctx, '2024000010', temp);
+    call(db, ctx, 'auth.changePassword', token, { old_password: temp, new_password: 'My-Pass 99' });
+    assert.throws(() => login(db, ctx, '2024000010', 'MyPass99'), withCode('INVALID_CREDENTIALS'));
+    assert.throws(() => login(db, ctx, '2024000010', 'My-Pass99'), withCode('INVALID_CREDENTIALS'));
+    assert.ok(login(db, ctx, '2024000010', 'My-Pass 99').session_token);
   });
 });
 

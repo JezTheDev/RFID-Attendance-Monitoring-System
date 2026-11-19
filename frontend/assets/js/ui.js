@@ -404,7 +404,7 @@ export function showTempPassword({ username, temp_password: tempPassword }) {
             </div>
             <div class="alert alert-warning small mt-3 mb-0" role="note">
               Give this to the user. It will not be shown again. Expires in 7 days.
-              They type it exactly as shown (with the dash), then choose their own password.
+              The dash is optional when they type it. Then they choose their own password.
             </div>
           </div>
           <div class="modal-footer">

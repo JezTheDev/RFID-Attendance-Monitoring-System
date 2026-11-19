@@ -50,7 +50,7 @@ export function accountSummary(user, ctx) {
 // response only; never write it to the Sheet, the AuditLog or a log.
 export function issueTempPassword(db, ctx, user) {
   const tempPassword = ctx.newTempPassword();
-  user.password_hash = ctx.hash(tempPassword);
+  user.password_hash = ctx.hash(tempPassword.replace('-', '')); // the dash is display-only (see typedPassword)
   user.must_change_password = 'TRUE';
   user.temp_password_expires_at = toManilaIso(ctx.now() + positiveSetting(db, 'temp_password_days', 7) * DAY);
   return { temp_password: tempPassword, temp_password_expires_at: user.temp_password_expires_at };

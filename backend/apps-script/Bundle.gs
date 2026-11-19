@@ -330,6 +330,13 @@ var RFID = (function () {
       return value > 0 ? value : fallback;
     }
     
+    // While the account is on a temporary password ("k7Pmx-92Qwa", hashed without
+    // the dash), "-" and spaces are optional. User-chosen passwords are exact.
+    function typedPassword(user, value) {
+      const password = String(value ?? '');
+      return user && user.temp_password_expires_at ? password.replace(/[-\s]/g, '') : password;
+    }
+    
     function invalidCredentials() {
       return new AppError('INVALID_CREDENTIALS', 'Incorrect username or password.');
     }
@@ -353,9 +360,9 @@ var RFID = (function () {
     
     function login(db, request, _session, ctx) {
       ctx.pepper(); // fail with NOT_CONFIGURED before touching anything
-      const password = String(request.password ?? '');
       const nowMs = ctx.now();
       const user = findUserByUsername(db, request.username);
+      const password = typedPassword(user, request.password);
     
       if (!user) {
         ctx.hash(password); // same work as a real check, so timing does not reveal unknown usernames
@@ -457,13 +464,16 @@ var RFID = (function () {
     
     function changePassword(db, request, session, ctx) {
       const user = currentUser(db, session);
-      const oldPassword = String(request.old_password ?? '');
+      const oldPassword = typedPassword(user, request.old_password);
       const newPassword = String(request.new_password ?? '');
       // A wrong current password is not counted toward the login lockout.
       if (!user.password_hash || !ctx.verify(oldPassword, user.password_hash)) {
         throw validationError({ old_password: 'Your current password is incorrect.' });
       }
       validateNewPassword(oldPassword, newPassword);
+      if (typedPassword(user, newPassword) === oldPassword) { // the temp password again, just typed with its dash
+        throw validationError({ new_password: 'Choose a password different from your current one.' });
+      }
     
       const now = toManilaIso(ctx.now());
       user.password_hash = ctx.hash(newPassword);
@@ -534,7 +544,7 @@ var RFID = (function () {
     // response only; never write it to the Sheet, the AuditLog or a log.
     function issueTempPassword(db, ctx, user) {
       const tempPassword = ctx.newTempPassword();
-      user.password_hash = ctx.hash(tempPassword);
+      user.password_hash = ctx.hash(tempPassword.replace('-', '')); // the dash is display-only (see typedPassword)
       user.must_change_password = 'TRUE';
       user.temp_password_expires_at = toManilaIso(ctx.now() + positiveSetting(db, 'temp_password_days', 7) * DAY);
       return { temp_password: tempPassword, temp_password_expires_at: user.temp_password_expires_at };

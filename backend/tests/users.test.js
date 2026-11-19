@@ -25,7 +25,7 @@ function expectFreshAccount(ctx, user, role, tempPassword) {
   assert.equal(user.failed_attempts, '0');
   assert.equal(user.locked_until, '');
   assert.equal(user.account_status, 'active');
-  assert.ok(ctx.verify(tempPassword, user.password_hash));
+  assert.ok(ctx.verify(tempPassword.replace('-', ''), user.password_hash)); // stored without the display dash
   assert.equal('google_sub' in user, false);
 }
 

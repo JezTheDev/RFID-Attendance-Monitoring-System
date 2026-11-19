@@ -152,7 +152,9 @@ Put the URL in `frontend/assets/js/config.js` → `API_URL`. See `frontend/READM
 ## Temporary passwords (how admins hand them out)
 
 - `admin.createStudent` / `createInstructor` / `createAdmin` and `admin.resetPassword` make a
-  random 10-character password like `k7Pmx-92Qwa` (no `0 O o 1 l I`; the dash is part of it).
+  random 10-character password like `k7Pmx-92Qwa` (no `0 O o 1 l I`). The dash is only for reading: it is
+  stored without it, and while the account is on a temporary password, sign-in ignores
+  `-` and spaces. Passwords the user chooses are compared exactly.
 - The response `data.temp_password` is the **only** place it ever appears. Only its hash is
   stored; it is never written to the Sheet, the AuditLog, or a log. The website shows it once
   in a box with a **Copy** button.
