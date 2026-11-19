@@ -601,3 +601,24 @@ describe('server_time (spec 5.1): Manila ISO with +08:00 from the same clock', (
     replies.forEach((reply) => assert.equal(reply.server_time, want));
   });
 });
+
+describe('prepareLiveTest / cleanupLiveTest editor jobs (step 4f)', () => {
+  it('log the env lines, add one LIVE TEST schedule, then set it inactive', () => {
+    const { context, tab, logs, clock } = makeServer();
+    context.setupSheets();
+    clock.ms = Date.parse('2026-11-23T11:00:00+08:00');
+    const before = tab('Schedules').length;
+    context.prepareLiveTest();
+    const text = logs.join('\n');
+    assert.match(text, /DEVICE_ID=DEV-/);
+    assert.match(text, /LIVE_UIDS=\w+/);
+    assert.match(text, /NOT_ENROLLED_UID=\w+/);
+    assert.match(text, /UNKNOWN_UID=FFFFFF\d\d/);
+    const added = tab('Schedules').slice(before);
+    assert.equal(added.length, 1);
+    assert.deepEqual([added[0].day_of_week, added[0].start_time, added[0].end_time, added[0].status], ['MON', '10:50', '12:00', 'active']);
+    context.cleanupLiveTest();
+    assert.equal(tab('Schedules').length, before + 1);
+    assert.equal(tab('Schedules').at(-1).status, 'inactive');
+  });
+});

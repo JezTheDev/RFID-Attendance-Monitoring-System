@@ -240,6 +240,38 @@ function issueTestDeviceKey(deviceId) {
   });
 }
 
+/**
+ * TEST SHEET ONLY (step 4f live test). Adds a temporary ACTIVE schedule
+ * (now - 10 min .. now + 60 min, today, Manila) for the class with the most
+ * enrolled students with active cards, in a room with an active device. Same
+ * clash checks as the Admin portal. Logs the device, room, class and the UIDs
+ * to paste as environment variables for tools/live_device_test.mjs.
+ * Safe to run again (reuses the slot while it covers now). Undo: cleanupLiveTest.
+ */
+function prepareLiveTest() {
+  runEditorJob_(function (db, ctx) {
+    var r = RFID.prepareLiveTest(db, ctx);
+    return [
+      (r.reused ? 'Reusing' : 'Created') + ' LIVE TEST schedule ' + r.schedule_id + ': ' + r.class_label + ' (' + r.class_id + ') in '
+        + r.room_code + ' (' + r.room_id + '), ' + r.day_of_week + ' ' + r.start_time + '-' + r.end_time,
+      'Device: ' + r.device_id + ' (get a key with issueTestDeviceKey("' + r.device_id + '") if you have none)',
+      'Environment variables for tools/live_device_test.mjs:',
+      'DEVICE_ID=' + r.device_id,
+      'LIVE_UIDS=' + r.enrolled_uids.join(','),
+      'NOT_ENROLLED_UID=' + r.not_enrolled_uid,
+      'UNKNOWN_UID=' + r.unknown_uid,
+    ];
+  });
+}
+
+/**
+ * TEST SHEET ONLY. Sets every LIVE TEST schedule inactive. Attendance and
+ * ScanLog rows from the test stay (they are test data). Safe to run again.
+ */
+function cleanupLiveTest() {
+  runEditorJob_(function (db, ctx) { return RFID.cleanupLiveTest(db, ctx); });
+}
+
 // Deletes a column by header name, but only if every value below the header is empty.
 function dropEmptyColumn_(tab, header) {
   var sheet = spreadsheet_().getSheetByName(tab);

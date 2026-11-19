@@ -1,8 +1,10 @@
 // Editor-only maintenance jobs (Server.gs runs them from the Apps Script editor).
 // Each takes the db and returns lines to log.
 import { CORRECTION_ACTION } from './handlers/portal.js';
-import { overlaps } from './handlers/classes.js';
-import { fullName } from './utils.js';
+import { overlaps, addSchedule, removeSchedule } from './handlers/classes.js';
+import {
+  AppError, fullName, manilaAt, dayCodeOf, writeAudit,
+} from './utils.js';
 
 // Copies correction reasons from AuditLog into blank Attendance.override_reason
 // cells (rows corrected before the reason was stored there). Safe to run again.
@@ -50,4 +52,110 @@ export function findScheduleClashes(db) {
     });
   });
   return lines;
+}
+
+/* ---------- Live test (step 4f): TEST Sheet only ---------- */
+
+const LIVE_TEST = 'LIVE_TEST_SCHEDULE';
+const SYSTEM = { user_id: '', role: 'system' };
+
+function requireTestSheet(ctx, job) {
+  if (!ctx.property('TEST_SEED_PASSWORD')) {
+    throw new AppError('NOT_TEST_SHEET', `${job} is for the TEST Sheet only (TEST_SEED_PASSWORD is not set).`);
+  }
+}
+
+const hhmm = (minutes) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+
+// Active schedules marked by prepareLiveTest (an AuditLog row, since Schedules has no notes column).
+function liveTestSchedules(db) {
+  const ids = new Set(db.AuditLog.filter((row) => row.action === LIVE_TEST).map((row) => row.entity_id));
+  return db.Schedules.filter((row) => ids.has(row.schedule_id) && row.status === 'active');
+}
+
+// UIDs of active cards of active students, split by enrollment in classId.
+function cardsFor(db, classId) {
+  const enrolled = new Set(db.Enrollments.filter((row) => row.class_id === classId && row.status === 'enrolled').map((row) => row.student_id));
+  const active = new Set(db.Students.filter((row) => row.account_status === 'active').map((row) => row.student_id));
+  const cards = db.RfidCards.filter((row) => row.status === 'active' && active.has(row.student_id));
+  return {
+    enrolled: cards.filter((row) => enrolled.has(row.student_id)).map((row) => row.rfid_uid),
+    other: cards.filter((row) => !enrolled.has(row.student_id)).map((row) => row.rfid_uid),
+  };
+}
+
+function liveTestResult(db, slot, reused) {
+  const device = db.Devices.find((row) => row.room_id === slot.room_id && row.status === 'active');
+  const { enrolled, other } = cardsFor(db, slot.class_id);
+  const known = new Set(db.RfidCards.map((row) => row.rfid_uid));
+  let n = 0;
+  while (known.has(`FFFFFF${String(n).padStart(2, '0')}`)) n += 1;
+  return {
+    schedule_id: slot.schedule_id,
+    device_id: device ? device.device_id : '',
+    room_id: slot.room_id,
+    room_code: db.Rooms.find((row) => row.room_id === slot.room_id)?.room_code ?? '',
+    class_id: slot.class_id,
+    class_label: db.Classes.find((row) => row.class_id === slot.class_id)?.class_label ?? '',
+    day_of_week: slot.day_of_week,
+    start_time: slot.start_time,
+    end_time: slot.end_time,
+    reused,
+    enrolled_uids: enrolled,
+    not_enrolled_uid: other[0],
+    unknown_uid: `FFFFFF${String(n).padStart(2, '0')}`,
+  };
+}
+
+// Adds a temporary ACTIVE schedule (now-10 .. now+60, today, Manila) in a room
+// with an active device, for the class with the most enrolled carded students.
+// Uses addSchedule, so the Admin portal's clash checks apply. Safe to run again:
+// a LIVE TEST slot that still covers now is reused; older ones are deactivated.
+export function prepareLiveTest(db, ctx) {
+  requireTestSheet(ctx, 'prepareLiveTest');
+  const now = manilaAt(ctx.now());
+  const day = dayCodeOf(now.date);
+  const marked = liveTestSchedules(db);
+  const current = marked.find((row) => row.day_of_week === day && row.start_time <= now.time && now.time <= row.end_time);
+  if (current) return liveTestResult(db, current, true);
+  marked.forEach((row) => removeSchedule(db, row, SYSTEM, ctx));
+
+  const term = db.Terms.find((row) => row.is_active === 'TRUE' && row.start_date <= now.date && now.date <= row.end_date);
+  if (!term) throw new AppError('NO_LIVE_TEST_SLOT', `No active term covers ${now.date}.`);
+  const rooms = [...new Set(db.Devices.filter((row) => row.status === 'active' && row.room_id).map((row) => row.room_id))].sort();
+  if (!rooms.length) throw new AppError('NO_LIVE_TEST_SLOT', 'No active device with a room. Activate one in the Admin portal.');
+  const classes = db.Classes
+    .filter((row) => row.status === 'active' && row.term_id === term.term_id)
+    .map((row) => ({ row, cards: cardsFor(db, row.class_id) }))
+    .filter(({ cards }) => cards.enrolled.length && cards.other.length)
+    .sort((a, b) => b.cards.enrolled.length - a.cards.enrolled.length || a.row.class_id.localeCompare(b.row.class_id));
+
+  const minutes = Number(now.time.slice(0, 2)) * 60 + Number(now.time.slice(3));
+  const slot = { day_of_week: day, start_time: hhmm(Math.max(0, minutes - 10)), end_time: hhmm(Math.min(23 * 60 + 59, minutes + 60)) };
+  const reasons = [];
+  for (const { row: klass } of classes) {
+    for (const roomId of rooms) {
+      try {
+        const { schedule_id: scheduleId } = addSchedule(db, { class_id: klass.class_id, room_id: roomId, ...slot }, SYSTEM, ctx);
+        writeAudit(db, SYSTEM, {
+          action: LIVE_TEST, entityType: 'Schedules', entityId: scheduleId, reason: 'LIVE TEST (prepareLiveTest): run cleanupLiveTest after',
+        }, ctx);
+        return liveTestResult(db, db.Schedules.find((row) => row.schedule_id === scheduleId), false);
+      } catch (error) {
+        if (!error.fields) throw error;
+        reasons.push(`${klass.class_label} in ${roomId}: ${Object.values(error.fields).join(' ')}`);
+      }
+    }
+  }
+  throw new AppError('NO_LIVE_TEST_SLOT', `No free slot ${slot.day_of_week} ${slot.start_time}-${slot.end_time}. ${reasons.join(' | ') || 'No active class has both enrolled and not-enrolled students with active cards.'}`);
+}
+
+// Sets every active LIVE TEST schedule inactive. Never deletes rows.
+export function cleanupLiveTest(db, ctx) {
+  requireTestSheet(ctx, 'cleanupLiveTest');
+  const marked = liveTestSchedules(db);
+  marked.forEach((row) => removeSchedule(db, row, SYSTEM, ctx));
+  return marked.length
+    ? marked.map((row) => `Set LIVE TEST schedule ${row.schedule_id} (${row.class_id}, ${row.day_of_week} ${row.start_time}-${row.end_time}) inactive.`)
+    : ['Nothing to change: no active LIVE TEST schedule.'];
 }
