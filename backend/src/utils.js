@@ -83,11 +83,8 @@ export function cleanText(value) {
 }
 
 export function writeAudit(db, session, { action, entityType, entityId, before = null, after = null, reason = '' }) {
-  const number = db.AuditLog.length
-    ? Math.max(...db.AuditLog.map((row) => Number(row.audit_id.slice(4)) || 0)) + 1
-    : 1;
   db.AuditLog.push({
-    audit_id: `AUD-${String(number).padStart(4, '0')}`,
+    audit_id: nextId(db.AuditLog, 'audit_id', 'AUD'),
     timestamp: manilaNow().iso,
     user_id: session.user_id,
     role: session.role,

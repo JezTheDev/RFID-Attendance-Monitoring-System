@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { makeDb, SESSIONS } from './helpers/db.js';
 import { makeCtx } from './helpers/auth.js';
 import { ACTIONS, READ } from '../src/actions.js';
-import { manilaNow, writeAudit } from '../src/utils.js';
+import { manilaNow, writeAudit, nextId } from '../src/utils.js';
 import * as portal from '../src/handlers/portal.js';
 import * as classes from '../src/handlers/classes.js';
 import { updateStudent } from '../src/handlers/students.js';
@@ -122,11 +122,16 @@ describe('known bugs (todo until fixed)', () => {
     assert.ok(rate <= 1, `rate is ${rate}`);
   });
 
-  it('BUG-5 writeAudit works with a large AuditLog', { todo: 'BUG-5: utils.js writeAudit uses Math.max(...rows) — stack overflow near 130k rows in Node' }, () => {
+  it('BUG-5 writeAudit works with a large AuditLog', () => {
     const db = makeDb();
-    db.AuditLog = Array.from({ length: 150000 }, (_, i) => ({ audit_id: `AUD-${i + 1}` }));
+    db.AuditLog = Array.from({ length: 200000 }, (_, i) => ({ audit_id: `AUD-${String(i + 1).padStart(4, '0')}` }));
     writeAudit(db, SESSIONS.admin, { action: 'X', entityType: 'X', entityId: 'X' });
-    assert.equal(db.AuditLog.at(-1).audit_id, 'AUD-150001');
+    assert.equal(db.AuditLog.at(-1).audit_id, 'AUD-200001');
+  });
+
+  it('BUG-5 nextId works with a large table (Attendance)', () => {
+    const rows = Array.from({ length: 200000 }, (_, i) => ({ attendance_id: `ATT-${String(i + 1).padStart(5, '0')}` }));
+    assert.equal(nextId(rows, 'attendance_id', 'ATT', 5), 'ATT-200001');
   });
 
   it('BUG-6 "absent" correction during an open session is refused, not a silent no-op', { todo: 'BUG-6: portal.js:350-354 writes an audit row but nothing changes' }, () => {
