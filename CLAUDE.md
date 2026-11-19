@@ -59,6 +59,7 @@ frontend/              Static site (index.html = login; admin/, instructor/, stu
 tools/
   build_apps_script.mjs   backend/src + seed JSON -> Bundle.gs + SeedData.gs
   xlsx_to_seed_data.py    docs/RFID_Test_Data.xlsx -> backend/seed/seed-data.json (needs openpyxl)
+  measure_device_api.mjs  tabs/rows read + written per device.* action (fake Apps Script)
 docs/                  Architecture, Device API spec, audit report, plans/specs
 ```
 
@@ -150,7 +151,19 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
   `BAD_REQUEST` for all; `scan_id` must start with the device's own id; resent
   `scan_id` → `ALREADY_RECORDED` + `original_result`, no rows; every new scan →
   one ScanLog row; ACCEPTED → new session (if any) + Attendance. Reads
-  ScanLog and Attendance fully (idempotency + DUPLICATE). heartbeat/getRoster: 4e.
+  ScanLog and Attendance fully (idempotency + DUPLICATE).
+- `device.heartbeat` (4e): validates battery_voltage 0–6, wifi_rssi −127..0,
+  queue_count/uptime_seconds integers ≥ 0, time_synced boolean, firmware_version
+  1–32 chars (else `BAD_REQUEST`); updates ONLY its own Devices row (1 row, under
+  the lock), **no AuditLog row**. Returns `roster_version`, `low_battery`
+  (stored 2-decimal voltage < `low_battery_voltage`).
+- `device.getRoster` (4e): read-only, no lock. `known_version` == current →
+  `{changed:false, roster_version}`; else active cards of active students
+  (`{uid, name}`, name ≤ 16 chars) + `duplicate_window_minutes`,
+  `heartbeat_interval_seconds`.
+- **roster_version** must be bumped by every change to roster content: card
+  assign/replace/revoke, any student status change, student first/last name change.
+- Rows read/written per device action: `node tools/measure_device_api.mjs`.
 - `server_time` in every reply is Manila ISO `+08:00` (`serverTime_()`, same
   clock as `ctx.now()`).
 - `issueTestDeviceKey(device_id)` (editor-only, **TEST Sheet only**) logs a new
