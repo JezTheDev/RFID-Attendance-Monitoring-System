@@ -254,8 +254,8 @@ describe('device authentication', () => {
   it('runDeviceAction: authenticates first, then UNKNOWN_ACTION; no user session involved', () => {
     const { db, ctx } = setup();
     const { id, key } = activeDevice(db, ctx);
-    assert.throws(() => runDeviceAction({ Devices: db.Devices }, { action: 'device.heartbeat', device_id: id, device_key: 'bad' }, ctx), withCode('INVALID_DEVICE_KEY'));
-    assert.throws(() => runDeviceAction({ Devices: db.Devices }, { action: 'device.heartbeat', device_id: id, device_key: key }, ctx), withCode('UNKNOWN_ACTION'));
+    assert.throws(() => runDeviceAction({ Devices: db.Devices }, { action: 'device.nope', device_id: id, device_key: 'bad' }, ctx), withCode('INVALID_DEVICE_KEY'));
+    assert.throws(() => runDeviceAction({ Devices: db.Devices }, { action: 'device.nope', device_id: id, device_key: key }, ctx), withCode('UNKNOWN_ACTION'));
     assert.equal(db.AuthSessions.length, 0);
   });
 });
