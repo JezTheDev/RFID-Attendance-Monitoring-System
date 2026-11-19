@@ -30,6 +30,8 @@ backend/
                        + runAction() gate, tabsFor(), guardDb()
                        (role: 'public' | 'any' | 'admin' | 'instructor' | 'student')
     maintenance.js     Editor-only jobs: backfillOverrideReasons, findScheduleClashes
+    sessions.js        Session engine (pure): resolveScan (tap -> session decision, no writes),
+                       sessionPhase, missingStatus ('not_scanned' until the end, then 'absent')
     auth/              passwords (hash/verify), context (ctx), session, account
                        (login/me/changePassword/logout), admin-users (reset/unlock,
                        new user rows), migration (migrate + bootstrap admin),

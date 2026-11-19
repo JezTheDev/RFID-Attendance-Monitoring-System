@@ -3,9 +3,10 @@
 // instructor_id / student_id sent by the browser. It reads linked_id from the
 // signed-in user and only returns rows that belong to that person.
 import {
-  AppError, validationError, manilaNow, dayCodeOf, isValidDate, indexBy, fullName,
+  AppError, validationError, manilaAt, dayCodeOf, isValidDate, indexBy, fullName,
   cleanText, writeAudit, nextId, effectiveStatus,
 } from '../utils.js';
+import { missingStatus, sessionPhase } from '../sessions.js';
 
 const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
 const CORRECTABLE = ['present', 'late', 'absent'];
@@ -84,9 +85,8 @@ function correctionsFor(db, sessionId) {
   return map;
 }
 
-function statusOf(record, session) {
-  if (record) return effectiveStatus(record);
-  return session.status === 'open' ? 'not_scanned' : 'absent';
+function statusOf(record, session, now) {
+  return record ? effectiveStatus(record) : missingStatus(session, now);
 }
 
 function rate(present, late, total) {
@@ -101,20 +101,24 @@ function summarize(statuses) {
   return { present, late, absent, total, rate: rate(present, late, total) };
 }
 
-function sessionCounts(db, session, roster) {
+// No record: not_scanned until the session ends, absent after (BUG-7).
+function sessionCounts(db, session, roster, now) {
   const records = db.Attendance.filter((row) => row.session_id === session.session_id && roster.includes(row.student_id));
   const present = records.filter((row) => effectiveStatus(row) === 'present').length;
   const late = records.filter((row) => effectiveStatus(row) === 'late').length;
   const counted = session.status === 'closed' || session.status === 'open';
+  const missing = Math.max(roster.length - present - late, 0);
+  const ended = sessionPhase(session, now) === 'ended';
   return {
     enrolled: roster.length,
     present: counted ? present : null,
     late: counted ? late : null,
-    absent: counted ? Math.max(roster.length - present - late, 0) : null,
+    absent: counted ? (ended ? missing : 0) : null,
+    not_scanned: counted ? (ended ? 0 : missing) : null,
   };
 }
 
-function describeSession(db, maps, session, roster) {
+function describeSession(db, maps, session, roster, now) {
   return {
     session_id: session.session_id,
     class_id: session.class_id,
@@ -126,7 +130,7 @@ function describeSession(db, maps, session, roster) {
     source: session.source,
     status: session.status,
     reason: session.override_reason || '',
-    ...sessionCounts(db, session, roster),
+    ...sessionCounts(db, session, roster, now),
   };
 }
 
@@ -159,12 +163,12 @@ function myClasses(db, instructorId) {
     .sort((a, b) => a.class_label.localeCompare(b.class_label));
 }
 
-function classSummary(db, maps, klass) {
+function classSummary(db, maps, klass, now) {
   const roster = rosterIds(db, maps, klass.class_id);
   const sessions = countedSessions(db, klass.class_id);
   const statuses = [];
   sessions.forEach((session) => roster.forEach((studentId) => {
-    const status = statusOf(recordOf(db, session.session_id, studentId), session);
+    const status = statusOf(recordOf(db, session.session_id, studentId), session, now);
     if (status !== 'not_scanned') statuses.push(status);
   }));
   const totals = summarize(statuses);
@@ -178,11 +182,11 @@ function classSummary(db, maps, klass) {
   };
 }
 
-export function instructorDashboard(db, { date }, session) {
+export function instructorDashboard(db, { date }, session, ctx) {
   if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
-  const now = manilaNow();
+  const now = manilaAt(ctx.now());
   const instructor = maps.instructors.get(instructorId);
   const classes = myClasses(db, instructorId);
   const classIds = new Set(classes.map((row) => row.class_id));
@@ -199,7 +203,7 @@ export function instructorDashboard(db, { date }, session) {
         const roster = rosterIds(db, maps, slot.class_id);
         const held = db.ClassSessions.find((row) => row.schedule_id === slot.schedule_id && row.session_date === date);
         if (held) {
-          sessions.push(describeSession(db, maps, held, roster));
+          sessions.push(describeSession(db, maps, held, roster, now));
           return;
         }
         let status;
@@ -221,15 +225,16 @@ export function instructorDashboard(db, { date }, session) {
           present: null,
           late: null,
           absent: null,
+          not_scanned: null,
         });
       });
   }
   db.ClassSessions
     .filter((row) => row.source === 'manual' && row.session_date === date && classIds.has(row.class_id))
-    .forEach((row) => sessions.push(describeSession(db, maps, row, rosterIds(db, maps, row.class_id))));
+    .forEach((row) => sessions.push(describeSession(db, maps, row, rosterIds(db, maps, row.class_id), now)));
   sessions.sort((a, b) => a.start_time.localeCompare(b.start_time));
 
-  const summaries = classes.map((klass) => classSummary(db, maps, klass));
+  const summaries = classes.map((klass) => classSummary(db, maps, klass, now));
   const all = summaries.reduce((acc, row) => ({
     present: acc.present + row.totals.present,
     late: acc.late + row.totals.late,
@@ -243,7 +248,7 @@ export function instructorDashboard(db, { date }, session) {
     const held = countedSessions(db, klass.class_id);
     if (held.length < 2) return;
     rosterIds(db, maps, klass.class_id).forEach((studentId) => {
-      const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s)).filter((s) => s !== 'not_scanned'));
+      const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now)).filter((s) => s !== 'not_scanned'));
       if (totals.rate !== null && totals.rate < 0.8) {
         const student = maps.students.get(studentId);
         watchlist.push({
@@ -277,7 +282,8 @@ export function instructorDashboard(db, { date }, session) {
   };
 }
 
-export function instructorListSessions(db, { class_id: classId }, session) {
+export function instructorListSessions(db, { class_id: classId }, session, ctx) {
+  const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
@@ -287,11 +293,12 @@ export function instructorListSessions(db, { class_id: classId }, session) {
   const sessions = db.ClassSessions
     .filter((row) => row.class_id === classId)
     .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.scheduled_start.localeCompare(a.scheduled_start))
-    .map((row) => describeSession(db, maps, row, roster));
+    .map((row) => describeSession(db, maps, row, roster, now));
   return { classes, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, sessions };
 }
 
-export function instructorGetSession(db, { session_id: sessionId }, session) {
+export function instructorGetSession(db, { session_id: sessionId }, session, ctx) {
+  const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
@@ -309,7 +316,7 @@ export function instructorGetSession(db, { session_id: sessionId }, session) {
       student_number: student?.student_number ?? '',
       first_name: student?.first_name ?? '',
       last_name: student?.last_name ?? '',
-      status: classSession.status === 'cancelled' ? 'cancelled' : statusOf(record, classSession),
+      status: classSession.status === 'cancelled' ? 'cancelled' : statusOf(record, classSession, now),
       scanned_at: record?.source === 'device' ? record.scanned_at : null,
       source: record?.source ?? null,
       sync_mode: record?.sync_mode ?? null,
@@ -319,13 +326,14 @@ export function instructorGetSession(db, { session_id: sessionId }, session) {
   }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
 
   return {
-    session: describeSession(db, maps, classSession, roster),
+    session: describeSession(db, maps, classSession, roster, now),
     class: classInfo(db, maps, klass),
     students,
   };
 }
 
-export function instructorCorrectAttendance(db, request, session) {
+export function instructorCorrectAttendance(db, request, session, ctx) {
+  const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const sessionId = request.session_id;
@@ -349,14 +357,14 @@ export function instructorCorrectAttendance(db, request, session) {
   if (Object.keys(fields).length) throw validationError(fields);
 
   const record = recordOf(db, sessionId, studentId);
-  const before = statusOf(record, classSession);
+  const before = statusOf(record, classSession, now);
   if (before === status) throw validationError({ status: 'The student already has this status.' });
 
   // Never delete a row or edit the device fields (architecture 7.2 rule 4):
   // a retried scan_id must still find its row.
   if (record) {
     Object.assign(record, {
-      override_status: status, override_by: session.user_id, override_at: manilaNow().iso, override_reason: reason,
+      override_status: status, override_by: session.user_id, override_at: now.iso, override_reason: reason,
     });
   } else if (status !== 'absent') {
     const student = maps.students.get(studentId);
@@ -371,7 +379,7 @@ export function instructorCorrectAttendance(db, request, session) {
       device_id: '',
       scan_id: '',
       scanned_at: stamp,
-      received_at: manilaNow().iso,
+      received_at: now.iso,
       status,
       source: 'manual',
       sync_mode: '',
@@ -395,7 +403,8 @@ export function instructorCorrectAttendance(db, request, session) {
   return { session_id: sessionId, student_id: studentId, status };
 }
 
-export function instructorClassReport(db, { class_id: classId, from = '', to = '' }, session) {
+export function instructorClassReport(db, { class_id: classId, from = '', to = '' }, session, ctx) {
+  const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
@@ -412,7 +421,7 @@ export function instructorClassReport(db, { class_id: classId, from = '', to = '
 
   const students = roster.map((studentId) => {
     const student = maps.students.get(studentId);
-    const marks = sessions.map((s) => statusOf(recordOf(db, s.session_id, studentId), s));
+    const marks = sessions.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now));
     return {
       student_id: studentId,
       student_number: student?.student_number ?? '',
@@ -431,8 +440,8 @@ export function instructorClassReport(db, { class_id: classId, from = '', to = '
     classes,
     class: { ...classInfo(db, maps, klass), enrolled: roster.length },
     range: { from, to },
-    generated_at: manilaNow().iso,
-    sessions: sessions.map((row) => describeSession(db, maps, row, roster)),
+    generated_at: now.iso,
+    sessions: sessions.map((row) => describeSession(db, maps, row, roster, now)),
     cancelled_sessions: cancelled,
     students,
     totals,
@@ -441,14 +450,15 @@ export function instructorClassReport(db, { class_id: classId, from = '', to = '
 
 // Everyone enrolled in one of the instructor's classes, with their attendance
 // so far. Works even before the first class session.
-export function instructorClassRoster(db, { class_id: classId }, session) {
+export function instructorClassRoster(db, { class_id: classId }, session, ctx) {
+  const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const klass = ownClass(db, instructorId, classId);
   const held = countedSessions(db, classId);
   const students = rosterIds(db, maps, classId).map((studentId) => {
     const student = maps.students.get(studentId);
-    const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s)).filter((s) => s !== 'not_scanned'));
+    const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now)).filter((s) => s !== 'not_scanned'));
     const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
     return {
       student_id: studentId,
@@ -467,7 +477,8 @@ export function instructorClassRoster(db, { class_id: classId }, session) {
   };
 }
 
-export function instructorStudentHistory(db, { class_id: classId, student_id: studentId }, session) {
+export function instructorStudentHistory(db, { class_id: classId, student_id: studentId }, session, ctx) {
+  const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const klass = ownClass(db, instructorId, classId);
@@ -475,7 +486,7 @@ export function instructorStudentHistory(db, { class_id: classId, student_id: st
     throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
   }
   const student = maps.students.get(studentId);
-  const records = historyRows(db, maps, studentId, [klass]);
+  const records = historyRows(db, maps, studentId, [klass], now);
   return {
     student: {
       student_id: studentId,
@@ -497,7 +508,7 @@ function myEnrolledClasses(db, studentId) {
     .sort((a, b) => a.class_label.localeCompare(b.class_label));
 }
 
-function historyRows(db, maps, studentId, classes) {
+function historyRows(db, maps, studentId, classes, now) {
   const corrections = new Set(db.Attendance
     .filter((row) => row.student_id === studentId && row.override_reason)
     .map((row) => correctionKey(row.session_id, row.student_id)));
@@ -517,7 +528,7 @@ function historyRows(db, maps, studentId, classes) {
         start_time: row.actual_start || row.scheduled_start,
         end_time: row.actual_end || row.scheduled_end,
         room_code: maps.rooms.get(row.room_id)?.room_code ?? '',
-        status: row.status === 'cancelled' ? 'cancelled' : statusOf(record, row),
+        status: row.status === 'cancelled' ? 'cancelled' : statusOf(record, row, now),
         scanned_at: record?.source === 'device' ? record.scanned_at : null,
         manual: record?.source === 'manual',
         corrected: corrections.has(correctionKey(row.session_id, studentId)),
@@ -548,11 +559,12 @@ function studentProfile(db, maps, studentId) {
   };
 }
 
-export function studentOverview(db, _request, session) {
+export function studentOverview(db, _request, session, ctx) {
+  const now = manilaAt(ctx.now());
   const studentId = linkedId(db, session, 'student');
   const maps = lookups(db);
   const classes = myEnrolledClasses(db, studentId);
-  const records = historyRows(db, maps, studentId, classes);
+  const records = historyRows(db, maps, studentId, classes, now);
   const counted = (rows) => rows.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled');
 
   const subjects = classes.map((klass) => {
@@ -565,7 +577,6 @@ export function studentOverview(db, _request, session) {
   });
 
   const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
-  const now = manilaNow();
   const todayCode = dayCodeOf(now.date);
   const today = classes.flatMap((klass) => schedulesOf(db, maps, klass.class_id)
     .filter((slot) => slot.day === todayCode)
@@ -583,13 +594,14 @@ export function studentOverview(db, _request, session) {
   };
 }
 
-export function studentHistory(db, { class_id: classId = '' }, session) {
+export function studentHistory(db, { class_id: classId = '' }, session, ctx) {
+  const now = manilaAt(ctx.now());
   const studentId = linkedId(db, session, 'student');
   const maps = lookups(db);
   const classes = myEnrolledClasses(db, studentId);
   const chosen = classId ? classes.filter((row) => row.class_id === classId) : classes;
   if (classId && !chosen.length) throw new AppError('FORBIDDEN', 'You are not enrolled in this class.');
-  const records = historyRows(db, maps, studentId, chosen);
+  const records = historyRows(db, maps, studentId, chosen, now);
   return {
     classes: classes.map((klass) => ({
       class_id: klass.class_id,

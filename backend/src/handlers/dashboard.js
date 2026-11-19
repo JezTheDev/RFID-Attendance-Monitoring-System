@@ -1,11 +1,12 @@
 import {
-  AppError, setting, manilaNow, dayCodeOf, isValidDate, shiftDate, indexBy, fullName, effectiveStatus,
+  AppError, setting, manilaAt, dayCodeOf, isValidDate, shiftDate, indexBy, fullName, effectiveStatus,
 } from '../utils.js';
+import { sessionPhase } from '../sessions.js';
 
-export function getAdminDashboard(db, { date }) {
+export function getAdminDashboard(db, { date }, _session, ctx) {
   if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
 
-  const now = manilaNow();
+  const now = manilaAt(ctx.now());
   const classes = indexBy(db.Classes, 'class_id');
   const subjects = indexBy(db.Subjects, 'subject_id');
   const rooms = indexBy(db.Rooms, 'room_id');
@@ -18,13 +19,17 @@ export function getAdminDashboard(db, { date }) {
   const enrolledCount = (classId) => db.Enrollments.filter((row) => row.class_id === classId
     && row.status === 'enrolled' && students.get(row.student_id)?.account_status === 'active').length;
 
-  const describe = ({ classId, roomId, start, end, status, sessionId, source }) => {
+  const describe = ({ classId, roomId, start, end, status, session, source }) => {
+    const sessionId = session?.session_id;
     const klass = classes.get(classId);
     const records = sessionId ? db.Attendance.filter((row) => row.session_id === sessionId) : [];
     const present = records.filter((row) => effectiveStatus(row) === 'present').length;
     const late = records.filter((row) => effectiveStatus(row) === 'late').length;
     const enrolled = enrolledCount(classId);
     const counted = status === 'closed' || status === 'open';
+    // No record: not_scanned until the session ends, absent after (BUG-7).
+    const missing = Math.max(enrolled - present - late, 0);
+    const ended = Boolean(session) && sessionPhase(session, now) === 'ended';
     return {
       session_id: sessionId ?? null,
       class_id: classId,
@@ -39,7 +44,8 @@ export function getAdminDashboard(db, { date }) {
       enrolled,
       present: counted ? present : null,
       late: counted ? late : null,
-      absent: counted ? Math.max(enrolled - present - late, 0) : null,
+      absent: counted ? (ended ? missing : 0) : null,
+      not_scanned: counted ? (ended ? 0 : missing) : null,
     };
   };
 
@@ -57,7 +63,7 @@ export function getAdminDashboard(db, { date }) {
     else status = 'no_record';
     return describe({
       classId: slot.class_id, roomId: slot.room_id, start: slot.start_time, end: slot.end_time,
-      status, sessionId: session?.session_id, source: 'auto',
+      status, session, source: 'auto',
     });
   });
 
@@ -65,7 +71,7 @@ export function getAdminDashboard(db, { date }) {
     .filter((row) => row.source === 'manual' && row.session_date === date)
     .forEach((row) => sessions.push(describe({
       classId: row.class_id, roomId: row.room_id, start: row.scheduled_start, end: row.scheduled_end,
-      status: row.status, sessionId: row.session_id, source: 'manual',
+      status: row.status, session: row, source: 'manual',
     })));
 
   sessions.sort((a, b) => a.start_time.localeCompare(b.start_time) || a.room_code.localeCompare(b.room_code));

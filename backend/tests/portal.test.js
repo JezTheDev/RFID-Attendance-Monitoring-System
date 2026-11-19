@@ -1,38 +1,38 @@
 // Ownership rules for the Instructor and Student portals, and absent counting.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDb, SESSIONS, withCode } from './helpers/db.js';
+import { makeDb, SESSIONS, withCode, CTX, clockAt } from './helpers/db.js';
 import * as portal from '../src/handlers/portal.js';
 
 describe('student can only see their own data', () => {
   it('rejects history for a class the student is not enrolled in', () => {
     const db = makeDb();
-    assert.throws(() => portal.studentHistory(db, { class_id: 'CLS-0002' }, SESSIONS.student1), withCode('FORBIDDEN'));
+    assert.throws(() => portal.studentHistory(db, { class_id: 'CLS-0002' }, SESSIONS.student1, CTX), withCode('FORBIDDEN'));
   });
 
   it('ignores a student_id sent in the request and returns only own records', () => {
     const db = makeDb();
-    const result = portal.studentHistory(db, { student_id: 'STU-0004' }, SESSIONS.student1);
+    const result = portal.studentHistory(db, { student_id: 'STU-0004' }, SESSIONS.student1, CTX);
     assert.deepEqual(result.classes.map((c) => c.class_id), ['CLS-0001']);
     assert.deepEqual(result.records.map((r) => [r.session_id, r.status]), [['SES-0001', 'present']]);
   });
 
   it('overview and profile describe the signed-in student only', () => {
     const db = makeDb();
-    assert.equal(portal.studentOverview(db, { student_id: 'STU-0001' }, SESSIONS.student4).profile.student_number, '2024000004');
-    assert.equal(portal.studentGetProfile(db, { student_id: 'STU-0004' }, SESSIONS.student1).profile.student_number, '2024000001');
+    assert.equal(portal.studentOverview(db, { student_id: 'STU-0001' }, SESSIONS.student4, CTX).profile.student_number, '2024000004');
+    assert.equal(portal.studentGetProfile(db, { student_id: 'STU-0004' }, SESSIONS.student1, CTX).profile.student_number, '2024000001');
   });
 
   it('rejects a session whose user has a different role', () => {
     const db = makeDb();
-    assert.throws(() => portal.studentOverview(db, {}, SESSIONS.instructorAna), withCode('FORBIDDEN'));
+    assert.throws(() => portal.studentOverview(db, {}, SESSIONS.instructorAna, CTX), withCode('FORBIDDEN'));
   });
 });
 
 describe('instructor can only access their own classes', () => {
   it('cannot open a session of another instructor\'s class', () => {
     const db = makeDb();
-    assert.throws(() => portal.instructorGetSession(db, { session_id: 'SES-0002' }, SESSIONS.instructorAna), withCode('FORBIDDEN'));
+    assert.throws(() => portal.instructorGetSession(db, { session_id: 'SES-0002' }, SESSIONS.instructorAna, CTX), withCode('FORBIDDEN'));
   });
 
   it('cannot correct attendance in another instructor\'s class, and nothing changes', () => {
@@ -40,7 +40,7 @@ describe('instructor can only access their own classes', () => {
     const before = JSON.stringify(db.Attendance);
     assert.throws(() => portal.instructorCorrectAttendance(db, {
       session_id: 'SES-0002', student_id: 'STU-0004', status: 'absent', reason: 'Not in class',
-    }, SESSIONS.instructorAna), withCode('FORBIDDEN'));
+    }, SESSIONS.instructorAna, CTX), withCode('FORBIDDEN'));
     assert.equal(JSON.stringify(db.Attendance), before);
     assert.equal(db.AuditLog.length, 0);
   });
@@ -48,19 +48,19 @@ describe('instructor can only access their own classes', () => {
   it('cannot list sessions, roster, or report of another instructor\'s class', () => {
     const db = makeDb();
     const other = { class_id: 'CLS-0002' };
-    assert.throws(() => portal.instructorListSessions(db, other, SESSIONS.instructorAna), withCode('FORBIDDEN'));
-    assert.throws(() => portal.instructorClassRoster(db, other, SESSIONS.instructorAna), withCode('FORBIDDEN'));
-    assert.throws(() => portal.instructorClassReport(db, other, SESSIONS.instructorAna), withCode('FORBIDDEN'));
+    assert.throws(() => portal.instructorListSessions(db, other, SESSIONS.instructorAna, CTX), withCode('FORBIDDEN'));
+    assert.throws(() => portal.instructorClassRoster(db, other, SESSIONS.instructorAna, CTX), withCode('FORBIDDEN'));
+    assert.throws(() => portal.instructorClassReport(db, other, SESSIONS.instructorAna, CTX), withCode('FORBIDDEN'));
   });
 
   it('cannot read the history of a student who is not in their class', () => {
     const db = makeDb();
-    assert.throws(() => portal.instructorStudentHistory(db, { class_id: 'CLS-0001', student_id: 'STU-0004' }, SESSIONS.instructorAna), withCode('NOT_ENROLLED'));
+    assert.throws(() => portal.instructorStudentHistory(db, { class_id: 'CLS-0001', student_id: 'STU-0004' }, SESSIONS.instructorAna, CTX), withCode('NOT_ENROLLED'));
   });
 
   it('dashboard lists only the instructor\'s own classes', () => {
     const db = makeDb();
-    const result = portal.instructorDashboard(db, { date: '2026-11-16' }, SESSIONS.instructorAna);
+    const result = portal.instructorDashboard(db, { date: '2026-11-16' }, SESSIONS.instructorAna, CTX);
     assert.deepEqual(result.classes.map((c) => c.class_id), ['CLS-0001']);
   });
 });
@@ -68,7 +68,7 @@ describe('instructor can only access their own classes', () => {
 describe('absent = enrolled - (present + late)', () => {
   it('counts the enrolled student with no record as absent', () => {
     const db = makeDb();
-    const { session } = portal.instructorGetSession(db, { session_id: 'SES-0001' }, SESSIONS.instructorAna);
+    const { session } = portal.instructorGetSession(db, { session_id: 'SES-0001' }, SESSIONS.instructorAna, CTX);
     assert.deepEqual(
       { enrolled: session.enrolled, present: session.present, late: session.late, absent: session.absent },
       { enrolled: 3, present: 1, late: 1, absent: 1 },
@@ -79,7 +79,7 @@ describe('absent = enrolled - (present + late)', () => {
     const db = makeDb();
     db.Attendance.push({ ...db.Attendance[0], attendance_id: 'ATT-00009', student_id: 'STU-0003' });
     db.Enrollments.find((e) => e.student_id === 'STU-0003').status = 'dropped';
-    const { session } = portal.instructorGetSession(db, { session_id: 'SES-0001' }, SESSIONS.instructorAna);
+    const { session } = portal.instructorGetSession(db, { session_id: 'SES-0001' }, SESSIONS.instructorAna, CTX);
     assert.deepEqual(
       { enrolled: session.enrolled, present: session.present, late: session.late, absent: session.absent },
       { enrolled: 2, present: 1, late: 1, absent: 0 },
@@ -88,8 +88,49 @@ describe('absent = enrolled - (present + late)', () => {
 
   it('marks the student without a record as absent in the session list', () => {
     const db = makeDb();
-    const { students } = portal.instructorGetSession(db, { session_id: 'SES-0001' }, SESSIONS.instructorAna);
+    const { students } = portal.instructorGetSession(db, { session_id: 'SES-0001' }, SESSIONS.instructorAna, CTX);
     assert.deepEqual(Object.fromEntries(students.map((s) => [s.student_id, s.status])),
       { 'STU-0001': 'present', 'STU-0002': 'late', 'STU-0003': 'absent' });
+  });
+});
+
+describe('BUG-7: not_scanned until the session ends, then absent', () => {
+  // SES-0001: Mon 2026-11-16 08:00-10:00, STU-0003 has no record. Lazy sessions stay "open".
+  const DURING = clockAt('2026-11-16T09:00:00+08:00');
+  const AFTER = clockAt('2026-11-16T10:01:00+08:00');
+  const openDb = () => {
+    const db = makeDb();
+    db.ClassSessions[0].status = 'open';
+    return db;
+  };
+
+  it('roster and report leave not_scanned out of absent and the rate', () => {
+    const db = openDb();
+    const carla = (r) => r.students.find((s) => s.student_id === 'STU-0003');
+    const roster = portal.instructorClassRoster(db, { class_id: 'CLS-0001' }, SESSIONS.instructorAna, DURING);
+    assert.deepEqual([carla(roster).absent, carla(roster).total, carla(roster).rate], [0, 0, null]);
+    const report = portal.instructorClassReport(db, { class_id: 'CLS-0001' }, SESSIONS.instructorAna, DURING);
+    assert.deepEqual(carla(report).marks, ['not_scanned']);
+    assert.deepEqual([report.totals.absent, report.totals.total], [0, 2]);
+    const done = portal.instructorClassReport(db, { class_id: 'CLS-0001' }, SESSIONS.instructorAna, AFTER);
+    assert.deepEqual(carla(done).marks, ['absent']);
+    assert.deepEqual([done.totals.absent, done.totals.total], [1, 3]);
+  });
+
+  it('instructor dashboard counts follow the clock', () => {
+    const db = openDb();
+    const row = (ctx) => portal.instructorDashboard(db, { date: '2026-11-16' }, SESSIONS.instructorAna, ctx).sessions[0];
+    assert.deepEqual([row(DURING).absent, row(DURING).not_scanned], [0, 1]);
+    assert.deepEqual([row(AFTER).absent, row(AFTER).not_scanned], [1, 0]);
+  });
+
+  it('student history shows not_scanned, then absent', () => {
+    const db = openDb();
+    db.Users.push({ ...db.Users[3], user_id: 'USR-0009', username: '2024000003', linked_id: 'STU-0003' });
+    const me = { ...SESSIONS.student1, user_id: 'USR-0009' };
+    const during = portal.studentOverview(db, {}, me, DURING);
+    assert.deepEqual([during.recent[0].status, during.totals.absent, during.totals.total], ['not_scanned', 0, 0]);
+    const after = portal.studentHistory(db, {}, me, AFTER);
+    assert.deepEqual([after.records[0].status, after.totals.absent, after.totals.rate], ['absent', 1, 0]);
   });
 });

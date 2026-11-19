@@ -21,7 +21,7 @@ const outDir = resolve(root, 'backend/apps-script');
 const ENTRIES = [
   'actions.js', 'utils.js', 'config.js',
   'auth/context.js', 'auth/crypto-apps-script.js', 'auth/passwords.js', 'auth/migration.js',
-  'auth/device-auth.js', 'maintenance.js',
+  'auth/device-auth.js', 'maintenance.js', 'sessions.js',
 ];
 
 const IMPORT_RE = /import\s+([\s\S]*?)\s+from\s+['"](.+?)['"];?/g;

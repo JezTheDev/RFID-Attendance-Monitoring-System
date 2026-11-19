@@ -124,3 +124,8 @@ export const withCode = (code) => (error) => {
   if (error?.code !== code) throw new Error(`expected error code ${code}, got ${error?.code}: ${error?.message}`);
   return true;
 };
+
+// Fake clock for handlers that read "now" from ctx.now() (Manila time).
+export const clockAt = (iso) => ({ now: () => Date.parse(iso) });
+// Default: after every session in makeDb(), so all of them have ended.
+export const CTX = clockAt('2026-11-20T12:00:00+08:00');

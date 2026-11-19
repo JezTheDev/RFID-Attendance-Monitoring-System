@@ -83,7 +83,7 @@ Test names are from `backend/tests/<file>`.
 | # | Requirement | Source | Backend action(s) | Test(s) / evidence | Status | Notes |
 |---|---|---|---|---|---|---|
 | I1 | View assigned classes and sections | PC §8 | `instructor.getDashboard`, `listSessions` | `portal.test.js` "dashboard lists only the instructor's classes" | MET | |
-| I2 | Monitor student attendance | PC §8 | `instructor.getSession`, `getClassRoster` | `portal.test.js` | MET | BUG-7: open session shows a not-yet-scanned student as absent in the counts. |
+| I2 | Monitor student attendance | PC §8 | `instructor.getSession`, `getClassRoster` | `portal.test.js` | MET | BUG-7 fixed (step 4c). |
 | I3 | View class attendance history | PC §8 | `instructor.listSessions`, `getStudentHistory` | `portal.test.js` "cannot read the history of a student who is not in their class" | MET | |
 | I4 | Filter attendance by date | PC §8 | `instructor.getClassReport {from,to}` (`portal.js:390-403`), `instructor.getDashboard {date}` | read; no test for from/to | MET | Add a test for `from`/`to` later. |
 | I5 | Generate and export class reports | PC §8 | `instructor.getClassReport` | `portal.test.js` "cannot list sessions, roster, or report of another instructor's class" | MET | Backend gives the data; the CSV is made in the browser. |
@@ -115,7 +115,7 @@ Test names are from `backend/tests/<file>`.
 | D8 | Admin: device monitoring | PC §9A | `devices[]`, offline / low-battery / queue alerts | read `dashboard.js:80-136` | PARTIAL | Same as A7. |
 | D9 | Instructor: assigned classes | PC §9B | `classes[]` | `portal.test.js` | MET | |
 | D10 | Instructor: total students per section | PC §9B | `classes[].enrolled`, `stats.students` | read `portal.js:230-236` | MET | |
-| D11 | Instructor: present and absent counts | PC §9B | `sessions[].present/late/absent` | `portal.test.js` absent tests | MET | BUG-7 during open sessions. |
+| D11 | Instructor: present and absent counts | PC §9B | `sessions[].present/late/absent` | `portal.test.js` absent tests | MET | BUG-7 fixed (step 4c): `not_scanned` count while running. |
 | D12 | Instructor: recent attendance activity | PC §9B | sessions of the chosen date only | read | PARTIAL | No feed of recent taps for the instructor's classes. |
 | D13 | Instructor: attendance history + report generation | PC §9B | see I3, I5 | see above | MET | |
 | D14 | Student: overview, percentage, history, scan time, profile | PC §9C | `student.getOverview` (`totals.rate`), `getHistory`, `getProfile` | `portal.test.js` | MET | |
@@ -221,7 +221,7 @@ Each bug has a test in `backend/tests/verification.test.js` that runs, fails, an
 | BUG-4 | Low | `dashboard.js:23` | Admin dashboard counts Attendance of **dropped** students but divides by current enrollment → rate above 100% (seen: 1.5). The instructor portal filters by roster and is correct. | Everyone attends SES-0001, then drop STU-0003 → `attendance_rate` 1.5 (BUG-4 test). |
 | BUG-5 | **FIXED** (was Low now, Medium later): `writeAudit` now uses `nextId()` (a `reduce` loop); tested with 200,000 rows | `utils.js:82` | `writeAudit` uses `Math.max(...allRows)`. In Node this crashes ("Maximum call stack size exceeded") at about 130,000 AuditLog rows; Apps Script's limit is similar but **UNVERIFIED**. Every login adds a row, so a busy year can reach it, and then **every write fails**. | AuditLog with 150,000 rows → RangeError (BUG-5 test). Fix: a simple loop instead of the spread. |
 | BUG-6 | Low | `portal.js:350-354` | During an **open** session, correcting a not-yet-scanned student to Absent "succeeds" and writes an audit row, but nothing changes: the student still shows "not scanned". That is a fake success. | Open SES-0001, correct STU-0003 to absent → `ok`, no change (BUG-6 test). |
-| BUG-7 | Low | `portal.js:102-112` | For an **open** session the counts call not-yet-scanned students "absent", while the student list says "not scanned". The two views disagree on the same screen. Same at `dashboard.js:42`. | Open SES-0001 → `session.absent` = 1, list shows 1 "not_scanned" (BUG-7 test). |
+| BUG-7 | **FIXED** in step 4c (was Low): a student with no record counted as absent while the session was still running | `sessions.js` `missingStatus` / `sessionPhase` | No record = `not_scanned` until the scheduled (or actual) end, `absent` after. Counts carry `not_scanned`; absent and rates never include it. Uses `ctx.now()`. | `verification.test.js` BUG-7, `portal.test.js` + `attendance-override.test.js` "BUG-7" tests. |
 | BUG-8 | **FIXED** with BUG-1 (was Low): `status` / `source` of a device row are never changed | `portal.js:355-356` | A correction overwrites the device-created row (`source` stays `device`, status changes). AR §7.2 item 4 says device rows are never edited in place; the original result survives only in AuditLog. | Correct ATT-00001 present → late → device row now says late (BUG-8 test). |
 
 ### Design risks (not bugs, but you should decide)

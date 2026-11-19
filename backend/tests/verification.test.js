@@ -5,7 +5,7 @@
 //         stays green. When a bug is fixed, remove its `todo` option.
 import { describe, it, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeDb, SESSIONS } from './helpers/db.js';
+import { makeDb, SESSIONS, CTX, clockAt } from './helpers/db.js';
 import { makeCtx } from './helpers/auth.js';
 import { ACTIONS, READ } from '../src/actions.js';
 import { manilaNow, writeAudit, nextId } from '../src/utils.js';
@@ -77,12 +77,8 @@ describe('verified: Asia/Manila day boundary', () => {
   });
 
   it('the admin dashboard "today" follows Manila time, not UTC', () => {
-    mock.timers.enable({ apis: ['Date'], now: Date.UTC(2026, 10, 16, 16, 30, 0) }); // Tue 00:30 Manila
-    try {
-      assert.equal(getAdminDashboard(makeDb(), { date: '2026-11-17' }).today, '2026-11-17');
-    } finally {
-      mock.timers.reset();
-    }
+    const ctx = { now: () => Date.UTC(2026, 10, 16, 16, 30, 0) }; // Tue 00:30 Manila
+    assert.equal(getAdminDashboard(makeDb(), { date: '2026-11-17' }, null, ctx).today, '2026-11-17');
   });
 });
 
@@ -92,7 +88,7 @@ describe('known bugs (todo until fixed)', () => {
   it('BUG-1 correcting a device record to "absent" keeps the scan evidence', () => {
     const db = makeDb();
     const row = db.Attendance.find((a) => a.attendance_id === 'ATT-00001');
-    portal.instructorCorrectAttendance(db, { session_id: 'SES-0001', student_id: 'STU-0001', status: 'absent', reason: 'card used by a friend' }, SESSIONS.instructorAna);
+    portal.instructorCorrectAttendance(db, { session_id: 'SES-0001', student_id: 'STU-0001', status: 'absent', reason: 'card used by a friend' }, SESSIONS.instructorAna, CTX);
     const kept = db.Attendance.includes(row) || db.AuditLog.at(-1).before_json.includes(row.scanned_at);
     assert.ok(kept, 'scanned_at / scan_id / device_id of the tap are gone');
   });
@@ -119,7 +115,7 @@ describe('known bugs (todo until fixed)', () => {
     const db = makeDb();
     db.Attendance.push({ ...db.Attendance[0], attendance_id: 'ATT-00009', student_id: 'STU-0003' });
     classes.dropEnrollment(db, { class_id: 'CLS-0001', student_id: 'STU-0003', reason: 'shifted' }, SESSIONS.admin);
-    const rate = getAdminDashboard(db, { date: '2026-11-16' }).stats.attendance_rate;
+    const rate = getAdminDashboard(db, { date: '2026-11-16' }, null, CTX).stats.attendance_rate;
     assert.ok(rate <= 1, `rate is ${rate}`);
   });
 
@@ -138,21 +134,24 @@ describe('known bugs (todo until fixed)', () => {
   it('BUG-6 "absent" correction during an open session is refused, not a silent no-op', { todo: 'BUG-6: portal.js:350-354 writes an audit row but nothing changes' }, () => {
     const db = makeDb();
     db.ClassSessions[0].status = 'open';
-    assert.throws(() => portal.instructorCorrectAttendance(db, { session_id: 'SES-0001', student_id: 'STU-0003', status: 'absent', reason: 'did not attend' }, SESSIONS.instructorAna));
+    assert.throws(() => portal.instructorCorrectAttendance(db, { session_id: 'SES-0001', student_id: 'STU-0003', status: 'absent', reason: 'did not attend' }, SESSIONS.instructorAna, CTX));
   });
 
-  it('BUG-7 an open session does not count not-yet-scanned students as absent', { todo: 'BUG-7: portal.js:106-111 sessionCounts treats open like closed' }, () => {
+  it('BUG-7 a running session does not count not-yet-scanned students as absent', () => {
     const db = makeDb();
     db.ClassSessions[0].status = 'open';
-    const { session, students } = portal.instructorGetSession(db, { session_id: 'SES-0001' }, SESSIONS.instructorAna);
-    assert.equal(students.filter((s) => s.status === 'not_scanned').length, 1);
-    assert.equal(session.absent, 0, 'the same student is "not scanned" in the list but "absent" in the counts');
+    const during = portal.instructorGetSession(db, { session_id: 'SES-0001' }, SESSIONS.instructorAna, clockAt('2026-11-16T09:00:00+08:00'));
+    assert.equal(during.students.filter((s) => s.status === 'not_scanned').length, 1);
+    assert.deepEqual([during.session.absent, during.session.not_scanned], [0, 1]);
+    const after = portal.instructorGetSession(db, { session_id: 'SES-0001' }, SESSIONS.instructorAna, clockAt('2026-11-16T10:01:00+08:00'));
+    assert.equal(after.students.filter((s) => s.status === 'absent').length, 1);
+    assert.deepEqual([after.session.absent, after.session.not_scanned], [1, 0]);
   });
 
   it('BUG-8 a correction never edits a device-created row in place (architecture 7.2.4)', () => {
     const db = makeDb();
     const row = db.Attendance.find((a) => a.attendance_id === 'ATT-00001');
-    portal.instructorCorrectAttendance(db, { session_id: 'SES-0001', student_id: 'STU-0001', status: 'late', reason: 'came in late' }, SESSIONS.instructorAna);
+    portal.instructorCorrectAttendance(db, { session_id: 'SES-0001', student_id: 'STU-0001', status: 'late', reason: 'came in late' }, SESSIONS.instructorAna, CTX);
     assert.equal(row.status, 'present', 'device row was rewritten (source still "device", status now "late")');
   });
 });

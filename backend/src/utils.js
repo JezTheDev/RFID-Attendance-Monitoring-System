@@ -48,6 +48,12 @@ export function toManilaIso(ms) {
   return `${new Date(Number(ms) + 8 * 3600000).toISOString().slice(0, 19)}+08:00`;
 }
 
+// Epoch ms -> { date, time (HH:mm), iso } in Manila, like manilaNow() for any clock (ctx.now()).
+export function manilaAt(ms) {
+  const iso = toManilaIso(ms);
+  return { date: iso.slice(0, 10), time: iso.slice(11, 16), iso };
+}
+
 export function dayCodeOf(dateString) {
   const [year, month, day] = dateString.split('-').map(Number);
   return DAY_CODES[new Date(Date.UTC(year, month - 1, day)).getUTCDay()];
