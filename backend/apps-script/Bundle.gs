@@ -3169,7 +3169,26 @@ var RFID = (function () {
       const lowBattery = volts < Number(setting(db, 'low_battery_voltage', 3.5));
       return { roster_version: rosterVersion(db), low_battery: lowBattery };
     }
-    return { submitScans, heartbeat };
+
+    // device.getRoster (Device_API_Spec 6.3): the offline roster. Read-only (no lock).
+    // Only ACTIVE cards of ACTIVE students; names fit the LCD (shortName).
+    function getRoster(db, request, _device, _ctx) {
+      const version = rosterVersion(db);
+      if (Number(request.known_version) === version) return { changed: false, roster_version: version };
+      const students = new Map(db.Students.filter((row) => row.account_status === 'active').map((row) => [row.student_id, row]));
+      return {
+        changed: true,
+        roster_version: version,
+        settings: {
+          duplicate_window_minutes: Number(setting(db, 'duplicate_window_minutes', 5)),
+          heartbeat_interval_seconds: Number(setting(db, 'heartbeat_interval_seconds', 300)),
+        },
+        cards: db.RfidCards
+          .filter((card) => card.status === 'active' && students.has(card.student_id))
+          .map((card) => ({ uid: card.rfid_uid, name: shortName(students.get(card.student_id)) })),
+      };
+    }
+    return { submitScans, heartbeat, getRoster };
   })();
 
   // ---- actions.js ----
@@ -3193,7 +3212,7 @@ var RFID = (function () {
     const admins = __m["handlers/admins"];
     const devices = __m["handlers/devices"];
     const { authenticateDevice } = __m["auth/device-auth"];
-    const { submitScans, heartbeat } = __m["handlers/device"];
+    const { submitScans, heartbeat, getRoster } = __m["handlers/device"];
 
     const READ = 'read';
     const WRITE = 'write';
@@ -3426,6 +3445,7 @@ var RFID = (function () {
       'device.submitScans': { run: submitScans,
         reads: 'Terms Classes Schedules Enrollments RfidCards Students Settings', writes: 'Devices ClassSessions Attendance ScanLog' },
       'device.heartbeat': { run: heartbeat, reads: 'Settings', writes: 'Devices' },
+      'device.getRoster': { run: getRoster, reads: 'Devices RfidCards Students Settings' },
     });
 
     const findDeviceAction = (name) => (Object.prototype.hasOwnProperty.call(DEVICE_ACTIONS, name) ? DEVICE_ACTIONS[name] : null);

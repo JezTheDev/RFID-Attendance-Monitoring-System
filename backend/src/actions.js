@@ -22,7 +22,7 @@ import * as classes from './handlers/classes.js';
 import * as admins from './handlers/admins.js';
 import * as devices from './handlers/devices.js';
 import { authenticateDevice } from './auth/device-auth.js';
-import { submitScans, heartbeat } from './handlers/device.js';
+import { submitScans, heartbeat, getRoster } from './handlers/device.js';
 
 export const READ = 'read';
 export const WRITE = 'write';
@@ -255,6 +255,7 @@ export const DEVICE_ACTIONS = Object.freeze({
   'device.submitScans': { run: submitScans,
     reads: 'Terms Classes Schedules Enrollments RfidCards Students Settings', writes: 'Devices ClassSessions Attendance ScanLog' },
   'device.heartbeat': { run: heartbeat, reads: 'Settings', writes: 'Devices' },
+  'device.getRoster': { run: getRoster, reads: 'Devices RfidCards Students Settings' },
 });
 
 const findDeviceAction = (name) => (Object.prototype.hasOwnProperty.call(DEVICE_ACTIONS, name) ? DEVICE_ACTIONS[name] : null);

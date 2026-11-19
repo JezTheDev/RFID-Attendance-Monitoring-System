@@ -94,3 +94,45 @@ describe('device.heartbeat', () => {
     assert.deepEqual([device.battery_voltage, device.low_battery, device.online], [3.4, true, true]);
   });
 });
+
+describe('device.getRoster', () => {
+  it('known_version == roster_version → changed:false and nothing else (number or string)', () => {
+    const { roster } = setup();
+    assert.deepEqual(roster({ known_version: 1 }), { changed: false, roster_version: 1 });
+    assert.deepEqual(roster({ known_version: '1' }), { changed: false, roster_version: 1 });
+  });
+
+  it('missing or older known_version → full roster with numeric settings', () => {
+    const { roster } = setup();
+    const data = roster({ known_version: 0 });
+    assert.equal(data.changed, true);
+    assert.equal(data.roster_version, 1);
+    assert.deepEqual(data.settings, { duplicate_window_minutes: 7, heartbeat_interval_seconds: 120 });
+    assert.deepEqual(data.cards, [{ uid: 'A1B2C3D4', name: 'C. Santos' }]);
+    assert.equal(roster().changed, true);
+  });
+
+  it('excludes revoked cards and inactive students', () => {
+    const { db, roster } = setup();
+    db.RfidCards.push(
+      { card_id: 'CRD-0002', rfid_uid: '04000002', student_id: 'STU-0002', status: 'revoked', assigned_at: '', revoked_at: '', notes: '' },
+      { card_id: 'CRD-0003', rfid_uid: '04000003', student_id: 'STU-0003', status: 'active', assigned_at: '', revoked_at: '', notes: '' },
+      { card_id: 'CRD-0004', rfid_uid: '04000004', student_id: 'STU-0004', status: 'lost', assigned_at: '', revoked_at: '', notes: '' },
+    );
+    db.Students.find((s) => s.student_id === 'STU-0003').account_status = 'inactive'; // legacy: inactive with an active card
+    assert.deepEqual(roster({ known_version: 0 }).cards.map((c) => c.uid), ['A1B2C3D4']);
+  });
+
+  it('names are at most 16 characters', () => {
+    const { db, roster } = setup();
+    Object.assign(db.Students.find((s) => s.student_id === 'STU-0001'), { first_name: 'Maximiliano', last_name: 'Dela Cruz-Villanueva' });
+    const { cards } = roster({ known_version: 0 });
+    assert.equal(cards[0].name, 'M. Dela Cruz-Vil');
+    cards.forEach((c) => assert.ok(c.name.length <= 16, c.name));
+  });
+
+  it('wrong device key → INVALID_DEVICE_KEY', () => {
+    const { roster } = setup();
+    assert.equal(codeOf(() => roster({ device_key: 'f'.repeat(64) })), 'INVALID_DEVICE_KEY');
+  });
+});
