@@ -26,8 +26,10 @@ issues: `docs/AUDIT_REPORT.md`.
 ```
 backend/
   src/                 Business logic (ES modules, pure functions on a db object)
-    actions.js         Action table: name -> { run, mode, role } + runAction() gate
+    actions.js         Action table: name -> { run, mode, role, reads, writes, appends }
+                       + runAction() gate, tabsFor(), guardDb()
                        (role: 'public' | 'any' | 'admin' | 'instructor' | 'student')
+    maintenance.js     Editor-only jobs: backfillOverrideReasons, findScheduleClashes
     auth/              passwords (hash/verify), context (ctx), session, account
                        (login/me/changePassword/logout), admin-users (reset/unlock,
                        new user rows), migration (migrate + bootstrap admin),
@@ -38,11 +40,14 @@ backend/
   seed/seed-data.json  FAKE test data (for a TEST Sheet only)
   tests/               node:test unit tests (+ helpers/db.js in-memory db, helpers/auth.js
                        node:crypto adapter + fake-clock ctx); server-gs.test.js runs the
-                       real .gs files in a vm with a fake Sheet
+                       real .gs files in a vm with a fake Sheet + Sheets API
+                       (helpers/fake-apps-script.js, counts tabs/rows read and written);
+                       tabs.test.js checks every action's tab declarations
   apps-script/
     Server.gs          Hand-written: calls RFID.runAction, Sheet read/write, editor-only
                        jobs (setupSheets, createBootstrapAdmin, migrateUsersToPasswordLogin,
-                       benchmarkPasswordHash, checkSetup)
+                       backfillOverrideReasons, listScheduleClashes, benchmarkPasswordHash,
+                       checkSetup)
     Bundle.gs          GENERATED from backend/src — do not edit
     SeedData.gs        GENERATED from backend/seed/seed-data.json — do not edit
     appsscript.json    Manifest (Asia/Manila, V8)
@@ -86,6 +91,9 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
 6. If there is no active admin: set the two `BOOTSTRAP_ADMIN_*` properties, run
    `createBootstrapAdmin`, then delete `BOOTSTRAP_ADMIN_PASSWORD`.
 7. Run `benchmarkPasswordHash` and `checkSetup`.
+   After deploying step 4a (tab declarations) also run `backfillOverrideReasons`
+   once (copies old correction reasons into Attendance) and `listScheduleClashes`
+   (read-only report).
 8. Deploy → Manage deployments → Edit → New version → Deploy.
 9. Publish the frontend (GitHub Pages) — the old site cannot sign in anymore.
 
@@ -137,3 +145,13 @@ Also run `node --check <file>` on changed JS files.
   `{ ok:false, error:{ code, message, fields } }` and saves nothing.
 - Bundle.gs must stay ES2020 (the build script refuses newer syntax).
 - After editing anything in `backend/src`, run the build and the tests.
+- **Every action declares its tabs** in `actions.js`: `reads` (loaded fully),
+  `writes` (may change), `appends` (append-only: only header + last row are
+  loaded, e.g. AuditLog). Server.gs loads only those (one `values.batchGet`)
+  and saves every change in ONE `spreadsheets.batchUpdate` (all-or-nothing;
+  edited rows written alone, new rows appended). `tabs.test.js` fails on an
+  undeclared tab; the live site loads it anyway and logs a warning.
+- Never sort the raw tabs by hand (use the "View - …" tabs): append tabs take
+  the next id from the LAST row.
+- Correction reasons live in `Attendance.override_reason`; the portals never
+  read AuditLog.

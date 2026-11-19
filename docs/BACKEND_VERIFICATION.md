@@ -258,7 +258,7 @@ I compared the 19 seed tabs (= `setupSheets` columns) with what `backend/src` re
 | **ClassSessions** | Yes | `opened_by`, `closed_by` | **Blocker:** nothing creates rows or changes `status`. Unique (schedule_id, session_date) must be enforced in code. |
 | Attendance | Yes | — | OK. Code must enforce unique (session_id, student_id) and unique `scan_id`. `scanned_at` must be stored as Manila ISO (dashboards slice the date from it). |
 | **ScanLog** | Yes | `log_id` (written by the seed only) | Add **`time_quality`** (to explain `INVALID_TIME`) and ideally `card_id`. `scan_id` lookup is needed for `ALREADY_RECORDED`. |
-| AuditLog | Yes | — | BUG-5 at large sizes. |
+| AuditLog | Yes | — | BUG-5 FIXED. Step 4a: write actions load only its header + last row; the portals no longer read it (correction reasons are in `Attendance.override_reason`). |
 | **Settings** | Yes (+2 login keys) | not read: `duplicate_window_minutes`, `late_grace_minutes`, `early_window_minutes`, `accept_after_end_minutes`, `heartbeat_interval_seconds` | All five are for the session engine / roster. `allowed_email_rule` removed (correct). |
 
 Missing tables: none. The schema is ready for Step 4; what's missing is the code, not columns (except ScanLog `time_quality`).

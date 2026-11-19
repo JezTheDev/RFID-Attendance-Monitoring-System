@@ -343,18 +343,20 @@ function readTabs_(state, fullNames, appendNames) {
 
 function setTab_(state, name, mode, headerRow, body, lastRow) {
   var cols = headerRow.map(function (h) { return String(h).trim(); });
-  var records = body
-    .filter(function (row) { return row.some(function (cell) { return cell !== '' && cell !== undefined; }); })
-    .map(function (row) {
-      var record = {};
-      cols.forEach(function (col, i) { if (col) record[col] = row[i] === undefined ? '' : String(row[i]); });
-      return record;
-    });
+  var records = [];
+  var rowNumbers = []; // sheet row of each record (blank rows typed into the Sheet are skipped)
+  body.forEach(function (row, i) {
+    if (!row.some(function (cell) { return cell !== '' && cell !== undefined; })) return;
+    var record = {};
+    cols.forEach(function (col, j) { if (col) record[col] = row[j] === undefined ? '' : String(row[j]); });
+    records.push(record);
+    rowNumbers.push(i + 2);
+  });
   var width = body.reduce(function (max, row) { return Math.max(max, row.length); }, cols.length);
   var tracked = state.isWrite && mode === 'full' && (state.writable === null || state.writable.indexOf(name) !== -1);
   state.raw[name] = records;
   state.tabs[name] = {
-    headers: cols.filter(Boolean), lastRow: lastRow, width: width, count: records.length, mode: mode,
+    headers: cols.filter(Boolean), lastRow: lastRow, width: width, count: records.length, mode: mode, rowNumbers: rowNumbers,
     snapshot: tracked ? records.map(function (row) { return JSON.stringify(row); }) : null,
   };
 }
@@ -389,33 +391,42 @@ function saveDb_(state) {
     if (change.rowsNeeded > rows) requests.push({ appendDimension: { sheetId: sheetId, dimension: 'ROWS', length: change.rowsNeeded - rows } });
     if (change.width > cols) requests.push({ appendDimension: { sheetId: sheetId, dimension: 'COLUMNS', length: change.width - cols } });
     if (change.header) requests.push({ updateCells: { start: { sheetId: sheetId, rowIndex: 0, columnIndex: 0 }, rows: [cellRow_(change.headers, change.width)], fields: 'userEnteredValue' } });
+    (change.edits || []).forEach(function (edit) {
+      requests.push({ updateCells: { start: { sheetId: sheetId, rowIndex: edit.rowNumber - 1, columnIndex: 0 }, rows: [edit.row], fields: 'userEnteredValue' } });
+    });
     if (change.append) requests.push({ appendCells: { sheetId: sheetId, rows: change.append, fields: 'userEnteredValue' } });
     if (change.rewrite) requests.push({ updateCells: { start: { sheetId: sheetId, rowIndex: 1, columnIndex: 0 }, rows: change.rewrite, fields: 'userEnteredValue' } });
   });
   Sheets.Spreadsheets.batchUpdate({ requests: requests }, state.ss.getId());
 }
 
-// What changed in one tab: null, or { header?, append? | rewrite?, rowsNeeded, width }.
+// What changed in one tab: null, or { header?, edits?, append? | rewrite?, rowsNeeded, width }.
+// Rows edited in place are written one by one (their own sheet row), new rows
+// at the end are appended; only when rows were removed is the body rewritten.
 function tabChange_(name, tab, rows) {
-  var added;
+  var added = [];
+  var edited = [];
   var rewrite = false;
   if (tab.mode === 'append') {
     added = rows.slice(tab.count);
   } else if (tab.snapshot) {
-    var now = rows.map(function (row) { return JSON.stringify(row); });
     var old = tab.snapshot;
-    if (now.length === old.length && now.every(function (row, i) { return row === old[i]; })) return null;
-    var appendedOnly = now.length > old.length && old.every(function (row, i) { return row === now[i]; });
-    if (appendedOnly) added = rows.slice(old.length);
-    else rewrite = true;
+    if (rows.length < old.length) {
+      rewrite = true;
+    } else {
+      rows.forEach(function (row, i) {
+        if (i >= old.length) added.push(row);
+        else if (JSON.stringify(row) !== old[i]) edited.push(i);
+      });
+    }
   } else {
     return null; // read-only for this request (guardDb froze it)
   }
-  if (!rewrite && !added.length) return null;
+  if (!rewrite && !added.length && !edited.length) return null;
 
   var headers = tab.headers.length ? tab.headers.slice() : defaultHeaders_(name);
   var header = tab.headers.length === 0 || tab.lastRow === 0;
-  (rewrite ? rows : added).forEach(function (row) {
+  (rewrite ? rows : added.concat(edited.map(function (i) { return rows[i]; }))).forEach(function (row) {
     Object.keys(row).forEach(function (key) {
       if (headers.indexOf(key) === -1) { headers.push(key); header = true; }
     });
@@ -430,7 +441,8 @@ function tabChange_(name, tab, rows) {
     change.rewrite = body;
     change.rowsNeeded = 1 + body.length;
   } else {
-    change.append = toRows(added);
+    change.edits = edited.map(function (i) { return { rowNumber: tab.rowNumbers[i], row: toRows([rows[i]])[0] }; });
+    if (added.length) change.append = toRows(added);
     change.rowsNeeded = Math.max(tab.lastRow, 1) + added.length;
   }
   return change;

@@ -271,6 +271,29 @@ describe('Server.gs saves in one all-or-nothing batchUpdate', () => {
     assert.equal(sheet.getLastRow(), JSON.parse(before).length + 1);
   });
 
+  it('an edited row is written alone: login writes 3 rows (1 Users, 1 AuthSessions, 1 AuditLog)', () => {
+    const { post, ss, stats } = ready();
+    const users = ss.getSheetByName('Users');
+    const before = JSON.parse(JSON.stringify(users.cells));
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1100); // last_login_at has 1-second resolution
+    post({ action: 'auth.login', username: 'admin.test', password: 'NewAdmin99' });
+    assert.equal(stats.rowsWritten, 3);
+    const changed = users.cells.map((row, i) => JSON.stringify(row) !== JSON.stringify(before[i])).filter(Boolean).length;
+    assert.equal(changed, 1);
+  });
+
+  it('an edited row lands on its own sheet row even with blank rows in between', () => {
+    const { post, ss, usersTab, admin } = ready();
+    const users = ss.getSheetByName('Users');
+    users.cells.splice(3, 0, users.cells[0].map(() => '')); // a blank row typed into the Sheet
+    const target = usersTab().find((u) => u.role === 'student');
+    const reply = post({ action: 'admin.resetPassword', session_token: admin, user_id: target.user_id });
+    assert.equal(reply.ok, true, JSON.stringify(reply.error));
+    assert.equal(usersTab().find((u) => u.user_id === target.user_id).must_change_password, 'TRUE');
+    assert.equal(usersTab().length, new Set(usersTab().map((u) => u.user_id)).size, 'no duplicated user rows');
+    assert.ok(users.cells[3].every((v) => v === ''), 'blank row left alone');
+  });
+
   it('a tab that shrinks blanks its old tail (no stale rows left behind)', () => {
     const { post, ss, tab } = ready();
     const sheet = ss.getSheetByName('AuthSessions');
