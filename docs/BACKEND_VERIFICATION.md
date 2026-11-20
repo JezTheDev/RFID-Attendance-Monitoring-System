@@ -111,7 +111,7 @@ Test names are from `backend/tests/<file>`.
 | D4 | Admin: attendance statistics | PC §9A | `stats.attendance_rate`, `sessions[]` counts | `verification.test.js` BUG-4 | MET | BUG-4 fixed. |
 | D5 | Admin: student / instructor / course-section management | PC §9A | see A1, A3, A4 | see above | MET | |
 | D6 | Admin: attendance management | PC §9A | — | — | MISSING | Admin cannot correct attendance (instructors can). |
-| D7 | Admin: reports | PC §9A | — | — | MISSING | Same as A6. |
+| D7 | Admin: reports | PC §9A | `admin.listAttendance`, `admin.getAttendanceReport` (`attendance.js`) | `admin-attendance.test.js` | MET (backend) | Backend only; frontend page + CSV still to do. D6 (admin corrections) still MISSING. |
 | D8 | Admin: device monitoring | PC §9A | `devices[]`, offline / low-battery / queue alerts | read `dashboard.js:80-136` | PARTIAL | Same as A7. |
 | D9 | Instructor: assigned classes | PC §9B | `classes[]` | `portal.test.js` | MET | |
 | D10 | Instructor: total students per section | PC §9B | `classes[].enrolled`, `stats.students` | read `portal.js:230-236` | MET | |
@@ -223,6 +223,8 @@ Each bug has a test in `backend/tests/verification.test.js` that runs, fails, an
 | BUG-6 | Low | `portal.js:350-354` | During an **open** session, correcting a not-yet-scanned student to Absent "succeeds" and writes an audit row, but nothing changes: the student still shows "not scanned". That is a fake success. | Open SES-0001, correct STU-0003 to absent → `ok`, no change (BUG-6 test). |
 | BUG-7 | **FIXED** in step 4c (was Low): a student with no record counted as absent while the session was still running | `sessions.js` `missingStatus` / `sessionPhase` | No record = `not_scanned` until the scheduled (or actual) end, `absent` after. Counts carry `not_scanned`; absent and rates never include it. Uses `ctx.now()`. | `verification.test.js` BUG-7, `portal.test.js` + `attendance-override.test.js` "BUG-7" tests. |
 | BUG-8 | **FIXED** with BUG-1 (was Low): `status` / `source` of a device row are never changed | `portal.js:355-356` | A correction overwrites the device-created row (`source` stays `device`, status changes). AR §7.2 item 4 says device rows are never edited in place; the original result survives only in AuditLog. | Correct ATT-00001 present → late → device row now says late (BUG-8 test). |
+
+**Intentional change (2026-11-20, branch `admin-attendance`):** an explicit override to **absent** now counts as **absent at once**, even while the session is still running, in every view (instructor + admin dashboards, session view, reports, student portal, admin report). Before, the dashboards and session counts showed it as `not_scanned` until the session ended. `not_scanned` is now only for enrolled students with **no** Attendance row. One rule in `sessionCounts()` / `statusOf()` (`portal.js`); `admin-attendance.test.js` "one counting rule for every view" checks that all views agree.
 
 ### Design risks (not bugs, but you should decide)
 

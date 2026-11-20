@@ -794,6 +794,7 @@ var RFID = (function () {
     const heldCount = (sessions, now) => sessions.filter((s) => sessionPhase(s, now) !== 'upcoming').length;
 
     // session_id -> student_id -> first row. Rebuilt when rows are added (correctAttendance).
+    // shortcut: rebuilt only on length change; replacing rows or editing session_id/student_id needs a rebuild.
     const attendanceIndex = new WeakMap();
     function recordsBySession(db) {
       const rows = db.Attendance;

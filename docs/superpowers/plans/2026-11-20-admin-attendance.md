@@ -83,7 +83,7 @@ Tabs: `reads: 'Attendance ClassSessions Classes Rooms Students'` (Users comes wi
 
 **Signature:** `getAttendanceReport(db, request, session, ctx) -> { range, group_by, generated_at, groups, totals, devices, pending_offline_scans }`
 
-Group: `{ key, label, sessions_held, enrolled, present, late, absent, not_scanned, total, rate }` — `class`: key class_id / label class_label; `section`: key section_id / label `sectionLabel`; `student`: key student_id / label "number — name". Sorted by label.
+Group: `{ key, label, sessions_held, enrolled, present, late, absent, not_scanned, total, rate }` — `class`: key class_id / label class_label; `section`: key section_id / label `sectionLabel`; `student`: key student_id / label "number name" (e.g. `2024000001 Carla Santos`). Sorted by label.
 
 Math, per class in scope: `roster = rosterIds`, `sessions = countedSessions(...).filter(range)`, marks = `statusOf(recordOf(...), s, now)` for each session × roster student; `not_scanned` = count of `'not_scanned'` marks; the rest through `summarize`. `sessions_held = heldCount(sessions, now)`. Groups add class results (student group: add that student's marks). `totals` = same over all groups. `devices` = `deviceSummaries(db, ctx)` reduced to `{device_id, device_name, room_code, status, queue_count, last_seen_at, online}`; `pending_offline_scans` = sum of `queue_count`.
 
