@@ -4,7 +4,7 @@
 // signed-in user and only returns rows that belong to that person.
 import {
   AppError, validationError, manilaAt, dayCodeOf, isValidDate, indexBy, fullName,
-  cleanText, writeAudit, nextId, effectiveStatus,
+  cleanText, writeAudit, nextId, effectiveStatus, dateRange,
 } from '../utils.js';
 import { missingStatus, sessionPhase } from '../sessions.js';
 
@@ -287,19 +287,21 @@ export function instructorDashboard(db, { date }, session, ctx) {
   };
 }
 
-export function instructorListSessions(db, { class_id: classId }, session, ctx) {
+export function instructorListSessions(db, request, session, ctx) {
+  const classId = request.class_id;
   const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
   if (!classId) return { classes, class: null, sessions: [] };
   const klass = ownClass(db, instructorId, classId);
+  const range = dateRange(request);
   const roster = rosterIds(db, maps, classId);
   const sessions = db.ClassSessions
-    .filter((row) => row.class_id === classId)
+    .filter((row) => row.class_id === classId && range.has(row.session_date))
     .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.scheduled_start.localeCompare(a.scheduled_start))
     .map((row) => describeSession(db, maps, row, roster, now));
-  return { classes, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, sessions };
+  return { classes, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, range: { from: range.from, to: range.to }, sessions };
 }
 
 export function instructorGetSession(db, { session_id: sessionId }, session, ctx) {
@@ -408,21 +410,19 @@ export function instructorCorrectAttendance(db, request, session, ctx) {
   return { session_id: sessionId, student_id: studentId, status };
 }
 
-export function instructorClassReport(db, { class_id: classId, from = '', to = '' }, session, ctx) {
+export function instructorClassReport(db, request, session, ctx) {
+  const classId = request.class_id;
   const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
   if (!classId) return { classes, class: null };
   const klass = ownClass(db, instructorId, classId);
-  if ((from && !isValidDate(from)) || (to && !isValidDate(to))) {
-    throw new AppError('BAD_REQUEST', 'Please choose valid dates.');
-  }
-  if (from && to && from > to) throw validationError({ to: 'The end date must be on or after the start date.' });
+  const range = dateRange(request);
 
   const roster = rosterIds(db, maps, classId);
   const sessions = countedSessions(db, classId)
-    .filter((row) => (!from || row.session_date >= from) && (!to || row.session_date <= to));
+    .filter((row) => range.has(row.session_date));
 
   const students = roster.map((studentId) => {
     const student = maps.students.get(studentId);
@@ -439,12 +439,12 @@ export function instructorClassReport(db, { class_id: classId, from = '', to = '
 
   const totals = summarize(students.flatMap((row) => row.marks).filter((s) => s !== 'not_scanned'));
   const cancelled = db.ClassSessions.filter((row) => row.class_id === classId && row.status === 'cancelled'
-    && (!from || row.session_date >= from) && (!to || row.session_date <= to)).length;
+    && range.has(row.session_date)).length;
 
   return {
     classes,
     class: { ...classInfo(db, maps, klass), enrolled: roster.length },
-    range: { from, to },
+    range: { from: range.from, to: range.to },
     generated_at: now.iso,
     sessions: sessions.map((row) => describeSession(db, maps, row, roster, now)),
     cancelled_sessions: cancelled,
@@ -455,12 +455,14 @@ export function instructorClassReport(db, { class_id: classId, from = '', to = '
 
 // Everyone enrolled in one of the instructor's classes, with their attendance
 // so far. Works even before the first class session.
-export function instructorClassRoster(db, { class_id: classId }, session, ctx) {
+export function instructorClassRoster(db, request, session, ctx) {
+  const classId = request.class_id;
   const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const klass = ownClass(db, instructorId, classId);
-  const held = countedSessions(db, classId);
+  const range = dateRange(request);
+  const held = countedSessions(db, classId).filter((row) => range.has(row.session_date));
   const students = rosterIds(db, maps, classId).map((studentId) => {
     const student = maps.students.get(studentId);
     const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now)).filter((s) => s !== 'not_scanned'));
@@ -478,11 +480,13 @@ export function instructorClassRoster(db, { class_id: classId }, session, ctx) {
   }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
   return {
     class: { ...classInfo(db, maps, klass), enrolled: students.length, sessions_held: heldCount(held, now) },
+    range: { from: range.from, to: range.to },
     students,
   };
 }
 
-export function instructorStudentHistory(db, { class_id: classId, student_id: studentId }, session, ctx) {
+export function instructorStudentHistory(db, request, session, ctx) {
+  const { class_id: classId, student_id: studentId } = request;
   const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
@@ -490,8 +494,9 @@ export function instructorStudentHistory(db, { class_id: classId, student_id: st
   if (!rosterIds(db, maps, classId).includes(studentId)) {
     throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
   }
+  const range = dateRange(request);
   const student = maps.students.get(studentId);
-  const records = historyRows(db, maps, studentId, [klass], now);
+  const records = historyRows(db, maps, studentId, [klass], now, range);
   return {
     student: {
       student_id: studentId,
@@ -500,6 +505,7 @@ export function instructorStudentHistory(db, { class_id: classId, student_id: st
       section_label: sectionLabel(maps, student?.section_id),
     },
     class: classInfo(db, maps, klass),
+    range: { from: range.from, to: range.to },
     records,
     totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
   };
@@ -513,13 +519,13 @@ function myEnrolledClasses(db, studentId) {
     .sort((a, b) => a.class_label.localeCompare(b.class_label));
 }
 
-function historyRows(db, maps, studentId, classes, now) {
+function historyRows(db, maps, studentId, classes, now, range) {
   const corrections = new Set(db.Attendance
     .filter((row) => row.student_id === studentId && row.override_reason)
     .map((row) => correctionKey(row.session_id, row.student_id)));
 
   return classes.flatMap((klass) => db.ClassSessions
-    .filter((row) => row.class_id === klass.class_id && row.status !== 'scheduled')
+    .filter((row) => row.class_id === klass.class_id && row.status !== 'scheduled' && range.has(row.session_date))
     .map((row) => {
       const record = recordOf(db, row.session_id, studentId);
       const subject = maps.subjects.get(klass.subject_id);
@@ -564,12 +570,13 @@ function studentProfile(db, maps, studentId) {
   };
 }
 
-export function studentOverview(db, _request, session, ctx) {
+export function studentOverview(db, request, session, ctx) {
   const now = manilaAt(ctx.now());
   const studentId = linkedId(db, session, 'student');
+  const range = dateRange(request);
   const maps = lookups(db);
   const classes = myEnrolledClasses(db, studentId);
-  const records = historyRows(db, maps, studentId, classes, now);
+  const records = historyRows(db, maps, studentId, classes, now, range);
   const counted = (rows) => rows.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled');
 
   const subjects = classes.map((klass) => {
@@ -593,26 +600,30 @@ export function studentOverview(db, _request, session, ctx) {
     term_name: activeTerm?.term_name ?? null,
     today_date: now.date,
     today,
+    range: { from: range.from, to: range.to },
     totals: summarize(counted(records)),
     subjects,
     recent: records.filter((row) => row.status !== 'cancelled').slice(0, 6),
   };
 }
 
-export function studentHistory(db, { class_id: classId = '' }, session, ctx) {
+export function studentHistory(db, request, session, ctx) {
+  const classId = request.class_id || '';
   const now = manilaAt(ctx.now());
   const studentId = linkedId(db, session, 'student');
+  const range = dateRange(request);
   const maps = lookups(db);
   const classes = myEnrolledClasses(db, studentId);
   const chosen = classId ? classes.filter((row) => row.class_id === classId) : classes;
   if (classId && !chosen.length) throw new AppError('FORBIDDEN', 'You are not enrolled in this class.');
-  const records = historyRows(db, maps, studentId, chosen, now);
+  const records = historyRows(db, maps, studentId, chosen, now, range);
   return {
     classes: classes.map((klass) => ({
       class_id: klass.class_id,
       class_label: klass.class_label,
       subject_title: maps.subjects.get(klass.subject_id)?.subject_title ?? '',
     })),
+    range: { from: range.from, to: range.to },
     records,
     totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
   };

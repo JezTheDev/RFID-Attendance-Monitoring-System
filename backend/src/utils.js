@@ -48,6 +48,22 @@ export function isValidDate(dateString) {
   return parsed.getUTCFullYear() === year && parsed.getUTCMonth() === month - 1 && parsed.getUTCDate() === day;
 }
 
+const MAX_RANGE_DAYS = 366;
+const dayNumber = (dateString) => Date.parse(`${dateString}T00:00:00Z`) / 86400000;
+
+// Optional inclusive { from, to } filter (YYYY-MM-DD, Manila dates). '' = no bound.
+export function dateRange({ from = '', to = '' } = {}) {
+  const fields = {};
+  if (from !== '' && !isValidDate(from)) fields.from = 'Enter a valid start date (YYYY-MM-DD).';
+  if (to !== '' && !isValidDate(to)) fields.to = 'Enter a valid end date (YYYY-MM-DD).';
+  if (!fields.from && !fields.to && from && to) {
+    if (from > to) fields.to = 'The end date must be on or after the start date.';
+    else if (dayNumber(to) - dayNumber(from) + 1 > MAX_RANGE_DAYS) fields.to = `The range can be at most ${MAX_RANGE_DAYS} days.`;
+  }
+  if (Object.keys(fields).length) throw validationError(fields);
+  return { from, to, has: (date) => (!from || date >= from) && (!to || date <= to) };
+}
+
 export function shiftDate(dateString, days) {
   const [year, month, day] = dateString.split('-').map(Number);
   return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);

@@ -188,6 +188,18 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
 - `LOCK_WAIT_MS` (Server.gs) = 10000, so `SERVER_BUSY` comes before the
   device's 20 s HTTP timeout.
 
+## Date filters (portal history)
+
+- Optional `{ from, to }` (YYYY-MM-DD, Manila, inclusive) on `student.getHistory`,
+  `student.getOverview`, `instructor.listSessions`, `instructor.getClassRoster`,
+  `instructor.getStudentHistory`, `instructor.getClassReport`. Missing / `''` = no
+  bound; no range = all sessions of the active classes (old behavior).
+- One helper: `dateRange(request)` in `utils.js` → `{ from, to, has(date) }`.
+  Bad date → `VALIDATION_ERROR` on the real field (`fields.from` / `fields.to`);
+  `from > to` and more than 366 days (inclusive) → `fields.to`. Validated after
+  the ownership check. Responses echo `range: {from, to}`; counts and rates are
+  computed only inside the range; not_scanned rule unchanged.
+
 ## Tests
 
 ```bash

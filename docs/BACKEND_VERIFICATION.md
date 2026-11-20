@@ -85,7 +85,7 @@ Test names are from `backend/tests/<file>`.
 | I1 | View assigned classes and sections | PC §8 | `instructor.getDashboard`, `listSessions` | `portal.test.js` "dashboard lists only the instructor's classes" | MET | |
 | I2 | Monitor student attendance | PC §8 | `instructor.getSession`, `getClassRoster` | `portal.test.js` | MET | BUG-7 fixed (step 4c). |
 | I3 | View class attendance history | PC §8 | `instructor.listSessions`, `getStudentHistory` | `portal.test.js` "cannot read the history of a student who is not in their class" | MET | |
-| I4 | Filter attendance by date | PC §8 | `instructor.getClassReport {from,to}` (`portal.js:390-403`), `instructor.getDashboard {date}` | read; no test for from/to | MET | Add a test for `from`/`to` later. |
+| I4 | Filter attendance by date | PC §8 | optional `{from,to}` on `instructor.listSessions`, `getClassRoster`, `getStudentHistory`, `getClassReport` (`dateRange` in `utils.js`); `instructor.getDashboard {date}` | `date-filters.test.js` | MET | |
 | I5 | Generate and export class reports | PC §8 | `instructor.getClassReport` | `portal.test.js` "cannot list sessions, roster, or report of another instructor's class" | MET | Backend gives the data; the CSV is made in the browser. |
 | I6 | Correct attendance (with reason, audited) | AR §7.1 | `instructor.correctAttendance` | `portal.test.js` (ownership) | WRONG | Ownership is correct; BUG-1 and BUG-8 fixed, BUG-6 still open. |
 
@@ -97,7 +97,7 @@ Test names are from `backend/tests/<file>`.
 | S2 | View attendance summary | PC §8 | `student.getOverview` | `portal.test.js` "overview and profile describe the signed-in student only" | MET | |
 | S3 | View personal attendance history | PC §8 | `student.getHistory` | `portal.test.js` "ignores a student_id sent in the request" | MET | |
 | S4 | Check scan dates and timestamps | PC §8 | `historyRows` → `scanned_at` (`portal.js:514`) | read | MET | Time is shown only for device taps (manual entries have none, by design). |
-| S5 | Filter records by date | PC §8 | `student.getHistory` takes only `class_id` | read `portal.js:579`; the frontend filters by class/status only | MISSING | Small: add `from`/`to` like `getClassReport`. |
+| S5 | Filter records by date | PC §8 | optional `{from,to}` on `student.getHistory` and `student.getOverview` | `date-filters.test.js` | MET (backend) | Frontend has no date inputs yet. |
 | S6 | View registered student information | PC §8 | `student.getProfile` | `users.test.js` "shows username / must change / locked, never a hash" | MET | |
 | S7 | Cannot edit own attendance or see others' records | PC §8 | no `student.*` write action; `linkedId()` (`portal.js:16-22`) | `actions.test.js` roles; `portal.test.js` ownership tests | MET | |
 
