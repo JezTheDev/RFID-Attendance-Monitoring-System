@@ -25,7 +25,13 @@ const NAVIGATION = Object.freeze({
         { id: 'academic', label: 'Academic Setup', icon: 'building', href: 'admin/academic.html' },
       ],
     },
-    { section: 'System', items: [{ id: 'devices', label: 'Devices', icon: 'router', href: 'admin/devices.html' }] },
+    {
+      section: 'System',
+      items: [
+        { id: 'devices', label: 'Devices', icon: 'router', href: 'admin/devices.html' },
+        { id: 'settings', label: 'Settings', icon: 'sliders', href: 'admin/settings.html' },
+      ],
+    },
     { section: 'Account', items: [{ id: 'account', label: 'My Account', icon: 'person-gear', href: 'admin/account.html' }] },
   ],
   instructor: [
