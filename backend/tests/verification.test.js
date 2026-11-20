@@ -90,7 +90,7 @@ describe('known bugs (todo until fixed)', () => {
     assert.ok(kept, 'scanned_at / scan_id / device_id of the tap are gone');
   });
 
-  it('BUG-2 moving a student to another section updates their class enrollments', { todo: 'BUG-2: students.js updateStudent never calls enrollInSectionClasses' }, () => {
+  it('BUG-2 moving a student to another section updates their class enrollments', () => {
     const db = makeDb();
     updateStudent(db, { student_id: 'STU-0001', student_number: '2024000001', first_name: 'Carla', last_name: 'Santos', section_id: 'SEC-0002', email: '' }, SESSIONS.admin, makeCtx());
     const enrolled = db.Enrollments.filter((e) => e.student_id === 'STU-0001' && e.status === 'enrolled').map((e) => e.class_id);

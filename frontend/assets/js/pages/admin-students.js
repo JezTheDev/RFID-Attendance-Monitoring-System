@@ -367,7 +367,10 @@ async function editStudent(studentId, state, refresh) {
     onSubmit: (values) => callApi('admin.updateStudent', { ...values, student_id: studentId }),
   });
   if (result) {
-    showToast('Student details saved.');
+    const { dropped = [], enrolled = [] } = result.enrollment_changes ?? {};
+    const moved = (dropped.length ? ` Dropped from: ${dropped.join(', ')}.` : '')
+      + (enrolled.length ? ` Enrolled in: ${enrolled.join(', ')}.` : '');
+    showToast(`Student details saved.${moved}`);
     await refresh();
   }
 }

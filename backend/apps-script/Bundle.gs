@@ -730,13 +730,13 @@ var RFID = (function () {
     // signed-in user and only returns rows that belong to that person.
     const { AppError, validationError, manilaAt, dayCodeOf, isValidDate, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, dateRange } = __m["utils"];
     const { missingStatus, sessionPhase } = __m["sessions"];
-    
+
     const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     const CORRECTABLE = ['present', 'late', 'absent'];
     const CORRECTION_ACTION = 'ATTENDANCE_CORRECT';
-    
+
     /* ---------------- shared helpers ---------------- */
-    
+
     function linkedId(db, session, role) {
       const user = db.Users.find((row) => row.user_id === session.user_id);
       if (!user || user.role !== role || !user.linked_id) {
@@ -744,7 +744,7 @@ var RFID = (function () {
       }
       return user.linked_id;
     }
-    
+
     function lookups(db) {
       return {
         classes: indexBy(db.Classes, 'class_id'),
@@ -756,14 +756,14 @@ var RFID = (function () {
         programs: indexBy(db.Programs, 'program_id'),
       };
     }
-    
+
     function sectionLabel(maps, sectionId) {
       const section = maps.sections.get(sectionId);
       if (!section) return '';
       const program = maps.programs.get(section.program_id);
       return `${program?.program_code ?? ''} ${section.section_name}`.trim();
     }
-    
+
     function schedulesOf(db, maps, classId) {
       return db.Schedules
         .filter((row) => row.class_id === classId && row.status === 'active')
@@ -775,24 +775,24 @@ var RFID = (function () {
           room_code: maps.rooms.get(row.room_id)?.room_code ?? '',
         }));
     }
-    
+
     function rosterIds(db, maps, classId) {
       return db.Enrollments
         .filter((row) => row.class_id === classId && row.status === 'enrolled'
           && maps.students.get(row.student_id)?.account_status === 'active')
         .map((row) => row.student_id);
     }
-    
+
     // Sessions that count toward attendance: held (closed) or currently open.
     function countedSessions(db, classId) {
       return db.ClassSessions
         .filter((row) => row.class_id === classId && (row.status === 'closed' || row.status === 'open'))
         .sort((a, b) => a.session_date.localeCompare(b.session_date) || a.scheduled_start.localeCompare(b.scheduled_start));
     }
-    
+
     // An open session that has not started yet (early tap) is not held.
     const heldCount = (sessions, now) => sessions.filter((s) => sessionPhase(s, now) !== 'upcoming').length;
-    
+
     // session_id -> student_id -> first row. Rebuilt when rows are added (correctAttendance).
     // shortcut: rebuilt only on length change; replacing rows or editing session_id/student_id needs a rebuild.
     const attendanceIndex = new WeakMap();
@@ -811,15 +811,15 @@ var RFID = (function () {
       }
       return cached.map;
     }
-    
+
     function recordOf(db, sessionId, studentId) {
       return recordsBySession(db).get(sessionId)?.get(studentId) ?? null;
     }
-    
+
     function correctionKey(sessionId, studentId) {
       return `${sessionId}:${studentId}`;
     }
-    
+
     // Corrected rows (device overrides and manual rows) carry the reason in
     // override_reason, so the portals never read the ever-growing AuditLog.
     function correctionsFor(db, sessionId) {
@@ -829,15 +829,15 @@ var RFID = (function () {
         .forEach((row) => map.set(correctionKey(row.session_id, row.student_id), { reason: row.override_reason }));
       return map;
     }
-    
+
     function statusOf(record, session, now) {
       return record ? effectiveStatus(record) : missingStatus(session, now);
     }
-    
+
     function rate(present, late, total) {
       return total > 0 ? (present + late) / total : null;
     }
-    
+
     function summarize(statuses) {
       const present = statuses.filter((s) => s === 'present').length;
       const late = statuses.filter((s) => s === 'late').length;
@@ -845,7 +845,7 @@ var RFID = (function () {
       const total = present + late + absent;
       return { present, late, absent, total, rate: rate(present, late, total) };
     }
-    
+
     // Same rule as statusOf for every view: a row counts by its effective status
     // (an override to absent is absent at once); no row is not_scanned until the
     // session ends, absent after (BUG-7).
@@ -866,7 +866,7 @@ var RFID = (function () {
         not_scanned: counted ? totals.not_scanned : null,
       };
     }
-    
+
     function describeSession(db, maps, session, roster, now) {
       return {
         session_id: session.session_id,
@@ -883,7 +883,7 @@ var RFID = (function () {
         ...sessionCounts(db, session, roster, now),
       };
     }
-    
+
     function ownClass(db, instructorId, classId) {
       const klass = db.Classes.find((row) => row.class_id === classId);
       if (!klass || klass.instructor_id !== instructorId) {
@@ -891,7 +891,7 @@ var RFID = (function () {
       }
       return klass;
     }
-    
+
     function classInfo(db, maps, klass) {
       const subject = maps.subjects.get(klass.subject_id);
       return {
@@ -904,15 +904,15 @@ var RFID = (function () {
         schedules: schedulesOf(db, maps, klass.class_id),
       };
     }
-    
+
     /* ---------------- Instructor ---------------- */
-    
+
     function myClasses(db, instructorId) {
       return db.Classes
         .filter((row) => row.instructor_id === instructorId && row.status === 'active')
         .sort((a, b) => a.class_label.localeCompare(b.class_label));
     }
-    
+
     function classSummary(db, maps, klass, now) {
       const roster = rosterIds(db, maps, klass.class_id);
       const sessions = countedSessions(db, klass.class_id);
@@ -931,7 +931,7 @@ var RFID = (function () {
         totals,
       };
     }
-    
+
     function instructorDashboard(db, { date }, session, ctx) {
       if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
       const instructorId = linkedId(db, session, 'instructor');
@@ -942,7 +942,7 @@ var RFID = (function () {
       const classIds = new Set(classes.map((row) => row.class_id));
       const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
       const inTerm = Boolean(activeTerm) && date >= activeTerm.start_date && date <= activeTerm.end_date;
-    
+
       // Sessions on the chosen date: every scheduled slot + manual sessions
       const dayCode = dayCodeOf(date);
       const sessions = [];
@@ -984,7 +984,7 @@ var RFID = (function () {
         .filter((row) => row.source === 'manual' && row.session_date === date && classIds.has(row.class_id))
         .forEach((row) => sessions.push(describeSession(db, maps, row, rosterIds(db, maps, row.class_id), now)));
       sessions.sort((a, b) => a.start_time.localeCompare(b.start_time));
-    
+
       const summaries = classes.map((klass) => classSummary(db, maps, klass, now));
       const all = summaries.reduce((acc, row) => ({
         present: acc.present + row.totals.present,
@@ -992,7 +992,7 @@ var RFID = (function () {
         total: acc.total + row.totals.total,
       }), { present: 0, late: 0, total: 0 });
       const uniqueStudents = new Set(classes.flatMap((klass) => rosterIds(db, maps, klass.class_id)));
-    
+
       // Students who need follow-up: below 80% in any class with at least 2 sessions
       const watchlist = [];
       classes.forEach((klass) => {
@@ -1014,7 +1014,7 @@ var RFID = (function () {
         });
       });
       watchlist.sort((a, b) => a.rate - b.rate || b.absent - a.absent);
-    
+
       return {
         date,
         today: now.date,
@@ -1032,7 +1032,7 @@ var RFID = (function () {
         watchlist: watchlist.slice(0, 8),
       };
     }
-    
+
     function instructorListSessions(db, request, session, ctx) {
       const classId = request.class_id;
       const now = manilaAt(ctx.now());
@@ -1049,7 +1049,7 @@ var RFID = (function () {
         .map((row) => describeSession(db, maps, row, roster, now));
       return { classes, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, range: { from: range.from, to: range.to }, sessions };
     }
-    
+
     function instructorGetSession(db, { session_id: sessionId }, session, ctx) {
       const now = manilaAt(ctx.now());
       const instructorId = linkedId(db, session, 'instructor');
@@ -1059,7 +1059,7 @@ var RFID = (function () {
       const klass = ownClass(db, instructorId, classSession.class_id);
       const roster = rosterIds(db, maps, klass.class_id);
       const corrections = correctionsFor(db, sessionId);
-    
+
       const students = roster.map((studentId) => {
         const student = maps.students.get(studentId);
         const record = recordOf(db, sessionId, studentId);
@@ -1077,14 +1077,14 @@ var RFID = (function () {
           correction_reason: correction?.reason ?? '',
         };
       }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-    
+
       return {
         session: describeSession(db, maps, classSession, roster, now),
         class: classInfo(db, maps, klass),
         students,
       };
     }
-    
+
     function instructorCorrectAttendance(db, request, session, ctx) {
       const now = manilaAt(ctx.now());
       const instructorId = linkedId(db, session, 'instructor');
@@ -1093,7 +1093,7 @@ var RFID = (function () {
       const studentId = request.student_id;
       const status = request.status;
       const reason = cleanText(request.reason);
-    
+
       const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
       if (!classSession) throw new AppError('NOT_FOUND', 'This class session was not found.');
       ownClass(db, instructorId, classSession.class_id);
@@ -1103,12 +1103,12 @@ var RFID = (function () {
       if (!rosterIds(db, maps, classSession.class_id).includes(studentId)) {
         throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
       }
-    
+
       const fields = {};
       if (!CORRECTABLE.includes(status)) fields.status = 'Choose Present, Late, or Absent.';
       if (reason.length < 5) fields.reason = 'Give a short reason (at least 5 characters).';
       if (Object.keys(fields).length) throw validationError(fields);
-    
+
       const record = recordOf(db, sessionId, studentId);
       // BUG-6: no row to override, so "absent" would change nothing; refuse instead of a fake success.
       if (!record && status === 'absent') {
@@ -1117,7 +1117,7 @@ var RFID = (function () {
       }
       const before = statusOf(record, classSession, now);
       if (before === status) throw validationError({ status: 'The student already has this status.' });
-    
+
       // Never delete a row or edit the device fields (architecture 7.2 rule 4):
       // a retried scan_id must still find its row.
       if (record) {
@@ -1149,7 +1149,7 @@ var RFID = (function () {
           override_reason: reason,
         });
       }
-    
+
       writeAudit(db, session, {
         action: CORRECTION_ACTION,
         entityType: 'Attendance',
@@ -1160,7 +1160,7 @@ var RFID = (function () {
       }, ctx);
       return { session_id: sessionId, student_id: studentId, status };
     }
-    
+
     function instructorClassReport(db, request, session, ctx) {
       const classId = request.class_id;
       const now = manilaAt(ctx.now());
@@ -1170,11 +1170,11 @@ var RFID = (function () {
       if (!classId) return { classes, class: null };
       const klass = ownClass(db, instructorId, classId);
       const range = dateRange(request);
-    
+
       const roster = rosterIds(db, maps, classId);
       const sessions = countedSessions(db, classId)
         .filter((row) => range.has(row.session_date));
-    
+
       const students = roster.map((studentId) => {
         const student = maps.students.get(studentId);
         const marks = sessions.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now));
@@ -1187,11 +1187,11 @@ var RFID = (function () {
           ...summarize(marks.filter((s) => s !== 'not_scanned')),
         };
       }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-    
+
       const totals = summarize(students.flatMap((row) => row.marks).filter((s) => s !== 'not_scanned'));
       const cancelled = db.ClassSessions.filter((row) => row.class_id === classId && row.status === 'cancelled'
         && range.has(row.session_date)).length;
-    
+
       return {
         classes,
         class: { ...classInfo(db, maps, klass), enrolled: roster.length },
@@ -1203,7 +1203,7 @@ var RFID = (function () {
         totals,
       };
     }
-    
+
     // Everyone enrolled in one of the instructor's classes, with their attendance
     // so far. Works even before the first class session.
     function instructorClassRoster(db, request, session, ctx) {
@@ -1235,7 +1235,7 @@ var RFID = (function () {
         students,
       };
     }
-    
+
     function instructorStudentHistory(db, request, session, ctx) {
       const { class_id: classId, student_id: studentId } = request;
       const now = manilaAt(ctx.now());
@@ -1261,20 +1261,20 @@ var RFID = (function () {
         totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
       };
     }
-    
+
     /* ---------------- Student ---------------- */
-    
+
     function myEnrolledClasses(db, studentId) {
       const ids = new Set(db.Enrollments.filter((row) => row.student_id === studentId && row.status === 'enrolled').map((row) => row.class_id));
       return db.Classes.filter((row) => ids.has(row.class_id) && row.status === 'active')
         .sort((a, b) => a.class_label.localeCompare(b.class_label));
     }
-    
+
     function historyRows(db, maps, studentId, classes, now, range) {
       const corrections = new Set(db.Attendance
         .filter((row) => row.student_id === studentId && row.override_reason)
         .map((row) => correctionKey(row.session_id, row.student_id)));
-    
+
       return classes.flatMap((klass) => db.ClassSessions
         .filter((row) => row.class_id === klass.class_id && row.status !== 'scheduled' && range.has(row.session_date))
         .map((row) => {
@@ -1298,7 +1298,7 @@ var RFID = (function () {
         }))
         .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.start_time.localeCompare(a.start_time));
     }
-    
+
     function studentProfile(db, maps, studentId) {
       const student = maps.students.get(studentId);
       if (!student) throw new AppError('NOT_FOUND', 'Your student record was not found. Contact the administrator.');
@@ -1320,7 +1320,7 @@ var RFID = (function () {
         card: card ? { rfid_uid_masked: `•••• ${card.rfid_uid.slice(-4)}`, assigned_at: card.assigned_at } : null,
       };
     }
-    
+
     function studentOverview(db, request, session, ctx) {
       const now = manilaAt(ctx.now());
       const studentId = linkedId(db, session, 'student');
@@ -1329,7 +1329,7 @@ var RFID = (function () {
       const classes = myEnrolledClasses(db, studentId);
       const records = historyRows(db, maps, studentId, classes, now, range);
       const counted = (rows) => rows.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled');
-    
+
       const subjects = classes.map((klass) => {
         const rows = records.filter((row) => row.class_id === klass.class_id);
         return {
@@ -1338,14 +1338,14 @@ var RFID = (function () {
           last: rows.find((row) => row.status !== 'cancelled') ?? null,
         };
       });
-    
+
       const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
       const todayCode = dayCodeOf(now.date);
       const today = classes.flatMap((klass) => schedulesOf(db, maps, klass.class_id)
         .filter((slot) => slot.day === todayCode)
         .map((slot) => ({ ...slot, class_label: klass.class_label, subject_title: maps.subjects.get(klass.subject_id)?.subject_title ?? '' })))
         .sort((a, b) => a.start_time.localeCompare(b.start_time));
-    
+
       return {
         profile: studentProfile(db, maps, studentId),
         term_name: activeTerm?.term_name ?? null,
@@ -1357,7 +1357,7 @@ var RFID = (function () {
         recent: records.filter((row) => row.status !== 'cancelled').slice(0, 6),
       };
     }
-    
+
     function studentHistory(db, request, session, ctx) {
       const classId = request.class_id || '';
       const now = manilaAt(ctx.now());
@@ -1379,7 +1379,7 @@ var RFID = (function () {
         totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
       };
     }
-    
+
     function studentGetProfile(db, _request, session) {
       const studentId = linkedId(db, session, 'student');
       const maps = lookups(db);
@@ -1919,21 +1919,35 @@ var RFID = (function () {
       return { class_id: classId, student_id: studentId };
     }
 
-    // Used when a new student is added: join every active class of their section
-    // in the active term, so they show up in their instructors' rosters at once.
-    function enrollInSectionClasses(db, ctx, studentId, sectionId) {
+    function activeSectionClasses(db, sectionId) {
       const activeTerm = db.Terms.find((row) => row.is_active === 'TRUE');
       return db.Classes
-        .filter((row) => row.section_id === sectionId && row.status === 'active' && (!activeTerm || row.term_id === activeTerm.term_id))
-        .filter((row) => enroll(db, ctx, row.class_id, studentId)).length;
+        .filter((row) => row.section_id === sectionId && row.status === 'active' && (!activeTerm || row.term_id === activeTerm.term_id));
     }
-    return { getClassOptions, listClasses, getClass, createClass, updateClass, setClassStatus, overlaps, addSchedule, removeSchedule, enrollStudents, dropEnrollment, enrollInSectionClasses };
+
+    // Used when a student is added or changes section: join every active class of
+    // their section in the active term, so they show up in their instructors' rosters
+    // at once. Returns the classes joined (already enrolled = skipped).
+    function enrollInSectionClasses(db, ctx, studentId, sectionId) {
+      return activeSectionClasses(db, sectionId).filter((row) => enroll(db, ctx, row.class_id, studentId));
+    }
+
+    // Section change: drop (never delete) the active classes of the old section.
+    // Attendance rows stay. Returns the classes dropped.
+    function dropSectionClasses(db, studentId, sectionId) {
+      return activeSectionClasses(db, sectionId).filter((klass) => {
+        const row = db.Enrollments.find((e) => e.class_id === klass.class_id && e.student_id === studentId && e.status === 'enrolled');
+        if (row) row.status = 'dropped';
+        return Boolean(row);
+      });
+    }
+    return { getClassOptions, listClasses, getClass, createClass, updateClass, setClassStatus, overlaps, addSchedule, removeSchedule, enrollStudents, dropEnrollment, enrollInSectionClasses, dropSectionClasses };
   })();
 
   // ---- handlers/students.js ----
   __m["handlers/students"] = (function () {
     const { AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, bumpRosterVersion } = __m["utils"];
-    const { enrollInSectionClasses } = __m["handlers/classes"];
+    const { enrollInSectionClasses, dropSectionClasses } = __m["handlers/classes"];
     const { newUserRow, issueTempPassword, usernameTaken, accountSummary } = __m["auth/admin-users"];
 
     const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
@@ -2120,7 +2134,7 @@ var RFID = (function () {
       const issued = issueTempPassword(db, ctx, user);
       db.Students.push(student);
       db.Users.push(user);
-      const classesJoined = enrollInSectionClasses(db, ctx, student.student_id, student.section_id);
+      const classesJoined = enrollInSectionClasses(db, ctx, student.student_id, student.section_id).length;
       writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } }, ctx);
       return { student_id: student.student_id, classes_joined: classesJoined, ...issued };
     }
@@ -2149,8 +2163,23 @@ var RFID = (function () {
         user.updated_at = toManilaIso(ctx.now());
       }
 
-      writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before, after: { ...student } }, ctx);
-      return { student_id: student.student_id };
+      // BUG-2: a new section moves the enrollments in the same save (classes of other sections stay).
+      const changes = { dropped: [], enrolled: [] };
+      const auditBefore = { ...before };
+      const after = { ...student };
+      if (before.section_id !== student.section_id) {
+        auditBefore.enrolled_classes = enrolledClassIds(db, student.student_id);
+        changes.dropped = dropSectionClasses(db, student.student_id, before.section_id).map((row) => row.class_label);
+        changes.enrolled = enrollInSectionClasses(db, ctx, student.student_id, student.section_id).map((row) => row.class_label);
+        after.enrolled_classes = enrolledClassIds(db, student.student_id);
+      }
+
+      writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before: auditBefore, after }, ctx);
+      return { student_id: student.student_id, enrollment_changes: changes };
+    }
+
+    function enrolledClassIds(db, studentId) {
+      return db.Enrollments.filter((row) => row.student_id === studentId && row.status === 'enrolled').map((row) => row.class_id).sort();
     }
 
     function setStudentStatus(db, { student_id, status, reason }, session, ctx) {
@@ -3563,7 +3592,7 @@ var RFID = (function () {
       'admin.createStudent': { run: createStudent, mode: WRITE, role: 'admin',
         reads: 'Classes Enrollments Programs Sections Settings Students Terms', writes: 'Students Users Enrollments', appends: 'AuditLog' },
       'admin.updateStudent': { run: updateStudent, mode: WRITE, role: 'admin',
-        reads: 'Programs Sections Settings Students', writes: 'Students Users Settings', appends: 'AuditLog' },
+        reads: 'Classes Enrollments Programs Sections Settings Students Terms', writes: 'Students Users Settings Enrollments', appends: 'AuditLog' },
       'admin.setStudentStatus': { run: setStudentStatus, mode: WRITE, role: 'admin',
         reads: 'RfidCards Settings Students', writes: 'Students Users RfidCards Settings', appends: 'AuditLog' },
       'admin.assignCard': { run: assignCard, mode: WRITE, role: 'admin',

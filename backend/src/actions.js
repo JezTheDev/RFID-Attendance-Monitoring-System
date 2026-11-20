@@ -65,7 +65,7 @@ export const ACTIONS = Object.freeze({
   'admin.createStudent': { run: createStudent, mode: WRITE, role: 'admin',
     reads: 'Classes Enrollments Programs Sections Settings Students Terms', writes: 'Students Users Enrollments', appends: 'AuditLog' },
   'admin.updateStudent': { run: updateStudent, mode: WRITE, role: 'admin',
-    reads: 'Programs Sections Settings Students', writes: 'Students Users Settings', appends: 'AuditLog' },
+    reads: 'Classes Enrollments Programs Sections Settings Students Terms', writes: 'Students Users Settings Enrollments', appends: 'AuditLog' },
   'admin.setStudentStatus': { run: setStudentStatus, mode: WRITE, role: 'admin',
     reads: 'RfidCards Settings Students', writes: 'Students Users RfidCards Settings', appends: 'AuditLog' },
   'admin.assignCard': { run: assignCard, mode: WRITE, role: 'admin',

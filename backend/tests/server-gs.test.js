@@ -378,6 +378,23 @@ describe('Server.gs saves in one all-or-nothing batchUpdate', () => {
     assert.equal(allCells(ss), before);
   });
 
+  it('BUG-2: a section change saves student + enrollments in one batch, or nothing if it fails', () => {
+    const { post, ss, stats, admin, tab } = ready();
+    const student = tab('Students').find((s) => s.section_id === 'SEC-0001' && s.account_status === 'active');
+    const request = { action: 'admin.updateStudent', session_token: admin, ...student, section_id: 'SEC-0002' };
+    const before = allCells(ss);
+    stats.failNext = true;
+    assert.equal(post(request).error.code, 'SERVER_ERROR');
+    assert.equal(allCells(ss), before);
+
+    stats.batchUpdates = 0;
+    const reply = post(request);
+    assert.equal(reply.ok, true, JSON.stringify(reply.error));
+    assert.equal(stats.batchUpdates, 1);
+    assert.ok(reply.data.enrollment_changes.dropped.length > 0);
+    assert.ok(tab('Enrollments').some((e) => e.student_id === student.student_id && e.status === 'dropped'));
+  });
+
   it('a failed sign-in still saves the counter and audit row in one batch', () => {
     const { post, stats, usersTab, tab } = ready();
     const audits = tab('AuditLog').length;

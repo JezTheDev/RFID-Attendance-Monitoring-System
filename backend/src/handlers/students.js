@@ -1,7 +1,7 @@
 import {
   AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, bumpRosterVersion,
 } from '../utils.js';
-import { enrollInSectionClasses } from './classes.js';
+import { enrollInSectionClasses, dropSectionClasses } from './classes.js';
 import { newUserRow, issueTempPassword, usernameTaken, accountSummary } from '../auth/admin-users.js';
 
 const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
@@ -188,7 +188,7 @@ export function createStudent(db, input, session, ctx) {
   const issued = issueTempPassword(db, ctx, user);
   db.Students.push(student);
   db.Users.push(user);
-  const classesJoined = enrollInSectionClasses(db, ctx, student.student_id, student.section_id);
+  const classesJoined = enrollInSectionClasses(db, ctx, student.student_id, student.section_id).length;
   writeAudit(db, session, { action: 'STUDENT_CREATE', entityType: 'Students', entityId: student.student_id, after: { ...student, classes_joined: classesJoined } }, ctx);
   return { student_id: student.student_id, classes_joined: classesJoined, ...issued };
 }
@@ -217,8 +217,23 @@ export function updateStudent(db, input, session, ctx) {
     user.updated_at = toManilaIso(ctx.now());
   }
 
-  writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before, after: { ...student } }, ctx);
-  return { student_id: student.student_id };
+  // BUG-2: a new section moves the enrollments in the same save (classes of other sections stay).
+  const changes = { dropped: [], enrolled: [] };
+  const auditBefore = { ...before };
+  const after = { ...student };
+  if (before.section_id !== student.section_id) {
+    auditBefore.enrolled_classes = enrolledClassIds(db, student.student_id);
+    changes.dropped = dropSectionClasses(db, student.student_id, before.section_id).map((row) => row.class_label);
+    changes.enrolled = enrollInSectionClasses(db, ctx, student.student_id, student.section_id).map((row) => row.class_label);
+    after.enrolled_classes = enrolledClassIds(db, student.student_id);
+  }
+
+  writeAudit(db, session, { action: 'STUDENT_UPDATE', entityType: 'Students', entityId: student.student_id, before: auditBefore, after }, ctx);
+  return { student_id: student.student_id, enrollment_changes: changes };
+}
+
+function enrolledClassIds(db, studentId) {
+  return db.Enrollments.filter((row) => row.student_id === studentId && row.status === 'enrolled').map((row) => row.class_id).sort();
 }
 
 export function setStudentStatus(db, { student_id, status, reason }, session, ctx) {

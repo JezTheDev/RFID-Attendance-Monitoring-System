@@ -354,11 +354,25 @@ export function dropEnrollment(db, { class_id: classId, student_id: studentId, r
   return { class_id: classId, student_id: studentId };
 }
 
-// Used when a new student is added: join every active class of their section
-// in the active term, so they show up in their instructors' rosters at once.
-export function enrollInSectionClasses(db, ctx, studentId, sectionId) {
+function activeSectionClasses(db, sectionId) {
   const activeTerm = db.Terms.find((row) => row.is_active === 'TRUE');
   return db.Classes
-    .filter((row) => row.section_id === sectionId && row.status === 'active' && (!activeTerm || row.term_id === activeTerm.term_id))
-    .filter((row) => enroll(db, ctx, row.class_id, studentId)).length;
+    .filter((row) => row.section_id === sectionId && row.status === 'active' && (!activeTerm || row.term_id === activeTerm.term_id));
+}
+
+// Used when a student is added or changes section: join every active class of
+// their section in the active term, so they show up in their instructors' rosters
+// at once. Returns the classes joined (already enrolled = skipped).
+export function enrollInSectionClasses(db, ctx, studentId, sectionId) {
+  return activeSectionClasses(db, sectionId).filter((row) => enroll(db, ctx, row.class_id, studentId));
+}
+
+// Section change: drop (never delete) the active classes of the old section.
+// Attendance rows stay. Returns the classes dropped.
+export function dropSectionClasses(db, studentId, sectionId) {
+  return activeSectionClasses(db, sectionId).filter((klass) => {
+    const row = db.Enrollments.find((e) => e.class_id === klass.class_id && e.student_id === studentId && e.status === 'enrolled');
+    if (row) row.status = 'dropped';
+    return Boolean(row);
+  });
 }
