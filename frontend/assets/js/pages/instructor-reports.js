@@ -13,6 +13,7 @@ const MARK = {
   late: { letter: 'L', tone: 'warning', label: 'Late' },
   absent: { letter: 'A', tone: 'danger', label: 'Absent' },
   not_scanned: { letter: '·', tone: 'secondary', label: 'Not scanned yet' },
+  null: { letter: '–', tone: 'secondary', label: 'Not enrolled yet' }, // backend mark null: joined after this session
 };
 
 const session = requireRole('instructor');

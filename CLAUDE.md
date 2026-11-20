@@ -221,7 +221,9 @@ Tab columns and default Settings live in `backend/src/schema.js`
   dashboards, portals and admin report all use them): a row counts by its
   effective status (`override_status` wins; an override to absent is absent at
   once); `not_scanned` is only for enrolled students with NO row, until the
-  session ends, then absent. Cancelled sessions never count.
+  session ends, then absent. Cancelled sessions never count. A student with no
+  row whose `Enrollments.enrolled_at` is after the session END is not counted
+  at all for that session (`statusFor` → null; report mark null).
 - `admin.getDashboard` lists EVERY ClassSession of the date (even if its schedule
   or class was removed/deactivated later, or outside the term) + active slots with
   no session yet; `students_present` = present/late students of those sessions.

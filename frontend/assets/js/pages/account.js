@@ -25,6 +25,7 @@ function start() {
           <div class="card-header border-bottom"><h3 class="card-title-sm">Change password</h3></div>
           <form class="card-body" id="passwordForm" novalidate>
             <div class="alert d-none" data-role="form-result" role="status"></div>
+            <input type="text" name="username" autocomplete="username" value="${escapeHtml(session.username)}" class="d-none" aria-hidden="true" tabindex="-1" readonly>
             ${passwordField('old_password', 'Current password', 'current-password')}
             ${passwordField('new_password', 'New password', 'new-password', 'At least 8 characters, with both letters and numbers, and different from your current password.')}
             ${passwordField('confirm_password', 'Confirm new password', 'new-password')}

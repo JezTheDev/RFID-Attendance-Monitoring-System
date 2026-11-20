@@ -111,6 +111,30 @@ export function statusOf(record, session, now) {
   return record ? effectiveStatus(record) : missingStatus(session, now);
 }
 
+// class_id -> student_id -> enrolled_at (same length-change rebuild as recordsBySession).
+const enrollmentIndex = new WeakMap();
+function enrolledAtOf(db, classId, studentId) {
+  const rows = db.Enrollments;
+  let cached = enrollmentIndex.get(rows);
+  if (!cached || cached.length !== rows.length) {
+    const map = new Map();
+    rows.forEach((row) => map.set(`${row.class_id}:${row.student_id}`, row.enrolled_at || ''));
+    cached = { length: rows.length, map };
+    enrollmentIndex.set(rows, cached);
+  }
+  return cached.map.get(`${classId}:${studentId}`) ?? '';
+}
+
+// statusOf for a roster student. null = no row and they joined the class after
+// this session ended: never expected there, so not absent and not "not yet".
+export function statusFor(db, session, studentId, now) {
+  const record = recordOf(db, session.session_id, studentId);
+  if (record) return effectiveStatus(record);
+  const enrolledAt = enrolledAtOf(db, session.class_id, studentId);
+  const ended = `${session.session_date}T${session.actual_end || session.scheduled_end}:00+08:00`;
+  return enrolledAt && enrolledAt > ended ? null : missingStatus(session, now);
+}
+
 export function rate(present, late, total) {
   return total > 0 ? (present + late) / total : null;
 }
@@ -129,14 +153,16 @@ export function summarize(statuses) {
 export function sessionCounts(db, session, roster, now) {
   const counted = session.status === 'closed' || session.status === 'open';
   const totals = { present: 0, late: 0, absent: 0, not_scanned: 0 };
+  let joinedLater = 0;
   if (counted) {
     roster.forEach((studentId) => {
-      const status = statusOf(recordOf(db, session.session_id, studentId), session, now);
-      if (status in totals) totals[status] += 1;
+      const status = statusFor(db, session, studentId, now);
+      if (status === null) joinedLater += 1;
+      else if (status in totals) totals[status] += 1;
     });
   }
   return {
-    enrolled: roster.length,
+    enrolled: roster.length - joinedLater,
     present: counted ? totals.present : null,
     late: counted ? totals.late : null,
     absent: counted ? totals.absent : null,
@@ -195,7 +221,7 @@ function classSummary(db, maps, klass, now) {
   const sessions = countedSessions(db, klass.class_id);
   const statuses = [];
   sessions.forEach((session) => roster.forEach((studentId) => {
-    const status = statusOf(recordOf(db, session.session_id, studentId), session, now);
+    const status = statusFor(db, session, studentId, now);
     if (status !== 'not_scanned') statuses.push(status);
   }));
   const totals = summarize(statuses);
@@ -276,7 +302,7 @@ export function instructorDashboard(db, { date }, session, ctx) {
     const held = countedSessions(db, klass.class_id);
     if (held.length < 2) return;
     rosterIds(db, maps, klass.class_id).forEach((studentId) => {
-      const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now)).filter((s) => s !== 'not_scanned'));
+      const totals = summarize(held.map((s) => statusFor(db, s, studentId, now)).filter((s) => s !== 'not_scanned'));
       if (totals.rate !== null && totals.rate < 0.8) {
         const student = maps.students.get(studentId);
         watchlist.push({
@@ -337,7 +363,7 @@ export function instructorGetSession(db, { session_id: sessionId }, session, ctx
   const roster = rosterIds(db, maps, klass.class_id);
   const corrections = correctionsFor(db, sessionId);
 
-  const students = roster.map((studentId) => {
+  const students = roster.filter((studentId) => statusFor(db, classSession, studentId, now) !== null).map((studentId) => {
     const student = maps.students.get(studentId);
     const record = recordOf(db, sessionId, studentId);
     const correction = corrections.get(correctionKey(sessionId, studentId));
@@ -469,7 +495,7 @@ export function instructorClassReport(db, request, session, ctx) {
 
   const students = roster.map((studentId) => {
     const student = maps.students.get(studentId);
-    const marks = sessions.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now));
+    const marks = sessions.map((s) => statusFor(db, s, studentId, now));
     return {
       student_id: studentId,
       student_number: student?.student_number ?? '',
@@ -508,7 +534,7 @@ export function instructorClassRoster(db, request, session, ctx) {
   const held = countedSessions(db, classId).filter((row) => range.has(row.session_date));
   const students = rosterIds(db, maps, classId).map((studentId) => {
     const student = maps.students.get(studentId);
-    const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now)).filter((s) => s !== 'not_scanned'));
+    const totals = summarize(held.map((s) => statusFor(db, s, studentId, now)).filter((s) => s !== 'not_scanned'));
     const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
     return {
       student_id: studentId,
@@ -610,7 +636,8 @@ function historyRows(db, maps, studentId, classes, now, range) {
     .map((row) => correctionKey(row.session_id, row.student_id)));
 
   return classes.flatMap((klass) => db.ClassSessions
-    .filter((row) => row.class_id === klass.class_id && range.has(row.session_date))
+    .filter((row) => row.class_id === klass.class_id && range.has(row.session_date)
+      && statusFor(db, row, studentId, now) !== null)
     .map((row) => {
       const record = recordOf(db, row.session_id, studentId);
       const subject = maps.subjects.get(klass.subject_id);
