@@ -4,7 +4,7 @@ import {
   renderShell, escapeHtml, todayInManila, formatDateLong, formatClockTime, stateHtml, errorStateHtml,
 } from '../ui.js';
 import {
-  phaseBadge, statCard, formatRate, rateMeterHtml, rateTone, countsBarHtml, scheduleHtml, loadingCardsHtml,
+  phaseBadge, statCard, formatRate, rateMeterHtml, rateTone, countsBarHtml, scheduleHtml, loadingCardsHtml, recentActivityHtml,
 } from '../components/attendance-ui.js';
 import { openClassRoster } from './instructor-history.js';
 
@@ -30,7 +30,8 @@ function start() {
         <button class="btn btn-outline-primary" type="button" id="todayButton">Today</button>
       </form>
     </div>
-    <div id="dashboardBody"></div>`;
+    <div id="dashboardBody"></div>
+    <div id="recentBody" class="mt-3"></div>`;
 
   const input = document.getElementById('dateInput');
   let requestCounter = 0;
@@ -77,6 +78,20 @@ function start() {
   });
 
   load();
+  loadRecent();
+}
+
+// Not tied to the chosen date; own error state so the dashboard still works if it fails.
+async function loadRecent() {
+  const box = document.getElementById('recentBody');
+  box.innerHTML = '<div class="skeleton" style="height:160px"></div>';
+  try {
+    const data = await callApi('instructor.getRecentActivity', { limit: 10 });
+    box.innerHTML = recentActivityHtml(data, (row) => attendanceLink(row.class_id, row.session_id));
+  } catch (error) {
+    box.innerHTML = `<div class="card">${errorStateHtml(error.message)}</div>`;
+    box.querySelector('[data-action="retry"]').addEventListener('click', loadRecent);
+  }
 }
 
 function greeting() {

@@ -1,5 +1,5 @@
 // Small building blocks shared by the Instructor and Student portals.
-import { escapeHtml, formatClockTime } from '../ui.js';
+import { escapeHtml, formatClockTime, formatTimestamp, stateHtml } from '../ui.js';
 
 export const ATTENDANCE_STATUS = Object.freeze({
   present: { label: 'Present', tone: 'success', icon: 'check-circle' },
@@ -59,6 +59,33 @@ export function statusFilters(info, students) {
     ...(LIVE_PHASES.includes(info.phase) ? [['not_scanned', 'Not yet', count('not_scanned')]] : []),
     ['absent', 'Absent', count('absent')],
   ];
+}
+
+// Instructor dashboard card for instructor.getRecentActivity; linkFor(item) -> session URL.
+export function recentActivityHtml({ limit, has_more: hasMore, items }, linkFor) {
+  const tags = (row) => [
+    row.corrected ? '<span class="badge text-bg-light border"><i class="bi bi-pencil-square me-1" aria-hidden="true"></i>Corrected</span>' : '',
+    !row.corrected && row.source === 'manual' ? '<span class="badge text-bg-light border">Manual</span>' : '',
+    row.sync_mode === 'offline' ? '<span class="badge text-bg-light border"><i class="bi bi-cloud-arrow-up me-1" aria-hidden="true"></i>Offline sync</span>' : '',
+  ].join('');
+  const body = items.length
+    ? `<div class="list-group list-group-flush">${items.map((row) => `
+        <a class="list-group-item list-group-item-action d-flex justify-content-between align-items-center gap-2" href="${escapeHtml(linkFor(row))}">
+          <div class="min-w-0">
+            <div class="cell-main text-truncate">${escapeHtml(row.student_name)}</div>
+            <div class="cell-sub">${escapeHtml(row.class_label)} · ${escapeHtml(formatDateShort(row.session_date))} · ${escapeHtml(formatTimestamp(row.scanned_at))}</div>
+          </div>
+          <div class="d-flex flex-wrap justify-content-end gap-1">${attendanceBadge(row.status)}${tags(row)}</div>
+        </a>`).join('')}</div>`
+    : stateHtml({ icon: 'broadcast', title: 'No attendance yet', message: 'Taps and corrections in your classes will appear here.' });
+  return `
+    <div class="card">
+      <div class="card-header border-bottom">
+        <h3 class="card-title-sm">Recent activity</h3>
+        <span class="small text-secondary">${hasMore ? `Showing the latest ${escapeHtml(limit)}` : 'Your active classes'}</span>
+      </div>
+      ${body}
+    </div>`;
 }
 
 // <option>s for an instructor class picker: active classes, then a read-only

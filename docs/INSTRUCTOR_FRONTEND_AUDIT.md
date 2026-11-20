@@ -143,9 +143,9 @@ Ordered. Effort: **S** < 1 h · **M** half a day · **L** about a day. Frontend 
 | IFIX-02 ✅ | Dashboard: `phaseBadge(row)` in `sessionsHtml`; add "N not yet" to the counts. | `instructor-dashboard.js` `sessionsHtml` | S |
 | IFIX-03 ✅ | Attendance: session option label from `phase` + counts; header `phaseBadge(info)`; filters **Present / Late / Absent / Not yet** (Not yet only while `upcoming`/`in_progress`); add a Not yet tile; hide Correct on `upcoming`; reason `maxlength` 500. | `instructor-attendance.js` `loadSessions`, `rosterHtml`, `rowsHtml`, `correctFlow` | S |
 | IFIX-04 ✅ | Reports: "Sessions held" hint wording; legend adds `·` not yet and `–` joined later. Delete the 3 dead `NOT_SIGNED_IN` checks. | `instructor-reports.js` `reportHtml`, all 3 pages | S |
-| **Batch 2: missing pieces** | | | |
-| IFIX-05 | My Account: `instructor/account.html` (`data-role="instructor"`) + nav item `{ section: 'Account', … 'instructor/account.html' }`. | new HTML, `ui.js` `NAVIGATION.instructor` | S |
-| IFIX-06 | Dashboard "Recent activity" card: `instructor.getRecentActivity {limit: 10}` (own fetch, own error state so the dashboard still loads if it fails); time, student, class, status badge, offline/corrected tags. | `instructor-dashboard.js` (new `recentHtml`) | S |
+| **Batch 2: missing pieces**: DONE 2026-11-20 (past classes were done in Batch 1, IFIX-P) | | | |
+| IFIX-05 ✅ | My Account: `instructor/account.html` (`data-role="instructor"`) + nav item `{ section: 'Account', … 'instructor/account.html' }`. | new HTML, `ui.js` `NAVIGATION.instructor` | S |
+| IFIX-06 ✅ | Dashboard "Recent activity" card: `instructor.getRecentActivity {limit: 10}` (own fetch, own error state so the dashboard still loads if it fails); time, student, class, status badge, offline/corrected tags. | `instructor-dashboard.js` (new `recentHtml`) | S |
 | **Batch 3: date filters** | | | |
 | IFIX-07 | Attendance page: From/To inputs (URL params) → `listSessions {class_id, from, to}`; show `range`. | `instructor-attendance.js` `start`, `loadSessions` | M |
 | IFIX-08 | Roster + student history panel: accept `{from, to}` and pass them (Reports and Attendance pass their current range); show the range in the panel. | `instructor-history.js` `openClassRoster`, `openStudentHistory` | S |

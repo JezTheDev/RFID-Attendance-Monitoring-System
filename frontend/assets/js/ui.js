@@ -43,6 +43,7 @@ const NAVIGATION = Object.freeze({
         { id: 'reports', label: 'Class Reports', icon: 'file-earmark-bar-graph', href: 'instructor/reports.html' },
       ],
     },
+    { section: 'Account', items: [{ id: 'account', label: 'My Account', icon: 'person-gear', href: 'instructor/account.html' }] },
   ],
   student: [
     { section: 'Overview', items: [{ id: 'dashboard', label: 'My Attendance', icon: 'speedometer2', href: 'student/index.html' }] },

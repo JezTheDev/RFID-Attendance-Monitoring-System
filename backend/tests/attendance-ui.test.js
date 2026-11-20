@@ -61,6 +61,40 @@ describe('canCorrect', () => {
   });
 });
 
+describe('recentActivityHtml (instructor.getRecentActivity)', () => {
+  const item = (extra = {}) => ({
+    attendance_id: 'ATT-1', session_id: 'SES-1', session_date: '2026-11-16', class_id: 'CLS-1', class_label: 'CPE301 3A',
+    student_id: 'STU-1', student_number: '2024000001', student_name: 'Carla Santos', scanned_at: '2026-11-16T08:05:00+08:00',
+    status: 'present', source: 'device', sync_mode: 'online', corrected: false, ...extra,
+  });
+  const link = (row) => `#${row.session_id}`;
+
+  it('lists each row with student, class, status and a link to its session', () => {
+    const html = ui.recentActivityHtml({ limit: 10, has_more: false, items: [item()] }, link);
+    assert.match(html, /Carla Santos/);
+    assert.match(html, /CPE301 3A/);
+    assert.match(html, /Present/);
+    assert.match(html, /href="#SES-1"/);
+    assert.match(html, /8:05/);
+  });
+  it('escapes names and tags corrected, manual and offline rows', () => {
+    const html = ui.recentActivityHtml({ limit: 10, has_more: true, items: [
+      item({ student_name: '<b>x</b>', corrected: true }),
+      item({ attendance_id: 'ATT-2', source: 'manual', sync_mode: '' }),
+      item({ attendance_id: 'ATT-3', sync_mode: 'offline' }),
+    ] }, link);
+    assert.doesNotMatch(html, /<b>x<\/b>/);
+    assert.match(html, /&lt;b&gt;x&lt;\/b&gt;/);
+    assert.match(html, /Corrected/);
+    assert.match(html, /Manual/);
+    assert.match(html, /Offline sync/);
+    assert.match(html, /latest 10/);
+  });
+  it('shows an empty state', () => {
+    assert.match(ui.recentActivityHtml({ limit: 10, has_more: false, items: [] }, link), /No attendance yet/);
+  });
+});
+
 describe('csvText', () => {
   it('neutralises formulas, quotes commas, and starts with a BOM', () => {
     assert.equal(ui.csvText([['=1+1', 'a,b', '-5', 'ok']]), '﻿\'=1+1,"a,b",\'-5,ok');
