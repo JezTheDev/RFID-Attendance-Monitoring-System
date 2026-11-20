@@ -185,3 +185,16 @@ Tests for all of these are in `backend/tests/wrapup-fixes.test.js`.
 | M4 | LEFT: design trade-off (public login + lockout); no cheap fix without CacheService/rate limiting. |
 | M6 | LEFT: historical enrollment for reports is a design change (M effort). |
 | I2 / P1-P4 | LEFT: production setup (`setupEmptySheets`, `setupSheets` guard); not in this task's scope. |
+
+## 7. Production setup + cleanup status (branch `backend-production-cleanup`)
+
+| Item | Status |
+|---|---|
+| I2 / P1-P2 | **DONE**: `setupEmptySheets()` (every tab + columns from `backend/src/schema.js`, default Settings incl. `roster_version = 1`, View tabs, no fake data, idempotent, refuses on a TEST Sheet). Production needs no `SeedData.gs`. |
+| P3 | **DONE**: `setupSheets()` always requires `TEST_SEED_PASSWORD`. |
+| P4 | **DONE**: `checkSetup()` first line `Environment: TEST` / `Environment: PRODUCTION`. |
+| P5-P8 | **DONE (docs)**: `docs/PRODUCTION_SETUP.md`. P9 (live speed test) and P10 (school approval) are still open. |
+| §4 DELETE rows | **DONE**: xlsx + converter, "Late after" field, demo CSS, `migrateUsersToPasswordLogin` (+ `dropEmptyColumn_`), `backfillOverrideReasons`, `late_grace_minutes` (schema, seed, class actions; an older Sheet's data is ignored). |
+| §4 ARCHIVE rows | **DONE**: `docs/archive/AUDIT_REPORT.md`, `docs/archive/superpowers/`. |
+
+Sections 1-5 above are the review as written on 2026-11-20; file paths there may now be in `docs/archive/` or deleted.

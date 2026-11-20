@@ -7,6 +7,7 @@
 //   Classes:     CLS-0001 (INS-0001, SEC-0001, RM-0001, MON 08:00-10:00)
 //                CLS-0002 (INS-0002, SEC-0002, RM-0002, TUE 08:00-10:00)
 //   Sessions:    SES-0001 (CLS-0001, closed): STU-0001 present, STU-0002 late, STU-0003 nothing
+//   Classes keep an old late_grace_minutes column on purpose: an older Sheet may still have it (ignored).
 //                SES-0002 (CLS-0002, closed): STU-0004 present
 
 export const SESSIONS = Object.freeze({

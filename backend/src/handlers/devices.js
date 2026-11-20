@@ -6,10 +6,10 @@ import { AppError, validationError, cleanText, writeAudit, indexBy, MAX_TEXT } f
 export const DEVICE_STATUSES = Object.freeze(['active', 'maintenance', 'retired']);
 
 // Column order of the Devices tab.
-const DEVICE_COLUMNS = [
+export const DEVICE_COLUMNS = Object.freeze([
   'device_id', 'room_id', 'device_name', 'device_key_hash', 'status', 'firmware_version',
   'battery_voltage', 'wifi_rssi', 'queue_count', 'time_synced', 'last_seen_at', 'last_heartbeat_at', 'notes',
-];
+]);
 
 // What the admin may see (and the AuditLog may store): everything but the hash.
 function publicView(device) {

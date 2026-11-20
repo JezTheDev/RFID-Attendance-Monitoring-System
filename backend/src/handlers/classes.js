@@ -67,7 +67,6 @@ function classRow(db, m, klass) {
     section_label: sectionLabel(m, klass.section_id),
     instructor_id: klass.instructor_id,
     instructor_name: fullName(m.instructors.get(klass.instructor_id)),
-    late_grace_minutes: klass.late_grace_minutes,
     status: klass.status,
     enrolled: enrolledIds(db, klass.class_id).filter((id) => m.students.get(id)?.account_status === 'active').length,
     schedules: activeSchedules(db, klass.class_id).map((row) => scheduleView(m, row)),
@@ -135,16 +134,6 @@ export function getClass(db, { class_id: classId }) {
 
 /* ---------------- classes ---------------- */
 
-function graceValue(errors, value) {
-  const text = cleanText(value);
-  if (text === '') return '';
-  const number = Number(text);
-  if (!Number.isInteger(number) || number < 0 || number > 60) {
-    errors.late_grace_minutes = 'Enter whole minutes from 0 to 60, or leave blank to use the default.';
-  }
-  return String(number);
-}
-
 export function createClass(db, input, session, ctx) {
   const m = maps(db);
   const errors = {};
@@ -154,7 +143,6 @@ export function createClass(db, input, session, ctx) {
     section_id: cleanText(input.section_id),
     instructor_id: cleanText(input.instructor_id),
   };
-  const lateGrace = graceValue(errors, input.late_grace_minutes);
   if (!m.terms.has(value.term_id)) errors.term_id = 'Choose a term.';
   if (m.subjects.get(value.subject_id)?.status !== 'active') errors.subject_id = 'Choose an active subject.';
   if (m.sections.get(value.section_id)?.status !== 'active') errors.section_id = 'Choose an active section.';
@@ -172,7 +160,6 @@ export function createClass(db, input, session, ctx) {
     section_id: value.section_id,
     instructor_id: value.instructor_id,
     class_label: `${m.subjects.get(value.subject_id).subject_code} - ${m.sections.get(value.section_id).section_name}`,
-    late_grace_minutes: lateGrace,
     status: 'active',
   };
   db.Classes.push(klass);
@@ -190,7 +177,6 @@ export function updateClass(db, input, session, ctx) {
   const klass = findClass(db, input.class_id);
   const errors = {};
   const instructorId = cleanText(input.instructor_id);
-  const lateGrace = graceValue(errors, input.late_grace_minutes);
   if (m.instructors.get(instructorId)?.account_status !== 'active') errors.instructor_id = 'Choose an active instructor.';
   if (!errors.instructor_id && instructorId !== klass.instructor_id) {
     const clash = scheduleClash(db, m, {
@@ -201,10 +187,9 @@ export function updateClass(db, input, session, ctx) {
   }
   if (Object.keys(errors).length) throw validationError(errors);
 
-  const before = { instructor_id: klass.instructor_id, late_grace_minutes: klass.late_grace_minutes };
+  const before = { instructor_id: klass.instructor_id };
   klass.instructor_id = instructorId;
-  klass.late_grace_minutes = lateGrace;
-  writeAudit(db, session, { action: 'CLASS_UPDATE', entityType: 'Classes', entityId: klass.class_id, before, after: { instructor_id: instructorId, late_grace_minutes: lateGrace } }, ctx);
+  writeAudit(db, session, { action: 'CLASS_UPDATE', entityType: 'Classes', entityId: klass.class_id, before, after: { instructor_id: instructorId } }, ctx);
   return { class_id: klass.class_id };
 }
 

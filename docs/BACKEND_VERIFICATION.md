@@ -173,7 +173,7 @@ Test names are from `backend/tests/<file>`.
 | C16 | Last active admin cannot be disabled or demoted | CL | `admins.setAdminStatus`; no role-change action | `users.test.js` "cannot be disabled", "no action can change a user's role" | MET | |
 | C17 | AuditLog login events, never the password | CL | `account.js` `audit()` | `auth.test.js` | MET | |
 | C18 | Bootstrap admin (editor-only) | CL | `createBootstrapAdmin` | `migration.test.js`, `server-gs.test.js` | MET | |
-| C19 | Idempotent migration of the existing Sheet | CL | `migrateUsersToPasswordLogin` | `migration.test.js` "is idempotent"; `server-gs.test.js` | MET | |
+| C19 | Idempotent migration of the existing Sheet | CL | (removed 2026-11-20: `migrateUsersToPasswordLogin` was a one-time job) | — | N/A | New Sheets use `setupEmptySheets` (`docs/PRODUCTION_SETUP.md`). |
 | C20 | Hashed session tokens; LockService on writes | CL | `session.js`; `Server.gs:76-89` | `auth.test.js` "only the hash is stored"; `server-gs.test.js` lock tests | MET | |
 | C21 | No fake success | CL | unknown → `UNKNOWN_ACTION`; errors are `AppError` | `auth.test.js` "rejects unknown actions" | MET | No stub actions exist. |
 
@@ -181,11 +181,11 @@ Test names are from `backend/tests/<file>`.
 
 | Status | Count |
 |---|---|
-| MET | 82 |
+| MET | 81 |
 | PARTIAL | 1 |
 | MISSING | 0 |
 | WRONG | 0 |
-| N/A | 2 |
+| N/A | 3 |
 | **Total** | **85** |
 
 MET includes **MET (backend)** rows (23 of them): the server part is done and tested, and the row's Notes name what still remains (frontend page or ESP32 firmware). No firmware is in this repo yet.
@@ -259,14 +259,14 @@ I compared the 19 seed tabs (= `setupSheets` columns) with what `backend/src` re
 | Students, Instructors, Programs, Sections, Subjects, Terms, Rooms | Yes | — | OK. |
 | RfidCards | Yes | — | OK. `roster_version` is bumped on every card change (`cards.test.js`) and read by `device.getRoster`. |
 | **Devices** | Yes | — | Used by device auth, `heartbeat` and the admin device actions (step 4b/4e). The heartbeat's `uptime_seconds` is validated but has no column (optional). |
-| Classes | Yes | — | `late_grace_minutes` is only stored/displayed: a tap is always PRESENT (decision, see CLAUDE.md). |
+| Classes | Yes | — | `late_grace_minutes` removed from the schema (a tap is always PRESENT); an older Sheet's column is ignored. |
 | Schedules | Yes | — | OK. BUG-3 fixed; `listScheduleClashes` reports old clashes. |
 | Enrollments | Yes | — | OK. BUG-2 fixed (a section change moves enrollments). |
 | **ClassSessions** | Yes | `opened_by`, `closed_by` | Created by `submitScans` on the first tap, one per (schedule_id, session_date) (`resolveScan`). Ended = computed from the time (`sessionPhase`). |
 | Attendance | Yes | — | OK. Unique (session_id, student_id) → `DUPLICATE`; unique `scan_id` → `ALREADY_RECORDED`; `scanned_at` stored as Manila ISO (`submit-scans.test.js`). |
 | **ScanLog** | Yes | — | Written for every tap by `submitScans`; `scan_id` lookup gives `ALREADY_RECORDED`. Still no **`time_quality`** column (stored on Attendance rows only, so an `INVALID_TIME` scan's reason is not kept) and no `card_id`. |
 | AuditLog | Yes | — | BUG-5 FIXED. Step 4a: write actions load only its header + last row; the portals no longer read it (correction reasons are in `Attendance.override_reason`). |
-| **Settings** | Yes (+2 login keys) | not read: `late_grace_minutes` (kept, unused by decision) | `early_window_minutes`, `accept_after_end_minutes` → `sessions.js`; `duplicate_window_minutes`, `heartbeat_interval_seconds` → `device.getRoster`; 10 keys editable via `admin.updateSettings`. `allowed_email_rule` removed (correct). |
+| **Settings** | Yes (+2 login keys) | — (`late_grace_minutes` removed; an old row is ignored) | `early_window_minutes`, `accept_after_end_minutes` → `sessions.js`; `duplicate_window_minutes`, `heartbeat_interval_seconds` → `device.getRoster`; 10 keys editable via `admin.updateSettings`. `allowed_email_rule` removed (correct). |
 
 Missing tables: none. Step 4 is built on this schema. Only open column gap: ScanLog `time_quality` (and `card_id`).
 

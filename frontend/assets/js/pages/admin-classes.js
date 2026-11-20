@@ -222,10 +222,9 @@ function detailsHtml({ class: klass, students }) {
     </div>
     <dl class="row small mt-3 mb-0">
       <dt class="col-4 fw-normal text-secondary">Instructor</dt><dd class="col-8 fw-semibold">${escapeHtml(klass.instructor_name)}</dd>
-      <dt class="col-4 fw-normal text-secondary">Late after</dt><dd class="col-8">${klass.late_grace_minutes === '' ? 'Default grace period (Settings)' : `${escapeHtml(klass.late_grace_minutes)} minutes from start`}</dd>
     </dl>
     <div class="d-flex flex-wrap gap-2 my-3">
-      ${button('edit', 'pencil', 'Edit instructor / grace')}
+      ${button('edit', 'pencil', 'Edit instructor')}
       ${active ? button('status', 'slash-circle', 'Deactivate', 'outline-danger', 'inactive') : button('status', 'check-circle', 'Activate', 'outline-primary', 'active')}
     </div>
 
@@ -273,16 +272,6 @@ function selectField(name, label, options, value = '', help = '') {
     </div>`;
 }
 
-function graceField(value = '') {
-  return `
-    <div class="col-12">
-      <label class="form-label" for="f_late_grace_minutes">Late after (minutes) <span class="text-secondary">(optional)</span></label>
-      <input type="number" class="form-control" id="f_late_grace_minutes" name="late_grace_minutes" min="0" max="60" value="${escapeHtml(value)}" placeholder="Default">
-      <div class="invalid-feedback" data-error-for="late_grace_minutes"></div>
-      <div class="form-text">Taps up to this many minutes after the start count as Present. Leave blank to use the default in Settings.</div>
-    </div>`;
-}
-
 async function createClassFlow(state, done, instructorId = '') {
   const o = state.options;
   const activeTerm = o.terms.find((t) => t.active)?.value ?? '';
@@ -293,7 +282,6 @@ async function createClassFlow(state, done, instructorId = '') {
       ${selectField('subject_id', 'Subject', o.subjects)}
       ${selectField('section_id', 'Section', o.sections, '', 'All active students of this section are enrolled automatically. You can add or drop students afterwards.')}
       ${selectField('instructor_id', 'Instructor', o.instructors, instructorId)}
-      ${graceField()}
     </div>`,
     submitLabel: 'Add class',
     onSubmit: (values) => callApi('admin.createClass', values),
@@ -310,7 +298,6 @@ async function editClassFlow(state, refresh) {
     title: `Edit ${klass.class_label}`,
     bodyHtml: `<div class="row g-3">
       ${selectField('instructor_id', 'Instructor', state.options.instructors, klass.instructor_id, 'The new instructor sees this class, its sessions and reports right away.')}
-      ${graceField(klass.late_grace_minutes)}
     </div>`,
     submitLabel: 'Save changes',
     onSubmit: (values) => callApi('admin.updateClass', { ...values, class_id: klass.class_id }),

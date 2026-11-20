@@ -18,8 +18,9 @@
  *   PASSWORD_PEPPER              long random secret mixed into every password hash.
  *                                Changing it later makes EVERY password invalid.
  *   TEST_SEED_PASSWORD           TEST Sheet only: password of the FAKE seeded users (setupSheets).
- *                                Also the test-Sheet marker (issueTestDeviceKey): NEVER set
- *                                it on the production Sheet.
+ *                                Also the test-Sheet marker (setupSheets, issueTestDeviceKey,
+ *                                checkSetup): NEVER set it on the production Sheet.
+ * Production Sheet: setupEmptySheets() (no fake data), see docs/PRODUCTION_SETUP.md.
  *   BOOTSTRAP_ADMIN_USERNAME     only for createBootstrapAdmin()
  *   BOOTSTRAP_ADMIN_PASSWORD     only for createBootstrapAdmin(); DELETE it afterwards
  *   SPREADSHEET_ID               only if this script is NOT created from inside the Sheet
@@ -27,7 +28,6 @@
  * once (DEFAULT_*_PASSWORD properties are no longer used).
  */
 
-var AUTH_SESSION_HEADERS = ['token_hash', 'user_id', 'created_at', 'expires_at', 'revoked'];
 var LOCK_WAIT_MS = 10000; // answer SERVER_BUSY before the device's 20 s HTTP timeout
 var VIEW_PREFIX = 'View - ';
 var REQUIRED_PROPERTIES = ['PASSWORD_PEPPER'];
@@ -185,36 +185,6 @@ function createBootstrapAdmin() {
 }
 
 /**
- * Moves an existing (Google Sign-In era) Sheet to username + password login.
- * MAKE A COPY OF THE SPREADSHEET FIRST (File > Make a copy).
- * - adds the missing Users columns, removes google_sub
- * - usernames: students = student number; instructors/admins = email local part
- * - users without a password get NO password (no shared default): an admin
- *   must use Reset password, which gives them a temporary one
- * - Settings: removes allowed_email_rule, adds max_login_attempts / lockout_minutes
- * Safe to run again: the second run reports "nothing to change".
- */
-function migrateUsersToPasswordLogin() {
-  runEditorJob_(function (db, ctx) {
-    var changes = RFID.migrateUsersToPasswordLogin(db, ctx);
-    var lines = changes.length ? changes : ['Nothing to change: the Users tab is already migrated.'];
-    var noPassword = db.Users.filter(function (u) { return !u.password_hash; }).length;
-    if (noPassword) lines.push('WARNING: ' + noPassword + ' user(s) have no password and cannot sign in. An admin must use Reset password for each.');
-    return lines;
-  });
-  dropEmptyColumn_('Users', 'google_sub');
-}
-
-/**
- * Copies correction reasons from AuditLog into Attendance.override_reason for
- * rows corrected before the portals read the reason from there. Safe to run
- * again ("Nothing to change"). Run once after deploying step 4a.
- */
-function backfillOverrideReasons() {
-  runEditorJob_(function (db) { return RFID.backfillOverrideReasons(db); });
-}
-
-/**
  * Lists ACTIVE classes (same term) that share a room, an instructor or a
  * section at the same day and time. Read-only: no lock, nothing is saved.
  * Fix each clash in the Admin portal (move or deactivate a schedule).
@@ -272,24 +242,6 @@ function cleanupLiveTest() {
   runEditorJob_(function (db, ctx) { return RFID.cleanupLiveTest(db, ctx); });
 }
 
-// Deletes a column by header name, but only if every value below the header is empty.
-function dropEmptyColumn_(tab, header) {
-  var sheet = spreadsheet_().getSheetByName(tab);
-  if (!sheet || sheet.getLastColumn() === 0) return;
-  var headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0];
-  var index = headers.indexOf(header);
-  if (index === -1) return;
-  if (sheet.getLastRow() > 1) {
-    var values = sheet.getRange(2, index + 1, sheet.getLastRow() - 1, 1).getDisplayValues();
-    if (values.some(function (row) { return row[0] !== ''; })) {
-      console.log(tab + '.' + header + ' still has values, column kept.');
-      return;
-    }
-  }
-  sheet.deleteColumn(index + 1);
-  console.log(tab + ': removed the empty "' + header + '" column.');
-}
-
 /**
  * Times password hashing here in Apps Script, to choose PASSWORD_HASH_ITERATIONS
  * (backend/src/auth/passwords.js). Aim for about 200-500 ms per hash.
@@ -334,7 +286,7 @@ function loadDb_(spec, label, isWrite) {
     if (!isViewTab_(sheet.getName())) sheets[sheet.getName()] = sheet; // "View - …" tabs are for people, not data
   });
   state.sheets = sheets;
-  var full = spec ? spec.read : uniq_(Object.keys(sheets).concat(Object.keys(SEED_DATA)));
+  var full = spec ? spec.read : uniq_(Object.keys(sheets).concat(Object.keys(RFID.TAB_COLUMNS)));
   readTabs_(state, full, spec ? spec.append : []);
   state.db = spec ? RFID.guardDb(state.raw, spec, function (name) {
     // Lenient on the live site: slower, never broken. tabs.test.js fails instead.
@@ -530,9 +482,7 @@ function cellRow_(values, width) {
 }
 
 function defaultHeaders_(name) {
-  if (name === 'AuthSessions') return AUTH_SESSION_HEADERS.slice();
-  var sample = (SEED_DATA[name] || [])[0];
-  return sample ? Object.keys(sample) : [];
+  return (RFID.TAB_COLUMNS[name] || []).slice();
 }
 
 /* ===================== One-time setup (run from the editor) ===================== */
@@ -547,15 +497,15 @@ function defaultHeaders_(name) {
  * Safe to run more than once. TEST spreadsheet only.
  */
 function setupSheets() {
+  // Always: TEST_SEED_PASSWORD marks a TEST Sheet. Without it this could fill a
+  // production Sheet with fake people (use setupEmptySheets there).
+  var missing = REQUIRED_PROPERTIES.concat(['TEST_SEED_PASSWORD']).filter(function (name) { return !props_().getProperty(name); });
+  if (missing.length) throw new Error('setupSheets is for a TEST Sheet only. Set these Script Properties first: ' + missing.join(', ') + '. For the production Sheet run setupEmptySheets instead.');
   var ss = spreadsheet_();
   var report = [];
   var usersSheet = ss.getSheetByName('Users');
   var seedsUsers = !usersSheet || usersSheet.getLastRow() <= 1;
-  if (seedsUsers) {
-    var missing = REQUIRED_PROPERTIES.concat(['TEST_SEED_PASSWORD']).filter(function (name) { return !props_().getProperty(name); });
-    if (missing.length) throw new Error('Set these Script Properties first (the fake seeded users need a password): ' + missing.join(', '));
-  }
-  Object.keys(SEED_DATA).forEach(function (name) {
+  Object.keys(RFID.TAB_COLUMNS).forEach(function (name) {
     var sheet = ss.getSheetByName(name) || ss.insertSheet(name);
     var headers = defaultHeaders_(name);
     if (!headers.length) { report.push(name + ': no columns known, skipped'); return; }
@@ -564,7 +514,7 @@ function setupSheets() {
     sheet.getRange(1, 1, sheet.getMaxRows(), headers.length).setNumberFormat('@');
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
     sheet.setFrozenRows(1);
-    var rows = SEED_DATA[name].map(function (row) {
+    var rows = (SEED_DATA[name] || []).map(function (row) {
       return headers.map(function (col) { return row[col] === undefined ? '' : String(row[col]); });
     });
     if (rows.length) sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
@@ -577,6 +527,56 @@ function setupSheets() {
     runEditorJob_(function (db, ctx) { return RFID.seedTestPasswords(db, ctx); });
   }
   setupViews();
+}
+
+/**
+ * PRODUCTION Sheet setup (docs/PRODUCTION_SETUP.md). Creates every missing tab
+ * with its columns (plain text), adds missing columns at the end of existing
+ * tabs, adds missing Settings rows with their defaults (roster_version = 1), and
+ * builds the "View" tabs. NO fake data. Never changes existing cells, so it is
+ * safe to run again. Refuses on a TEST Sheet (TEST_SEED_PASSWORD set).
+ */
+function setupEmptySheets() {
+  if (props_().getProperty('TEST_SEED_PASSWORD')) {
+    throw new Error('TEST_SEED_PASSWORD is set, so this is a TEST Sheet: use setupSheets there. Never set TEST_SEED_PASSWORD on the production Sheet.');
+  }
+  var ss = spreadsheet_();
+  var report = [];
+  Object.keys(RFID.TAB_COLUMNS).forEach(function (name) {
+    var columns = RFID.TAB_COLUMNS[name];
+    var sheet = ss.getSheetByName(name);
+    if (!sheet) {
+      sheet = ss.insertSheet(name);
+      report.push(name + ': created');
+    }
+    var have = sheet.getLastColumn() ? sheet.getRange(1, 1, 1, sheet.getLastColumn()).getDisplayValues()[0].map(function (h) { return String(h).trim(); }) : [];
+    var missing = columns.filter(function (col) { return have.indexOf(col) === -1; });
+    if (!missing.length) return;
+    var start = have.length + 1;
+    sheet.getRange(1, start, sheet.getMaxRows(), missing.length).setNumberFormat('@');
+    sheet.getRange(1, start, 1, missing.length).setValues([missing]).setFontWeight('bold');
+    sheet.setFrozenRows(1);
+    if (have.length) report.push(name + ': added column(s) ' + missing.join(', '));
+  });
+
+  var settings = ss.getSheetByName('Settings');
+  var head = settings.getRange(1, 1, 1, settings.getLastColumn()).getDisplayValues()[0];
+  var keyCol = head.indexOf('key');
+  var keys = settings.getLastRow() > 1
+    ? settings.getRange(2, keyCol + 1, settings.getLastRow() - 1, 1).getDisplayValues().map(function (r) { return String(r[0]).trim(); })
+    : [];
+  var rows = RFID.DEFAULT_SETTINGS
+    .filter(function (row) { return keys.indexOf(row.key) === -1; })
+    .map(function (row) { return head.map(function (col) { return row[col] === undefined ? '' : String(row[col]); }); });
+  if (rows.length) {
+    settings.getRange(settings.getLastRow() + 1, 1, rows.length, head.length).setValues(rows);
+    report.push('Settings: added ' + rows.map(function (r) { return r[keyCol]; }).join(', '));
+  }
+
+  var blank = ss.getSheetByName('Sheet1');
+  if (blank && ss.getSheets().length > 1 && blank.getLastRow() === 0) ss.deleteSheet(blank);
+  setupViews();
+  console.log(report.length ? report.join('\n') : 'Nothing to change: every tab, column and Settings row is already there.');
 }
 
 /**
@@ -657,11 +657,12 @@ function buildView_(ss, name, columns, rowsExistColumn, note) {
   sheet.setTabColor('#7a1f1f');
 }
 
-/** Quick check from the editor: lists each tab and how many records it has. */
+/** Quick check from the editor: TEST or PRODUCTION, then each tab and how many records it has. */
 function checkSetup() {
+  var props = props_().getProperties();
+  console.log(props.TEST_SEED_PASSWORD ? 'Environment: TEST (TEST_SEED_PASSWORD is set; never real people here)' : 'Environment: PRODUCTION');
   var db = loadDb_(null, 'checkSetup', false).db;
   console.log(Object.keys(db).map(function (name) { return name + ': ' + db[name].length; }).join('\n'));
-  var props = props_().getProperties();
   // Only says whether each property is set, never its value.
   REQUIRED_PROPERTIES.forEach(function (name) { console.log(name + ' set: ' + Boolean(props[name])); });
   if (props.BOOTSTRAP_ADMIN_PASSWORD) console.warn('BOOTSTRAP_ADMIN_PASSWORD is still set. Delete it once the first admin exists.');

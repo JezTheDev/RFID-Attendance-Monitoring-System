@@ -1,19 +1,19 @@
-// Admin Settings: the editable rows of the Settings tab.
-// roster_version (system) and late_grace_minutes (unused: a tap is always
-// PRESENT) are left out on purpose; their rows stay in the Sheet.
+// Admin Settings: the editable rows of the Settings tab, with their defaults
+// (schema.js DEFAULT_SETTINGS). roster_version is system-only. An older Sheet may
+// still have a late_grace_minutes row: it is ignored (a tap is always PRESENT).
 import { validationError, writeAudit, bumpRosterVersion } from '../utils.js';
 
 export const EDITABLE_SETTINGS = Object.freeze({
-  duplicate_window_minutes: { min: 0, max: 60, decimal: false, description: 'Device double-tap cooldown (minutes)' },
-  early_window_minutes: { min: 0, max: 60, decimal: false, description: 'Minutes before start when scans are accepted' },
-  accept_after_end_minutes: { min: 0, max: 60, decimal: false, description: 'Minutes after end when scans are still accepted' },
-  low_battery_voltage: { min: 3, max: 4.2, decimal: true, description: 'Dashboard low-battery threshold (V)' },
-  device_offline_after_minutes: { min: 1, max: 1440, decimal: false, description: 'Device shown offline after no contact (minutes)' },
-  heartbeat_interval_seconds: { min: 30, max: 3600, decimal: false, description: 'Device heartbeat interval (seconds)' },
-  session_token_hours: { min: 1, max: 24, decimal: false, description: 'Web session lifetime (hours)' },
-  max_login_attempts: { min: 3, max: 20, decimal: false, description: 'Failed sign-ins in a row before the account is locked' },
-  lockout_minutes: { min: 1, max: 1440, decimal: false, description: 'How long a locked account stays locked (minutes)' },
-  temp_password_days: { min: 1, max: 30, decimal: false, description: 'Days a temporary password (new account / reset) can be used' },
+  duplicate_window_minutes: { default: '5', min: 0, max: 60, decimal: false, description: 'Device double-tap cooldown (minutes)' },
+  early_window_minutes: { default: '15', min: 0, max: 60, decimal: false, description: 'Minutes before start when scans are accepted' },
+  accept_after_end_minutes: { default: '0', min: 0, max: 60, decimal: false, description: 'Minutes after end when scans are still accepted' },
+  low_battery_voltage: { default: '3.5', min: 3, max: 4.2, decimal: true, description: 'Dashboard low-battery threshold (V)' },
+  device_offline_after_minutes: { default: '10', min: 1, max: 1440, decimal: false, description: 'Device shown offline after no contact (minutes)' },
+  heartbeat_interval_seconds: { default: '300', min: 30, max: 3600, decimal: false, description: 'Device heartbeat interval (seconds)' },
+  session_token_hours: { default: '8', min: 1, max: 24, decimal: false, description: 'Web session lifetime (hours)' },
+  max_login_attempts: { default: '5', min: 3, max: 20, decimal: false, description: 'Failed sign-ins in a row before the account is locked' },
+  lockout_minutes: { default: '15', min: 1, max: 1440, decimal: false, description: 'How long a locked account stays locked (minutes)' },
+  temp_password_days: { default: '7', min: 1, max: 30, decimal: false, description: 'Days a temporary password (new account / reset) can be used' },
 });
 
 // Devices get these through device.getRoster, so a change bumps roster_version.

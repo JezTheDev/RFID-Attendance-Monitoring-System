@@ -572,8 +572,7 @@
 }
 
 /* ---------- Buttons ---------- */
-.auth-btn,
-#signInArea .btn {
+.auth-btn {
   position: relative;
   overflow: hidden;
   isolation: isolate;
@@ -617,28 +616,9 @@
   box-shadow: 0 10px 24px -10px rgba(224, 165, 38, .8);
 }
 
-/* the demo button rendered by login.js — gold, so it reads as secondary */
-#signInArea .btn {
-  color: var(--brand-900);
-  background: var(--gold-100);
-  border: 1.5px solid #efd48f;
-  box-shadow: none;
-}
-#signInArea .btn:hover {
-  color: var(--brand-900);
-  background: #fbe5ad;
-  border-color: var(--gold-500);
-  box-shadow: 0 10px 22px -12px rgba(185, 130, 26, .7);
-}
-#signInArea { display: grid; gap: .6rem; }
-#signInArea p,
-#signInArea .small { font-size: .8rem; color: var(--ink-muted); margin: 0; }
-
 /* lift, press, icon nudge */
-.auth-btn:hover,
-#signInArea .btn:hover { transform: translateY(-2px); }
-.auth-btn:active,
-#signInArea .btn:active { transform: translateY(0) scale(.98); transition-duration: .06s; }
+.auth-btn:hover { transform: translateY(-2px); }
+.auth-btn:active { transform: translateY(0) scale(.98); transition-duration: .06s; }
 .auth-btn .bi { transition: transform .25s var(--auth-ease); }
 .auth-btn:hover .bi-arrow-right,
 .auth-btn:hover .bi-box-arrow-in-right,
@@ -646,8 +626,7 @@
 .auth-btn:hover .bi-arrow-left { transform: translateX(-4px); }
 
 /* shine sweep */
-.auth-btn::before,
-#signInArea .btn::before {
+.auth-btn::before {
   content: "";
   position: absolute;
   top: 0;
@@ -660,11 +639,9 @@
   transition: left .65s var(--auth-ease);
   pointer-events: none;
 }
-.auth-btn:hover::before,
-#signInArea .btn:hover::before { left: 120%; }
+.auth-btn:hover::before { left: 120%; }
 
-.auth-btn:focus-visible,
-#signInArea .btn:focus-visible {
+.auth-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px #fff, 0 0 0 6px var(--gold-500);
 }
@@ -978,20 +955,4 @@
   .auth-splash *,
   .auth-splash *::before,
   .auth-splash *::after { animation: none !important; }
-}
-/* Three demo buttons: admin on top, instructor + student side by side */
-#signInArea .demo-roles {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: .5rem;
-}
-#signInArea .demo-roles [data-demo-role="admin"] { grid-column: 1 / -1; }
-#signInArea .demo-roles .btn-outline-primary {
-  min-height: 44px;
-  padding: 0 .75rem;
-  font-size: .85rem;
-  background: #fff;
-}
-@media (max-width: 360px) {
-  #signInArea .demo-roles { grid-template-columns: 1fr; }
 }

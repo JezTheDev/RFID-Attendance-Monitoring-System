@@ -3,8 +3,9 @@
 IoT attendance for PSU Computer Engineering: **ESP32 + MFRC522 → Google Apps
 Script Web App → private Google Sheet**. Static Bootstrap 5 site on GitHub
 Pages with Admin, Instructor and Student portals. Current state and known
-issues: `docs/BACKEND_VERIFICATION.md` and `docs/FINAL_BACKEND_REVIEW.md`
-(`docs/AUDIT_REPORT.md` is the old 2026-11-18 audit).
+issues: `docs/BACKEND_VERIFICATION.md` and `docs/FINAL_BACKEND_REVIEW.md`.
+Production setup: `docs/PRODUCTION_SETUP.md`. Old audit and plan/spec docs:
+`docs/archive/` (history only, not current).
 
 ## Decisions (newer than any other doc in this repo)
 
@@ -30,14 +31,15 @@ backend/
     actions.js         Action table: name -> { run, mode, role, reads, writes, appends }
                        + runAction() gate, tabsFor(), guardDb()
                        (role: 'public' | 'any' | 'admin' | 'instructor' | 'student')
-    maintenance.js     Editor-only jobs: backfillOverrideReasons, findScheduleClashes,
+    schema.js          TAB_COLUMNS (every tab + columns) and DEFAULT_SETTINGS rows
+    maintenance.js     Editor-only jobs: findScheduleClashes,
                        prepareLiveTest / cleanupLiveTest (TEST Sheet; marker = AuditLog
                        LIVE_TEST_SCHEDULE row)
     sessions.js        Session engine (pure): resolveScan (tap -> session decision, no writes),
                        sessionPhase, missingStatus ('not_scanned' until the end, then 'absent')
     auth/              passwords (hash/verify), context (ctx), session, account
                        (login/me/changePassword/logout), admin-users (reset/unlock,
-                       new user rows), migration (migrate + bootstrap admin),
+                       new user rows), migration (bootstrap admin, seedTestPasswords),
                        device-auth (authenticateDevice, issueTestDeviceKey),
                        crypto-apps-script (Utilities adapter)
     utils.js           AppError, validation, Manila time, audit log, ids
@@ -51,23 +53,24 @@ backend/
                        tabs.test.js checks every action's tab declarations
   apps-script/
     Server.gs          Hand-written: calls RFID.runAction, Sheet read/write, editor-only
-                       jobs (setupSheets, createBootstrapAdmin, migrateUsersToPasswordLogin,
-                       backfillOverrideReasons, listScheduleClashes, benchmarkPasswordHash,
+                       jobs (setupEmptySheets [production], setupSheets [TEST],
+                       createBootstrapAdmin, listScheduleClashes, benchmarkPasswordHash,
                        checkSetup, issueTestDeviceKey, prepareLiveTest,
                        cleanupLiveTest [last three: TEST Sheet only])
     Bundle.gs          GENERATED from backend/src — do not edit
-    SeedData.gs        GENERATED from backend/seed/seed-data.json — do not edit
+    SeedData.gs        GENERATED from backend/seed/seed-data.json — do not edit (TEST only;
+                       never in the production project)
     appsscript.json    Manifest (Asia/Manila, V8)
 frontend/              Static site (index.html = login; admin/, instructor/, student/)
   assets/js/           config.js (API_URL, TIMEZONE), api.js (callApi), auth, ui, pages/, components/
 tools/
   build_apps_script.mjs   backend/src + seed JSON -> Bundle.gs + SeedData.gs
-  xlsx_to_seed_data.py    docs/RFID_Test_Data.xlsx -> backend/seed/seed-data.json (needs openpyxl)
   measure_device_api.mjs  tabs/rows read + written per device.* action (fake Apps Script)
   measure_admin_reports.mjs tabs/rows read per admin.listAttendance / getAttendanceReport
   live_device_test.mjs    step 4f: real device requests to the DEPLOYED Web App (env vars;
                           backend/README.md "Live test (4f)")
-docs/                  Architecture, Device API spec, audit report, plans/specs
+docs/                  Architecture, Device API spec, verification + final review,
+                       PRODUCTION_SETUP.md; archive/ = old audit + plans/specs
 ```
 
 ## Build and deploy the Apps Script
@@ -77,39 +80,34 @@ node tools/build_apps_script.mjs     # regenerates Bundle.gs and SeedData.gs
 ```
 
 Then in the Apps Script editor: paste `Server.gs`, `Bundle.gs`, `SeedData.gs`
-(and `appsscript.json` if changed) → Save → **Deploy → Manage deployments →
+(TEST project only) (and `appsscript.json` if changed) → Save → **Deploy → Manage deployments →
 Edit → New version → Deploy**. Saving alone does not update the live Web App.
 `setupSheets()` creates missing tabs and fills only EMPTY tabs with the fake
-seed data — run it only on a TEST spreadsheet.
+seed data; it refuses unless `TEST_SEED_PASSWORD` is set (TEST spreadsheet only).
 
 ### Script Properties (values never in the repo)
 
 `PASSWORD_PEPPER` (never change once set; the only required one); only for the
 first admin: `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` (delete after);
 TEST Sheet only: `TEST_SEED_PASSWORD` (password of the fake seeded users). It is
-also the **test-Sheet marker** (`issueTestDeviceKey` refuses without it), so it
+also the **test-Sheet marker** (`setupSheets` / `issueTestDeviceKey` refuse without
+it, `setupEmptySheets` refuses with it, `checkSetup` prints the environment), so it
 must **never** be set on the production Sheet;
 optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
 `ALLOW_TEST_LOGIN`, `DEFAULT_STUDENT_PASSWORD`, `DEFAULT_INSTRUCTOR_PASSWORD`,
 `DEFAULT_ADMIN_PASSWORD`.
 
-### Moving a deployed Sheet to password login (in this order)
+### Production Sheet
 
-1. `npm test` and `node tools/build_apps_script.mjs`.
-2. Google Sheets: **File → Make a copy** of the live spreadsheet (backup).
-3. Script Properties: add the pepper; delete `GOOGLE_CLIENT_ID` and `ALLOW_TEST_LOGIN`.
-4. Paste `Server.gs`, `Bundle.gs`, `SeedData.gs`, `appsscript.json` → Save.
-5. Run `migrateUsersToPasswordLogin` (log lists every change; rerun = "Nothing to change").
-   Users without a password get none; an admin resets each (temporary password).
-6. If there is no active admin: set the two `BOOTSTRAP_ADMIN_*` properties, run
-   `createBootstrapAdmin`, then delete `BOOTSTRAP_ADMIN_PASSWORD`.
-7. Run `benchmarkPasswordHash` and `checkSetup` (also warns if Settings
-   `roster_version` is missing/< 1 or `low_battery_voltage` is empty/not a number).
-   After deploying step 4a (tab declarations) also run `backfillOverrideReasons`
-   once (copies old correction reasons into Attendance) and `listScheduleClashes`
-   (read-only report).
-8. Deploy → Manage deployments → Edit → New version → Deploy.
-9. Publish the frontend (GitHub Pages) — the old site cannot sign in anymore.
+Follow `docs/PRODUCTION_SETUP.md` step by step. Short version: new Sheet +
+bound script (no `SeedData.gs`) → new `PASSWORD_PEPPER` + `BOOTSTRAP_ADMIN_*` →
+`setupEmptySheets` (every tab + columns, default Settings incl. `roster_version`
+= 1, View tabs; no fake data; idempotent; refuses if `TEST_SEED_PASSWORD` is set)
+→ `createBootstrapAdmin` → delete `BOOTSTRAP_ADMIN_PASSWORD` → `checkSetup`
+(first line `Environment: PRODUCTION`) → deploy → frontend `API_URL`.
+`setupSheets` (fake data) ALWAYS requires `TEST_SEED_PASSWORD`.
+Tab columns and default Settings live in `backend/src/schema.js`
+(`TAB_COLUMNS`, `DEFAULT_SETTINGS`); the seed data must match them (test).
 
 ## Auth rules (backend/src/auth)
 
@@ -183,8 +181,10 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
 
 - `admin.getSettings` → `items: [{key, value, description, min, max, decimal}]`
   for the 10 editable keys (`EDITABLE_SETTINGS` in `handlers/settings.js`).
-  `roster_version` (system) and `late_grace_minutes` (unused: a tap is always
-  PRESENT; row kept) are hidden and not editable.
+  `roster_version` is system-only (hidden, not editable). Each editable key has a
+  `default` (used by `setupEmptySheets`).
+- `late_grace_minutes` is gone (a tap is always PRESENT): not in the schema,
+  seed or defaults; an older Sheet's Settings row / Classes column is ignored.
 - `admin.updateSettings {changes: {key: value}}`: all-or-nothing
   (`VALIDATION_ERROR`, fields named by key); one `UPDATE_SETTINGS` audit row
   with before/after of changed keys; changing `duplicate_window_minutes` or

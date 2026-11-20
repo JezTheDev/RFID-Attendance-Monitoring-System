@@ -13,13 +13,14 @@ Website ──POST──▶ Apps Script Web App ──▶ Google Sheet (one tab 
 | Path | What it is | Edit it? |
 |---|---|---|
 | `src/actions.js` | Table of every action (name → handler, read/write, role) and `runAction()`, the gate every request goes through | Yes |
-| `src/auth/*.js` | Login, sessions, password hashing, reset/unlock, migration, bootstrap admin | Yes |
+| `src/auth/*.js` | Login, sessions, password hashing, reset/unlock, bootstrap admin | Yes |
+| `src/schema.js` | Every tab and its columns (`TAB_COLUMNS`) and the default Settings rows | Yes |
 | `src/handlers/*.js` | Business logic (students, cards, classes, schedules, portals, …). Pure functions on a `db` object | Yes |
 | `src/utils.js` | `AppError`, validation helper, Manila time, audit log, ID numbers | Yes |
 | `src/config.js` | `TIMEZONE` (Asia/Manila) | Rarely |
-| `seed/seed-data.json` | **FAKE** test data for a TEST Sheet | Yes (or regenerate from the xlsx) |
+| `seed/seed-data.json` | **FAKE** test data for a TEST Sheet (columns must match `src/schema.js`) | Yes |
 | `tests/` | Unit tests (`npm test`) + `helpers/db.js` small fake db | Yes |
-| `apps-script/Server.gs` | Calls `RFID.runAction`, reads/writes the Sheet, editor-only jobs (`setupSheets`, `createBootstrapAdmin`, `migrateUsersToPasswordLogin`, `benchmarkPasswordHash`, `checkSetup`) | Yes |
+| `apps-script/Server.gs` | Calls `RFID.runAction`, reads/writes the Sheet, editor-only jobs (`setupEmptySheets` [production], `setupSheets` [TEST], `createBootstrapAdmin`, `benchmarkPasswordHash`, `checkSetup`) | Yes |
 | `apps-script/Bundle.gs` | `src/` packed into one file for Apps Script. **Generated** | No — run the build |
 | `apps-script/SeedData.gs` | `seed/seed-data.json` as `SEED_DATA`. **Generated** | No — run the build |
 | `apps-script/appsscript.json` | Project settings (time zone, permissions, web app access) | Rarely |
@@ -37,19 +38,17 @@ Then paste the new `Bundle.gs` into the Apps Script editor and **deploy a new ve
 ### Fake test data
 
 `seed/seed-data.json` holds fake records (`@example.com` emails, made-up names).
-To change it, either edit the JSON, or edit `docs/RFID_Test_Data.xlsx` and run:
-
-```bash
-pip install openpyxl
-python tools/xlsx_to_seed_data.py docs/RFID_Test_Data.xlsx
-node tools/build_apps_script.mjs
-```
+To change it, edit the JSON (it is the only source), then run
+`node tools/build_apps_script.mjs`. Every row must have exactly the columns in
+`src/schema.js` (`npm test` checks it).
 
 Never put real student data or real/default passwords in the seed data.
 
 ---
 
-## Setup (about 20 minutes, done once)
+## Setup of a TEST Sheet (about 20 minutes, done once)
+
+> **Production (real people)?** Follow `docs/PRODUCTION_SETUP.md` instead.
 
 Use the **project Google account** that the whole team shares, not a personal
 account. The Sheet and the script belong to it.
@@ -88,7 +87,7 @@ and `DEFAULT_ADMIN_PASSWORD` are no longer used — safe to delete (`checkSetup`
 New and reset accounts get a random temporary password instead (see **Temporary passwords** below).
 If a needed property is missing, the action fails with `NOT_CONFIGURED` and nothing is saved.
 
-### 4. Create the tabs (TEST Sheet) — or migrate an existing Sheet
+### 4. Create the tabs (TEST Sheet)
 
 **New TEST Sheet:** function dropdown → **`setupSheets`** → **Run**.
 The first time, Google asks for permission → **Review permissions** → project account →
@@ -96,27 +95,15 @@ The first time, Google asks for permission → **Review permissions** → projec
 
 `setupSheets()` creates missing tabs and fills **only empty tabs** with the FAKE
 seed data. The fake seeded users all get `TEST_SEED_PASSWORD` (hashed) and must change
-it at first sign-in (if the property is missing, `setupSheets` stops before creating anything): students sign in with their student number (e.g. `9999000001`),
+it at first sign-in (`setupSheets` ALWAYS needs `TEST_SEED_PASSWORD`; without it, it stops before creating anything): students sign in with their student number (e.g. `9999000001`),
 instructors with `instructor01.test` …, the admin with `admin.test`.
 **TEST spreadsheet only** — on a real one, empty tabs would be filled with fake people.
-
-**Existing Sheet from the Google Sign-In version:**
-1. **File → Make a copy** of the spreadsheet first (backup).
-2. Set `PASSWORD_PEPPER`.
-3. Run **`migrateUsersToPasswordLogin`**. It adds the new Users columns, gives every
-   user a username (students: student number; instructors/admins: the part of the email
-   before `@`, lowercase, `2`/`3`… added if taken), signs out old sessions, removes
-   `google_sub`, and updates Settings (`max_login_attempts`=5, `lockout_minutes`=15,
-   `temp_password_days`=7, removes `allowed_email_rule`). Users **without a password get
-   none** (no shared default): the log warns, and an admin must reset each one.
-   The log lists every change. Running it again reports "Nothing to change".
-4. Check the log for `PROBLEM` lines (a student without a usable student number) and fix them by hand.
 
 **No admin yet?** Set `BOOTSTRAP_ADMIN_USERNAME` + `BOOTSTRAP_ADMIN_PASSWORD`, run
 **`createBootstrapAdmin`** (it refuses if an active admin exists), then **delete
 `BOOTSTRAP_ADMIN_PASSWORD`**.
 
-Run **`checkSetup`** any time: records per tab, which properties are set (never their values),
+Run **`checkSetup`** any time: first line `Environment: TEST` or `Environment: PRODUCTION`, then records per tab, which properties are set (never their values),
 and warnings for leftovers.
 
 **Password hashing speed:** `PASSWORD_HASH_ITERATIONS` is **300**: `benchmarkPasswordHash`

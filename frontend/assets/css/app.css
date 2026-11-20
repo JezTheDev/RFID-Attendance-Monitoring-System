@@ -1475,9 +1475,6 @@ body {
   box-shadow: 0 12px 24px -14px rgba(63, 15, 15, .6);
 }
 
-/* Login: three demo buttons */
-.demo-roles { display: grid; gap: 0.5rem; }
-
 /* Printing a class report: only the report itself */
 @media print {
   .app-sidebar, .app-topbar, .d-print-none, .toast-container { display: none !important; }

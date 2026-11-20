@@ -835,7 +835,6 @@ var SEED_DATA = {
    "section_id": "SEC-0001",
    "instructor_id": "INS-0001",
    "class_label": "TCPE 401 - 3A",
-   "late_grace_minutes": "",
    "status": "active"
   },
   {
@@ -845,7 +844,6 @@ var SEED_DATA = {
    "section_id": "SEC-0002",
    "instructor_id": "INS-0002",
    "class_label": "TCPE 402 - 3B",
-   "late_grace_minutes": "",
    "status": "active"
   },
   {
@@ -855,7 +853,6 @@ var SEED_DATA = {
    "section_id": "SEC-0003",
    "instructor_id": "INS-0003",
    "class_label": "TCPE 403 - 4A",
-   "late_grace_minutes": "",
    "status": "active"
   },
   {
@@ -865,7 +862,6 @@ var SEED_DATA = {
    "section_id": "SEC-0002",
    "instructor_id": "INS-0001",
    "class_label": "TCPE 401 - 3B",
-   "late_grace_minutes": "",
    "status": "active"
   },
   {
@@ -875,7 +871,6 @@ var SEED_DATA = {
    "section_id": "SEC-0001",
    "instructor_id": "INS-0002",
    "class_label": "TCPE 402 - 3A",
-   "late_grace_minutes": "",
    "status": "active"
   }
  ],
@@ -3409,74 +3404,68 @@ var SEED_DATA = {
   {
    "key": "duplicate_window_minutes",
    "value": "5",
-   "description": "Device double-tap cooldown",
-   "source": "Proposal (initial 5 min)"
-  },
-  {
-   "key": "low_battery_voltage",
-   "value": "3.5",
-   "description": "Dashboard low-battery threshold (V)",
-   "source": "Proposal (initial, tune in testing)"
-  },
-  {
-   "key": "late_grace_minutes",
-   "value": "15",
-   "description": "Minutes after start still counted PRESENT",
-   "source": "F5 - default value to confirm"
+   "description": "Device double-tap cooldown (minutes)",
+   "source": "Default"
   },
   {
    "key": "early_window_minutes",
    "value": "15",
    "description": "Minutes before start when scans are accepted",
-   "source": "Unresolved #4 - recommendation"
+   "source": "Default"
   },
   {
    "key": "accept_after_end_minutes",
    "value": "0",
    "description": "Minutes after end when scans are still accepted",
-   "source": "Unresolved #6 - recommendation"
+   "source": "Default"
+  },
+  {
+   "key": "low_battery_voltage",
+   "value": "3.5",
+   "description": "Dashboard low-battery threshold (V)",
+   "source": "Default"
   },
   {
    "key": "device_offline_after_minutes",
    "value": "10",
-   "description": "Device shown offline after no contact",
-   "source": "Unresolved #22 - recommendation"
+   "description": "Device shown offline after no contact (minutes)",
+   "source": "Default"
   },
   {
    "key": "heartbeat_interval_seconds",
    "value": "300",
-   "description": "Device heartbeat interval",
-   "source": "Unresolved #22 - recommendation"
+   "description": "Device heartbeat interval (seconds)",
+   "source": "Default"
   },
   {
    "key": "session_token_hours",
    "value": "8",
-   "description": "Web session lifetime",
-   "source": "Recommendation"
-  },
-  {
-   "key": "roster_version",
-   "value": "1",
-   "description": "Incremented when active cards change",
-   "source": "Recommendation"
+   "description": "Web session lifetime (hours)",
+   "source": "Default"
   },
   {
    "key": "max_login_attempts",
    "value": "5",
    "description": "Failed sign-ins in a row before the account is locked",
-   "source": "Login design (Step 2)"
+   "source": "Default"
   },
   {
    "key": "lockout_minutes",
    "value": "15",
-   "description": "How long a locked account stays locked",
-   "source": "Login design (Step 2)"
+   "description": "How long a locked account stays locked (minutes)",
+   "source": "Default"
   },
   {
    "key": "temp_password_days",
    "value": "7",
    "description": "Days a temporary password (new account / reset) can be used",
-   "source": "Temporary passwords"
+   "source": "Default"
+  },
+  {
+   "key": "roster_version",
+   "value": "1",
+   "description": "System: devices re-download the roster when this changes",
+   "source": "Default"
   }
  ]
 };

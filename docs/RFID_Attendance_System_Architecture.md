@@ -8,7 +8,8 @@ Pampanga State University – Department of Computer Engineering
 | Version | 0.2 (draft) |
 | Date | November 4, 2026 |
 | Sources | Project Proposal (Oct 27, 2026), PROJECT_CONTEXT, approved software decisions #1–#9, finalized decisions F1–F6 |
-| Companion files | `Device_API_Spec.md` (for the ESP32 programmer), `RFID_Test_Data.xlsx` (fake test data) |
+| Companion files | `Device_API_Spec.md` (for the ESP32 programmer), `backend/seed/seed-data.json` (fake test data) |
+| Superseded by | `CLAUDE.md` where they differ: password login (no Google Sign-In), a tap is always PRESENT (no `late_grace_minutes`), fake data only from `seed-data.json`, production setup in `PRODUCTION_SETUP.md`. |
 | Changelog | v0.2: Google Sign-In + internal registration; time-in only; per-class enrollment; one active card; configurable late grace; excused deferred; Apps Script redirect handling corrected; setup checklist added |
 | Implementation status | **Nothing in this document is implemented yet.** No code, sheets, or APIs exist yet. |
 
@@ -959,6 +960,8 @@ Apps Script has no Google auth client library and no built-in RSA signature veri
 ---
 
 ## 13. Remaining Setup Checklist (Phase 0)
+
+> **Historical (Google Sign-In era, superseded).** The xlsx upload and the OAuth steps no longer apply. TEST Sheet: `backend/README.md`. Production: `docs/PRODUCTION_SETUP.md`.
 
 Do these in order. None of these involve writing application code.
 

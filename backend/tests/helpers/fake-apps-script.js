@@ -171,8 +171,9 @@ function fakeSheetsApi(ss, sheets, stats) {
   };
 }
 
-export function makeServer(props = PROPS, { sheetsApi = true } = {}) {
-  const source = ['SeedData.gs', 'Bundle.gs', 'Server.gs'].map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n');
+// seedData: false = a production project, which has no SeedData.gs.
+export function makeServer(props = PROPS, { sheetsApi = true, seedData = true } = {}) {
+  const source = [...(seedData ? ['SeedData.gs'] : []), 'Bundle.gs', 'Server.gs'].map((f) => readFileSync(new URL(f, dir), 'utf8')).join('\n');
   const locks = { taken: 0, released: 0, available: true };
   const stats = { tabsRead: [], rowsRead: 0, rowsWritten: 0, batchUpdates: 0, failNext: false };
   const resetStats = () => Object.assign(stats, { tabsRead: [], rowsRead: 0, rowsWritten: 0, batchUpdates: 0, failNext: false });

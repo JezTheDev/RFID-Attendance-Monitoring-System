@@ -152,31 +152,6 @@ describe('Server.gs in a fake Apps Script', () => {
     assert.throws(() => context.createBootstrapAdmin(), /ADMIN_EXISTS/);
   });
 
-  it('migrateUsersToPasswordLogin upgrades a Google-era Users tab, drops google_sub, and is idempotent', () => {
-    const { context, ss, usersTab, logs, post } = makeServer();
-    context.setupSheets();
-    const sheet = ss.getSheetByName('Users');
-    sheet.cells.length = 0;
-    sheet.getRange(1, 1, 3, 9).setValues([
-      ['user_id', 'email', 'google_sub', 'role', 'linked_id', 'account_status', 'created_by', 'last_login_at', 'created_at'],
-      ['USR-0001', 'boss@psu.edu.ph', '123', 'admin', '', 'active', '', '', ''],
-      ['USR-0002', 'x@psu.edu.ph', '', 'student', 'STU-0001', 'active', '', '', ''],
-    ]);
-    context.migrateUsersToPasswordLogin();
-    const users = usersTab();
-    assert.ok(!sheet.cells[0].includes('google_sub'));
-    assert.equal(users[0].username, 'boss');
-    assert.ok(users.every((u) => u.password_hash === '')); // no shared password; an admin must reset them
-    assert.match(logs.join('\n'), /2 user\(s\) have no password.*Reset password/);
-    assert.equal(post({ action: 'auth.login', username: 'boss', password: '' }).error.code, 'INVALID_CREDENTIALS');
-
-    const snapshot = JSON.stringify(sheet.cells.map((r) => r.filter((_, i) => sheet.cells[0][i] !== 'last_login_at')));
-    logs.length = 0;
-    context.migrateUsersToPasswordLogin();
-    assert.match(logs.join('\n'), /Nothing to change/);
-    assert.equal(JSON.stringify(sheet.cells.map((r) => r.filter((_, i) => sheet.cells[0][i] !== 'last_login_at'))), snapshot);
-  });
-
   it('write actions take the script lock (and release it); read actions do not', () => {
     const { context, post, locks } = makeServer();
     context.setupSheets();
@@ -188,15 +163,6 @@ describe('Server.gs in a fake Apps Script', () => {
     assert.deepEqual([locks.taken, locks.released], [1, 1], 'reads must not lock');
     post({ action: 'auth.changePassword', session_token: token, old_password: SEED, new_password: 'NewAdmin99' });
     assert.deepEqual([locks.taken, locks.released], [2, 2]);
-  });
-
-  it('backfillOverrideReasons runs from the editor and is idempotent', () => {
-    const { context, logs } = makeServer();
-    context.setupSheets();
-    logs.length = 0;
-    context.backfillOverrideReasons();
-    context.backfillOverrideReasons();
-    assert.match(logs.at(-1), /Nothing to change/);
   });
 
   it('a busy lock answers SERVER_BUSY (spec 6.4) and saves nothing', () => {
@@ -224,6 +190,101 @@ function ready() {
   server.resetStats();
   return { ...server, admin, login };
 }
+
+describe('production setup (setupEmptySheets) and the TEST/PRODUCTION guards', () => {
+  const PROD = Object.freeze({ PASSWORD_PEPPER: 'prod-pepper', BOOTSTRAP_ADMIN_USERNAME: 'root', BOOTSTRAP_ADMIN_PASSWORD: 'FirstLogin2026' });
+  const tabNames = (ss) => ss.getSheets().map((s) => s.getName()).sort();
+
+  it('creates every schema tab with headers, the default Settings and no fake data', () => {
+    const { context, ss, tab } = makeServer(PROD);
+    context.setupEmptySheets();
+    const schema = context.RFID.TAB_COLUMNS;
+    assert.deepEqual(tabNames(ss), Object.keys(schema).sort(), 'blank Sheet1 removed, every tab there');
+    for (const name of Object.keys(schema)) {
+      assert.deepEqual(ss.getSheetByName(name).cells[0], [...schema[name]], name);
+      if (name !== 'Settings') assert.equal(tab(name).length, 0, `${name} has no rows`);
+    }
+    assert.deepEqual(tab('Settings'), Array.from(context.RFID.DEFAULT_SETTINGS, (r) => ({ ...r })));
+    assert.equal(tab('Settings').find((r) => r.key === 'roster_version').value, '1');
+  });
+
+  it('refuses on a TEST Sheet (TEST_SEED_PASSWORD set) before creating anything', () => {
+    const { context, ss } = makeServer();
+    assert.throws(() => context.setupEmptySheets(), /TEST_SEED_PASSWORD/);
+    assert.deepEqual(tabNames(ss), ['Sheet1']);
+  });
+
+  it('is idempotent and never overwrites: only missing tabs, columns and Settings rows are added', () => {
+    const { context, ss, tab, logs } = makeServer(PROD);
+    context.setupEmptySheets();
+    const settings = ss.getSheetByName('Settings');
+    const valueCol = settings.cells[0].indexOf('value');
+    const rowOf = (key) => settings.cells.findIndex((r) => r[0] === key);
+    settings.cells[rowOf('lockout_minutes')][valueCol] = '45'; // edited by an admin
+    settings.cells.splice(rowOf('temp_password_days'), 1); // row deleted by hand
+    ss.getSheetByName('Rooms').getRange(2, 1, 1, 5).setValues([['ROM-0001', 'RM301', 'Room 301', 'Main', 'active']]);
+    const devices = ss.getSheetByName('Devices');
+    devices.cells[0].pop(); // "notes" column missing (older Sheet)
+    ss.deleteSheet(ss.getSheetByName('ScanLog'));
+
+    logs.length = 0;
+    context.setupEmptySheets();
+    assert.equal(tab('Settings').find((r) => r.key === 'lockout_minutes').value, '45');
+    assert.equal(tab('Settings').find((r) => r.key === 'temp_password_days').value, '7');
+    assert.equal(tab('Settings').length, context.RFID.DEFAULT_SETTINGS.length);
+    assert.deepEqual(tab('Rooms'), [{ room_id: 'ROM-0001', room_code: 'RM301', room_name: 'Room 301', building: 'Main', status: 'active' }]);
+    assert.deepEqual(devices.cells[0], [...context.RFID.TAB_COLUMNS.Devices]);
+    assert.deepEqual(ss.getSheetByName('ScanLog').cells[0], [...context.RFID.TAB_COLUMNS.ScanLog]);
+
+    logs.length = 0;
+    context.setupEmptySheets();
+    assert.match(logs.join('\n'), /Nothing to change/);
+  });
+
+  it('full production start: setupEmptySheets -> createBootstrapAdmin -> sign in; checkSetup says PRODUCTION', () => {
+    const { context, post, logs } = makeServer(PROD);
+    context.setupEmptySheets();
+    context.createBootstrapAdmin();
+    const login = post({ action: 'auth.login', username: 'root', password: 'FirstLogin2026' });
+    assert.equal(login.ok, true);
+    assert.equal(login.data.must_change_password, true);
+    logs.length = 0;
+    context.checkSetup();
+    assert.equal(logs[0], 'Environment: PRODUCTION');
+    assert.doesNotMatch(logs.join('\n'), /roster_version is missing|low_battery_voltage is missing/);
+  });
+
+  it('production does not need SeedData.gs (no fake data in the production project)', () => {
+    const { context, post, tab } = makeServer(PROD, { seedData: false });
+    assert.equal(typeof context.SEED_DATA, 'undefined');
+    context.setupEmptySheets();
+    context.createBootstrapAdmin();
+    assert.equal(post({ action: 'auth.login', username: 'root', password: 'FirstLogin2026' }).ok, true);
+    assert.equal(tab('Users').length, 1);
+  });
+
+  it('setupSheets ALWAYS needs TEST_SEED_PASSWORD, even when Users already has rows', () => {
+    const { context, tab } = makeServer(PROD);
+    context.setupEmptySheets();
+    context.createBootstrapAdmin(); // Users is no longer empty
+    assert.throws(() => context.setupSheets(), /TEST_SEED_PASSWORD/);
+    assert.equal(tab('Students').length, 0, 'no fake people on a production Sheet');
+  });
+
+  it('checkSetup says TEST when TEST_SEED_PASSWORD is set', () => {
+    const { context, logs } = makeServer();
+    context.setupSheets();
+    logs.length = 0;
+    context.checkSetup();
+    assert.match(logs[0], /^Environment: TEST/);
+  });
+
+  it('the removed one-time editor jobs are gone', () => {
+    const { context } = makeServer();
+    assert.equal(typeof context.migrateUsersToPasswordLogin, 'undefined');
+    assert.equal(typeof context.backfillOverrideReasons, 'undefined');
+  });
+});
 
 describe('Server.gs reads only the declared tabs', () => {
   it('auth.me reads exactly the session tabs + Instructors/Students (display name)', () => {

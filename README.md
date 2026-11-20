@@ -17,8 +17,8 @@ Website ──────┘
 |---|---|
 | `backend/` | Apps Script server + business logic + tests (see `backend/README.md`) |
 | `frontend/` | Website for GitHub Pages (see `frontend/README.md`) |
-| `tools/` | `build_apps_script.mjs` (builds Bundle.gs/SeedData.gs), `xlsx_to_seed_data.py` |
-| `docs/` | Architecture, Device API spec, audit report, fake test-data workbook |
+| `tools/` | `build_apps_script.mjs` (builds Bundle.gs/SeedData.gs), device/report measurement + live test scripts |
+| `docs/` | Architecture, Device API spec, backend verification + final review, `PRODUCTION_SETUP.md`; `archive/` = old audit and plans |
 
 ## Status (2026-11-18)
 
