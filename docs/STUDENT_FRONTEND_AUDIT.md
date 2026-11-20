@@ -142,3 +142,31 @@ Ordered. Effort: **S** < 1 h · **M** half a day · **L** about a day. Frontend 
 | SFIX-06 ✅ | "Not yet" status button in History when any record is `not_scanned`. `FORBIDDEN` class deep link: warning toast before falling back to All subjects. | `student-history.js` `start`, `historyHtml`, `load` | S |
 
 Not done in this audit: no browser run (layout at 375 px / 1366 px was not looked at this time; the pages use the same components as the instructor portal, which passed at both widths). The TEST student had no `not_scanned`, `cancelled`, corrected or manual record, so those badges and tags were checked in code only. After the live check, `9999000001`'s password is a random one nobody knows; use `resetTestUserPassword('9999000001')` or `admin.resetPassword` to sign in as that student again.
+
+---
+
+## 6. Live end-to-end test (2026-11-21, after SFIX-01..06)
+
+Live TEST Web App, browser (Playwright) through a local QA proxy in the scratchpad that held every password, token and device key in memory (none printed). Setup as `admin.test`: room `QA-STU` (`ROM-0007`), device `DEV-QA-STU-01` (new key, active), subject `QA-STU`, class `CLS-0008` (instructor01.test, section 3A) with slot SAT 00:00–00:20 in QA-STU, enrolled 9999000002 + 9999000003. 9999000002 and instructor01.test were reset with `admin.resetPassword`. DEV-RM301-01 and RM301 schedules not touched.
+
+**The deployed Web App still runs the bundle from before SFIX-05** (`student.getHistory` records have no `correction` key), so steps 3–4 could only show the "Corrected" tag. Redeploy `Bundle.gs` to get the "Corrected by … · time: reason" line (frontend + backend already tested: `student-corrections.test.js`, and the UI with a sample correction).
+
+| # | Step | Expected | Got | Result |
+|---|---|---|---|---|
+| 1 | First sign-in with temp password | Forced change → overview | Login page "Change your password" → saved → `student/index.html`; 83%, 6 sessions; today's QA class listed | Works |
+| 2 | Device tap (POST + 302) | ACCEPTED; overview + history PRESENT with date/time; rate updates | `ACCEPTED` (HTTP 200 after 302, 5.8 s); history "Sat, Nov 21 · in 12:07 AM · Present"; recent records top row; rate 83% → 86%, 7 sessions; QA subject 100% | Works |
+| 3a | Instructor dialog note | "The student can see this reason." | Shown (plus the audit-log note) | Works |
+| 3b | Instructor corrects to late, "QA STU" | Saved; student sees "Corrected by Instructor · time: QA STU" | Saved (~10 s round trip); instructor row "Late · Corrected"; student row "Late · Corrected", **no reason line** | Works server-side; reason line **needs redeploy** |
+| 4 | Admin corrects to present, "QA STU admin" | Student sees "Corrected by Admin" | Admin dialog note shown; admin row "Test Admin · Nov 21, 12:09 AM · QA STU admin"; student row "Present · Corrected", **no reason line** | Works server-side; reason line **needs redeploy** |
+| 5a | History: today only | 1 record | "1 record · Sat, Nov 21 – Sat, Nov 21", tiles 100% / 1 present, URL `from`/`to` | Works |
+| 5b | History: range with nothing | Empty state | "No class sessions in this date range.", rate "—" | Works |
+| 5c | History: bad range | Error under To | "The end date must be on or after the start date." + "Check the dates"; Whole term clears it | Works |
+| 6 | Profile | Number, name, program, section, card, read-only | 9999000002, Maria Santos, BSCpE, Year 3 · 3A, card Active `•••• 0201`; 0 inputs/buttons in the profile body; no horizontal scroll at 375 px | Works |
+| 7a | `student_id` of another student in the request | Own data only | `getHistory` records identical to own; `getOverview` profile = 9999000002 | Works |
+| 7b | Another class (API / URL) | `FORBIDDEN` / fallback | API `CLS-0004` → `FORBIDDEN`; URL `?class=CLS-0002` → warning toast, back to own 3 classes | Works |
+| 7c | Other roles' actions as student | `FORBIDDEN` | `instructor.getSession`, `instructor.correctAttendance`, `admin.listAttendance` → `FORBIDDEN` | Works |
+| 8 | My Account password change | Success; old rejected, new accepted | "Password changed. 2 other session(s) were signed out. You are still signed in here."; old → `INVALID_CREDENTIALS`, new → OK | Works |
+| 9 | Logout | Protected pages → login | Sign out → login, storage cleared; all 4 student pages → login; old token `NOT_SIGNED_IN`; stale tab → "Your session expired, please sign in again." | Works |
+| — | Cleanup | Schedule removed, class inactive, device retired, room inactive | All OK (also QA subject inactive); 7/7 harness sessions revoked; records kept | Done |
+
+**Bugs found:** none in the code. **Test mistake (data):** in step 3 the first correction was made on the wrong row: 9999000001 (also in section 3A, so on the class roster) got a manual **Late** row in `SES-0021` (QA class) with reason "QA STU". Fake data, QA class only, left as is (rows are never deleted). `9999000002` and `instructor01.test` now have random passwords nobody knows: reset again before reuse.
