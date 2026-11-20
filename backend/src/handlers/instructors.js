@@ -1,6 +1,7 @@
 import { AppError, validationError, toManilaIso, cleanText, writeAudit, nextId } from '../utils.js';
 import { normalizeUsername } from '../auth/account.js';
 import { newUserRow, issueTempPassword, usernameProblem, accountSummary } from '../auth/admin-users.js';
+import { revokeSessions } from '../auth/session.js';
 
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -58,7 +59,7 @@ function validateInstructor(db, input, existing = null) {
   // Email is optional; when given it must be valid and not used by another account.
   if (value.email && (!EMAIL_PATTERN.test(value.email) || value.email.length > 120)) {
     errors.email = 'Enter a valid email address.';
-  } else if (value.email && db.Users.some((row) => row.email === value.email && row.user_id !== ownUserId)) {
+  } else if (value.email && db.Users.some((row) => String(row.email).toLowerCase() === value.email && row.user_id !== ownUserId)) {
     errors.email = 'This email is already registered to another account.';
   }
   if (Object.keys(errors).length) throw validationError(errors);
@@ -106,6 +107,7 @@ export function setInstructorStatus(db, { instructor_id, status }, session, ctx)
   if (user) {
     user.account_status = status === 'active' ? 'active' : 'disabled';
     user.updated_at = toManilaIso(ctx.now());
+    if (status === 'inactive') revokeSessions(db, user.user_id); // else reactivating revives old tokens
   }
   writeAudit(db, session, {
     action: status === 'active' ? 'INSTRUCTOR_ACTIVATE' : 'INSTRUCTOR_DEACTIVATE',

@@ -3,7 +3,8 @@
 IoT attendance for PSU Computer Engineering: **ESP32 + MFRC522 → Google Apps
 Script Web App → private Google Sheet**. Static Bootstrap 5 site on GitHub
 Pages with Admin, Instructor and Student portals. Current state and known
-issues: `docs/AUDIT_REPORT.md`.
+issues: `docs/BACKEND_VERIFICATION.md` and `docs/FINAL_BACKEND_REVIEW.md`
+(`docs/AUDIT_REPORT.md` is the old 2026-11-18 audit).
 
 ## Decisions (newer than any other doc in this repo)
 
@@ -128,6 +129,8 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
   with `error.commit = true` so Server.gs still saves the counter and audit row.
 - `must_change_password` TRUE → only `auth.me`, `auth.changePassword`,
   `auth.logout` (`PASSWORD_CHANGE_REQUIRED` otherwise).
+- Deactivating any user (admin, instructor, student) revokes all their
+  AuthSessions, so reactivating never revives an old token.
 - Never return or log a password or `password_hash`; tests check responses.
   Only exception: `temp_password` in the create/reset response data.
 
@@ -144,7 +147,7 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
   (same rule as `temp_password`: never in a Sheet cell, AuditLog or log). A new
   key replaces the old one at once. `device_key_hash` never leaves the server
   (lists show `has_key`) and is never put in the AuditLog.
-- Hash = **one** SHA-256 of `PASSWORD_PEPPER + " " + key` (`ctx.deviceKeyHash`),
+- Hash = **one** SHA-256 of `PASSWORD_PEPPER + "\u0000" + key` (`ctx.deviceKeyHash`),
   NOT the 300-iteration password hash: the key is long and random, so it cannot
   be guessed, and every tap stays fast (the password hash costs ~360 ms).
 - `device.*` requests: same Server.gs path as user actions (declared tabs from
@@ -223,6 +226,13 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
   same shared `correctAttendance` core (portal.js) as the instructor action, no
   ownership check; override_by / AuditLog role = the admin.
 - No CSV on the backend. Frontend CSV: escape cells starting with `= + - @`.
+- Corrections (shared core): refused before the session starts
+  (`SESSION_NOT_STARTED`); `instructor.correctAttendance` is refused for an
+  inactive class (`CLASS_INACTIVE`, reads stay allowed); admins may still correct it.
+- `instructor.getRecentActivity {class_id?, limit?}` (READ): latest Attendance
+  rows of the instructor's own active classes (or one own class), newest first;
+  `limit` default 20, max 50 → `{limit, has_more, items}`.
+- Free text (reasons, device notes) max `MAX_TEXT` = 500 chars (`utils.js`).
 
 ## Tests
 

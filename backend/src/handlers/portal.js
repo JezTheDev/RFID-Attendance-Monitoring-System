@@ -4,7 +4,7 @@
 // signed-in user and only returns rows that belong to that person.
 import {
   AppError, validationError, manilaAt, dayCodeOf, isValidDate, indexBy, fullName,
-  cleanText, writeAudit, nextId, effectiveStatus, dateRange,
+  cleanText, writeAudit, nextId, effectiveStatus, dateRange, MAX_TEXT,
 } from '../utils.js';
 import { missingStatus, sessionPhase } from '../sessions.js';
 
@@ -364,7 +364,12 @@ export function instructorGetSession(db, { session_id: sessionId }, session, ctx
 
 export function instructorCorrectAttendance(db, request, session, ctx) {
   const instructorId = linkedId(db, session, 'instructor');
-  return correctAttendance(db, request, session, ctx, (classId) => ownClass(db, instructorId, classId));
+  return correctAttendance(db, request, session, ctx, (classId) => {
+    // Inactive (archived) classes are read-only for instructors; admins can still correct them.
+    if (ownClass(db, instructorId, classId).status !== 'active') {
+      throw new AppError('CLASS_INACTIVE', 'This class is inactive. Attendance can no longer be changed; ask the administrator.');
+    }
+  });
 }
 
 // Shared by instructor.correctAttendance and admin.correctAttendance (D6).
@@ -383,6 +388,9 @@ export function correctAttendance(db, request, session, ctx, checkClass = () => 
   if (classSession.status === 'cancelled') {
     throw new AppError('SESSION_CANCELLED', 'Attendance cannot be changed for a cancelled class.');
   }
+  if (sessionPhase(classSession, now) === 'upcoming') {
+    throw new AppError('SESSION_NOT_STARTED', 'This class has not started yet. Correct attendance once it has started.');
+  }
   if (!rosterIds(db, maps, classSession.class_id).includes(studentId)) {
     throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
   }
@@ -390,6 +398,7 @@ export function correctAttendance(db, request, session, ctx, checkClass = () => 
   const fields = {};
   if (!CORRECTABLE.includes(status)) fields.status = 'Choose Present, Late, or Absent.';
   if (reason.length < 5) fields.reason = 'Give a short reason (at least 5 characters).';
+  else if (reason.length > MAX_TEXT) fields.reason = `Use ${MAX_TEXT} characters or fewer.`;
   if (Object.keys(fields).length) throw validationError(fields);
 
   const record = recordOf(db, sessionId, studentId);
@@ -545,6 +554,48 @@ export function instructorStudentHistory(db, request, session, ctx) {
   };
 }
 
+const RECENT_DEFAULT = 20;
+const RECENT_MAX = 50;
+
+// D12: the latest attendance rows (taps and corrections) of the instructor's own
+// classes, newest first. Optional class_id (own class, any status); limit 1-50.
+export function instructorRecentActivity(db, request, session) {
+  const instructorId = linkedId(db, session, 'instructor');
+  const classes = request.class_id ? [ownClass(db, instructorId, request.class_id)] : myClasses(db, instructorId);
+  let limit = RECENT_DEFAULT;
+  if (request.limit !== undefined && request.limit !== null && request.limit !== '') {
+    limit = Number(request.limit);
+    if (!Number.isInteger(limit) || limit < 1) throw validationError({ limit: 'Enter a whole number of 1 or more.' });
+    limit = Math.min(limit, RECENT_MAX);
+  }
+  const students = indexBy(db.Students, 'student_id');
+  const classIds = new Set(classes.map((klass) => klass.class_id));
+  const sessions = new Map(db.ClassSessions.filter((row) => classIds.has(row.class_id)).map((row) => [row.session_id, row]));
+  const rows = db.Attendance
+    .filter((row) => sessions.has(row.session_id))
+    .sort((a, b) => String(b.scanned_at).localeCompare(String(a.scanned_at)) || String(b.attendance_id).localeCompare(String(a.attendance_id)));
+  const items = rows.slice(0, limit).map((row) => {
+    const classSession = sessions.get(row.session_id);
+    const student = students.get(row.student_id);
+    return {
+      attendance_id: row.attendance_id,
+      session_id: row.session_id,
+      session_date: classSession.session_date,
+      class_id: classSession.class_id,
+      class_label: classes.find((klass) => klass.class_id === classSession.class_id).class_label,
+      student_id: row.student_id,
+      student_number: student?.student_number ?? '',
+      student_name: fullName(student),
+      scanned_at: row.scanned_at,
+      status: effectiveStatus(row),
+      source: row.source,
+      sync_mode: row.sync_mode || '',
+      corrected: Boolean(row.override_status || row.override_reason),
+    };
+  });
+  return { limit, has_more: rows.length > limit, items };
+}
+
 /* ---------------- Student ---------------- */
 
 function myEnrolledClasses(db, studentId) {
@@ -559,7 +610,7 @@ function historyRows(db, maps, studentId, classes, now, range) {
     .map((row) => correctionKey(row.session_id, row.student_id)));
 
   return classes.flatMap((klass) => db.ClassSessions
-    .filter((row) => row.class_id === klass.class_id && row.status !== 'scheduled' && range.has(row.session_date))
+    .filter((row) => row.class_id === klass.class_id && range.has(row.session_date))
     .map((row) => {
       const record = recordOf(db, row.session_id, studentId);
       const subject = maps.subjects.get(klass.subject_id);

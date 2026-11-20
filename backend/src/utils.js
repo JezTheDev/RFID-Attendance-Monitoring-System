@@ -84,6 +84,9 @@ export function effectiveStatus(row) {
   return row.override_status || row.status;
 }
 
+// Longest free text (reasons, notes) we store: well under the 50,000-character Sheet cell limit.
+export const MAX_TEXT = 500;
+
 export function cleanText(value) {
   return String(value ?? '').trim().replace(/\s+/g, ' ');
 }

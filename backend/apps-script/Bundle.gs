@@ -93,6 +93,9 @@ var RFID = (function () {
       return row.override_status || row.status;
     }
 
+    // Longest free text (reasons, notes) we store: well under the 50,000-character Sheet cell limit.
+    const MAX_TEXT = 500;
+
     function cleanText(value) {
       return String(value ?? '').trim().replace(/\s+/g, ' ');
     }
@@ -120,7 +123,7 @@ var RFID = (function () {
       }, 0);
       return `${prefix}-${String(highest + 1).padStart(width, '0')}`;
     }
-    return { AppError, validationError, setting, bumpRosterVersion, toManilaIso, manilaAt, dayCodeOf, isValidDate, dateRange, shiftDate, indexBy, fullName, effectiveStatus, cleanText, writeAudit, nextId };
+    return { AppError, validationError, setting, bumpRosterVersion, toManilaIso, manilaAt, dayCodeOf, isValidDate, dateRange, shiftDate, indexBy, fullName, effectiveStatus, MAX_TEXT, cleanText, writeAudit, nextId };
   })();
 
   // ---- auth/session.js ----
@@ -728,15 +731,15 @@ var RFID = (function () {
     // Ownership rule (architecture doc, section 7.2): the server never trusts an
     // instructor_id / student_id sent by the browser. It reads linked_id from the
     // signed-in user and only returns rows that belong to that person.
-    const { AppError, validationError, manilaAt, dayCodeOf, isValidDate, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, dateRange } = __m["utils"];
+    const { AppError, validationError, manilaAt, dayCodeOf, isValidDate, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, dateRange, MAX_TEXT } = __m["utils"];
     const { missingStatus, sessionPhase } = __m["sessions"];
-    
+
     const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     const CORRECTABLE = ['present', 'late', 'absent'];
     const CORRECTION_ACTION = 'ATTENDANCE_CORRECT';
-    
+
     /* ---------------- shared helpers ---------------- */
-    
+
     function linkedId(db, session, role) {
       const user = db.Users.find((row) => row.user_id === session.user_id);
       if (!user || user.role !== role || !user.linked_id) {
@@ -744,7 +747,7 @@ var RFID = (function () {
       }
       return user.linked_id;
     }
-    
+
     function lookups(db) {
       return {
         classes: indexBy(db.Classes, 'class_id'),
@@ -756,14 +759,14 @@ var RFID = (function () {
         programs: indexBy(db.Programs, 'program_id'),
       };
     }
-    
+
     function sectionLabel(maps, sectionId) {
       const section = maps.sections.get(sectionId);
       if (!section) return '';
       const program = maps.programs.get(section.program_id);
       return `${program?.program_code ?? ''} ${section.section_name}`.trim();
     }
-    
+
     function schedulesOf(db, maps, classId) {
       return db.Schedules
         .filter((row) => row.class_id === classId && row.status === 'active')
@@ -775,24 +778,24 @@ var RFID = (function () {
           room_code: maps.rooms.get(row.room_id)?.room_code ?? '',
         }));
     }
-    
+
     function rosterIds(db, maps, classId) {
       return db.Enrollments
         .filter((row) => row.class_id === classId && row.status === 'enrolled'
           && maps.students.get(row.student_id)?.account_status === 'active')
         .map((row) => row.student_id);
     }
-    
+
     // Sessions that count toward attendance: held (closed) or currently open.
     function countedSessions(db, classId) {
       return db.ClassSessions
         .filter((row) => row.class_id === classId && (row.status === 'closed' || row.status === 'open'))
         .sort((a, b) => a.session_date.localeCompare(b.session_date) || a.scheduled_start.localeCompare(b.scheduled_start));
     }
-    
+
     // An open session that has not started yet (early tap) is not held.
     const heldCount = (sessions, now) => sessions.filter((s) => sessionPhase(s, now) !== 'upcoming').length;
-    
+
     // session_id -> student_id -> first row. Rebuilt when rows are added (correctAttendance).
     // shortcut: rebuilt only on length change; replacing rows or editing session_id/student_id needs a rebuild.
     const attendanceIndex = new WeakMap();
@@ -811,15 +814,15 @@ var RFID = (function () {
       }
       return cached.map;
     }
-    
+
     function recordOf(db, sessionId, studentId) {
       return recordsBySession(db).get(sessionId)?.get(studentId) ?? null;
     }
-    
+
     function correctionKey(sessionId, studentId) {
       return `${sessionId}:${studentId}`;
     }
-    
+
     // Corrected rows (device overrides and manual rows) carry the reason in
     // override_reason, so the portals never read the ever-growing AuditLog.
     function correctionsFor(db, sessionId) {
@@ -829,15 +832,15 @@ var RFID = (function () {
         .forEach((row) => map.set(correctionKey(row.session_id, row.student_id), { reason: row.override_reason }));
       return map;
     }
-    
+
     function statusOf(record, session, now) {
       return record ? effectiveStatus(record) : missingStatus(session, now);
     }
-    
+
     function rate(present, late, total) {
       return total > 0 ? (present + late) / total : null;
     }
-    
+
     function summarize(statuses) {
       const present = statuses.filter((s) => s === 'present').length;
       const late = statuses.filter((s) => s === 'late').length;
@@ -845,7 +848,7 @@ var RFID = (function () {
       const total = present + late + absent;
       return { present, late, absent, total, rate: rate(present, late, total) };
     }
-    
+
     // Same rule as statusOf for every view: a row counts by its effective status
     // (an override to absent is absent at once); no row is not_scanned until the
     // session ends, absent after (BUG-7).
@@ -866,7 +869,7 @@ var RFID = (function () {
         not_scanned: counted ? totals.not_scanned : null,
       };
     }
-    
+
     function describeSession(db, maps, session, roster, now) {
       return {
         session_id: session.session_id,
@@ -883,7 +886,7 @@ var RFID = (function () {
         ...sessionCounts(db, session, roster, now),
       };
     }
-    
+
     function ownClass(db, instructorId, classId) {
       const klass = db.Classes.find((row) => row.class_id === classId);
       if (!klass || klass.instructor_id !== instructorId) {
@@ -891,7 +894,7 @@ var RFID = (function () {
       }
       return klass;
     }
-    
+
     function classInfo(db, maps, klass) {
       const subject = maps.subjects.get(klass.subject_id);
       return {
@@ -904,15 +907,15 @@ var RFID = (function () {
         schedules: schedulesOf(db, maps, klass.class_id),
       };
     }
-    
+
     /* ---------------- Instructor ---------------- */
-    
+
     function myClasses(db, instructorId) {
       return db.Classes
         .filter((row) => row.instructor_id === instructorId && row.status === 'active')
         .sort((a, b) => a.class_label.localeCompare(b.class_label));
     }
-    
+
     function classSummary(db, maps, klass, now) {
       const roster = rosterIds(db, maps, klass.class_id);
       const sessions = countedSessions(db, klass.class_id);
@@ -931,7 +934,7 @@ var RFID = (function () {
         totals,
       };
     }
-    
+
     function instructorDashboard(db, { date }, session, ctx) {
       if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
       const instructorId = linkedId(db, session, 'instructor');
@@ -942,7 +945,7 @@ var RFID = (function () {
       const classIds = new Set(classes.map((row) => row.class_id));
       const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
       const inTerm = Boolean(activeTerm) && date >= activeTerm.start_date && date <= activeTerm.end_date;
-    
+
       // Sessions on the chosen date: every scheduled slot + manual sessions
       const dayCode = dayCodeOf(date);
       const sessions = [];
@@ -984,7 +987,7 @@ var RFID = (function () {
         .filter((row) => row.source === 'manual' && row.session_date === date && classIds.has(row.class_id))
         .forEach((row) => sessions.push(describeSession(db, maps, row, rosterIds(db, maps, row.class_id), now)));
       sessions.sort((a, b) => a.start_time.localeCompare(b.start_time));
-    
+
       const summaries = classes.map((klass) => classSummary(db, maps, klass, now));
       const all = summaries.reduce((acc, row) => ({
         present: acc.present + row.totals.present,
@@ -992,7 +995,7 @@ var RFID = (function () {
         total: acc.total + row.totals.total,
       }), { present: 0, late: 0, total: 0 });
       const uniqueStudents = new Set(classes.flatMap((klass) => rosterIds(db, maps, klass.class_id)));
-    
+
       // Students who need follow-up: below 80% in any class with at least 2 sessions
       const watchlist = [];
       classes.forEach((klass) => {
@@ -1014,7 +1017,7 @@ var RFID = (function () {
         });
       });
       watchlist.sort((a, b) => a.rate - b.rate || b.absent - a.absent);
-    
+
       return {
         date,
         today: now.date,
@@ -1032,7 +1035,7 @@ var RFID = (function () {
         watchlist: watchlist.slice(0, 8),
       };
     }
-    
+
     function instructorListSessions(db, request, session, ctx) {
       const classId = request.class_id;
       const now = manilaAt(ctx.now());
@@ -1049,7 +1052,7 @@ var RFID = (function () {
         .map((row) => describeSession(db, maps, row, roster, now));
       return { classes, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, range: { from: range.from, to: range.to }, sessions };
     }
-    
+
     function instructorGetSession(db, { session_id: sessionId }, session, ctx) {
       const now = manilaAt(ctx.now());
       const instructorId = linkedId(db, session, 'instructor');
@@ -1059,7 +1062,7 @@ var RFID = (function () {
       const klass = ownClass(db, instructorId, classSession.class_id);
       const roster = rosterIds(db, maps, klass.class_id);
       const corrections = correctionsFor(db, sessionId);
-    
+
       const students = roster.map((studentId) => {
         const student = maps.students.get(studentId);
         const record = recordOf(db, sessionId, studentId);
@@ -1077,19 +1080,24 @@ var RFID = (function () {
           correction_reason: correction?.reason ?? '',
         };
       }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-    
+
       return {
         session: describeSession(db, maps, classSession, roster, now),
         class: classInfo(db, maps, klass),
         students,
       };
     }
-    
+
     function instructorCorrectAttendance(db, request, session, ctx) {
       const instructorId = linkedId(db, session, 'instructor');
-      return correctAttendance(db, request, session, ctx, (classId) => ownClass(db, instructorId, classId));
+      return correctAttendance(db, request, session, ctx, (classId) => {
+        // Inactive (archived) classes are read-only for instructors; admins can still correct them.
+        if (ownClass(db, instructorId, classId).status !== 'active') {
+          throw new AppError('CLASS_INACTIVE', 'This class is inactive. Attendance can no longer be changed; ask the administrator.');
+        }
+      });
     }
-    
+
     // Shared by instructor.correctAttendance and admin.correctAttendance (D6).
     // checkClass(class_id) throws if this user may not correct the class; admins pass none.
     function correctAttendance(db, request, session, ctx, checkClass = () => {}) {
@@ -1099,22 +1107,26 @@ var RFID = (function () {
       const studentId = request.student_id;
       const status = request.status;
       const reason = cleanText(request.reason);
-    
+
       const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
       if (!classSession) throw new AppError('NOT_FOUND', 'This class session was not found.');
       checkClass(classSession.class_id);
       if (classSession.status === 'cancelled') {
         throw new AppError('SESSION_CANCELLED', 'Attendance cannot be changed for a cancelled class.');
       }
+      if (sessionPhase(classSession, now) === 'upcoming') {
+        throw new AppError('SESSION_NOT_STARTED', 'This class has not started yet. Correct attendance once it has started.');
+      }
       if (!rosterIds(db, maps, classSession.class_id).includes(studentId)) {
         throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
       }
-    
+
       const fields = {};
       if (!CORRECTABLE.includes(status)) fields.status = 'Choose Present, Late, or Absent.';
       if (reason.length < 5) fields.reason = 'Give a short reason (at least 5 characters).';
+      else if (reason.length > MAX_TEXT) fields.reason = `Use ${MAX_TEXT} characters or fewer.`;
       if (Object.keys(fields).length) throw validationError(fields);
-    
+
       const record = recordOf(db, sessionId, studentId);
       // BUG-6: no row to override, so "absent" would change nothing; refuse instead of a fake success.
       if (!record && status === 'absent') {
@@ -1123,7 +1135,7 @@ var RFID = (function () {
       }
       const before = statusOf(record, classSession, now);
       if (before === status) throw validationError({ status: 'The student already has this status.' });
-    
+
       // Never delete a row or edit the device fields (architecture 7.2 rule 4):
       // a retried scan_id must still find its row.
       if (record) {
@@ -1155,7 +1167,7 @@ var RFID = (function () {
           override_reason: reason,
         });
       }
-    
+
       writeAudit(db, session, {
         action: CORRECTION_ACTION,
         entityType: 'Attendance',
@@ -1166,7 +1178,7 @@ var RFID = (function () {
       }, ctx);
       return { session_id: sessionId, student_id: studentId, status };
     }
-    
+
     function instructorClassReport(db, request, session, ctx) {
       const classId = request.class_id;
       const now = manilaAt(ctx.now());
@@ -1176,11 +1188,11 @@ var RFID = (function () {
       if (!classId) return { classes, class: null };
       const klass = ownClass(db, instructorId, classId);
       const range = dateRange(request);
-    
+
       const roster = rosterIds(db, maps, classId);
       const sessions = countedSessions(db, classId)
         .filter((row) => range.has(row.session_date));
-    
+
       const students = roster.map((studentId) => {
         const student = maps.students.get(studentId);
         const marks = sessions.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now));
@@ -1193,11 +1205,11 @@ var RFID = (function () {
           ...summarize(marks.filter((s) => s !== 'not_scanned')),
         };
       }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-    
+
       const totals = summarize(students.flatMap((row) => row.marks).filter((s) => s !== 'not_scanned'));
       const cancelled = db.ClassSessions.filter((row) => row.class_id === classId && row.status === 'cancelled'
         && range.has(row.session_date)).length;
-    
+
       return {
         classes,
         class: { ...classInfo(db, maps, klass), enrolled: roster.length },
@@ -1209,7 +1221,7 @@ var RFID = (function () {
         totals,
       };
     }
-    
+
     // Everyone enrolled in one of the instructor's classes, with their attendance
     // so far. Works even before the first class session.
     function instructorClassRoster(db, request, session, ctx) {
@@ -1241,7 +1253,7 @@ var RFID = (function () {
         students,
       };
     }
-    
+
     function instructorStudentHistory(db, request, session, ctx) {
       const { class_id: classId, student_id: studentId } = request;
       const now = manilaAt(ctx.now());
@@ -1267,22 +1279,64 @@ var RFID = (function () {
         totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
       };
     }
-    
+
+    const RECENT_DEFAULT = 20;
+    const RECENT_MAX = 50;
+
+    // D12: the latest attendance rows (taps and corrections) of the instructor's own
+    // classes, newest first. Optional class_id (own class, any status); limit 1-50.
+    function instructorRecentActivity(db, request, session) {
+      const instructorId = linkedId(db, session, 'instructor');
+      const classes = request.class_id ? [ownClass(db, instructorId, request.class_id)] : myClasses(db, instructorId);
+      let limit = RECENT_DEFAULT;
+      if (request.limit !== undefined && request.limit !== null && request.limit !== '') {
+        limit = Number(request.limit);
+        if (!Number.isInteger(limit) || limit < 1) throw validationError({ limit: 'Enter a whole number of 1 or more.' });
+        limit = Math.min(limit, RECENT_MAX);
+      }
+      const students = indexBy(db.Students, 'student_id');
+      const classIds = new Set(classes.map((klass) => klass.class_id));
+      const sessions = new Map(db.ClassSessions.filter((row) => classIds.has(row.class_id)).map((row) => [row.session_id, row]));
+      const rows = db.Attendance
+        .filter((row) => sessions.has(row.session_id))
+        .sort((a, b) => String(b.scanned_at).localeCompare(String(a.scanned_at)) || String(b.attendance_id).localeCompare(String(a.attendance_id)));
+      const items = rows.slice(0, limit).map((row) => {
+        const classSession = sessions.get(row.session_id);
+        const student = students.get(row.student_id);
+        return {
+          attendance_id: row.attendance_id,
+          session_id: row.session_id,
+          session_date: classSession.session_date,
+          class_id: classSession.class_id,
+          class_label: classes.find((klass) => klass.class_id === classSession.class_id).class_label,
+          student_id: row.student_id,
+          student_number: student?.student_number ?? '',
+          student_name: fullName(student),
+          scanned_at: row.scanned_at,
+          status: effectiveStatus(row),
+          source: row.source,
+          sync_mode: row.sync_mode || '',
+          corrected: Boolean(row.override_status || row.override_reason),
+        };
+      });
+      return { limit, has_more: rows.length > limit, items };
+    }
+
     /* ---------------- Student ---------------- */
-    
+
     function myEnrolledClasses(db, studentId) {
       const ids = new Set(db.Enrollments.filter((row) => row.student_id === studentId && row.status === 'enrolled').map((row) => row.class_id));
       return db.Classes.filter((row) => ids.has(row.class_id) && row.status === 'active')
         .sort((a, b) => a.class_label.localeCompare(b.class_label));
     }
-    
+
     function historyRows(db, maps, studentId, classes, now, range) {
       const corrections = new Set(db.Attendance
         .filter((row) => row.student_id === studentId && row.override_reason)
         .map((row) => correctionKey(row.session_id, row.student_id)));
-    
+
       return classes.flatMap((klass) => db.ClassSessions
-        .filter((row) => row.class_id === klass.class_id && row.status !== 'scheduled' && range.has(row.session_date))
+        .filter((row) => row.class_id === klass.class_id && range.has(row.session_date))
         .map((row) => {
           const record = recordOf(db, row.session_id, studentId);
           const subject = maps.subjects.get(klass.subject_id);
@@ -1304,7 +1358,7 @@ var RFID = (function () {
         }))
         .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.start_time.localeCompare(a.start_time));
     }
-    
+
     function studentProfile(db, maps, studentId) {
       const student = maps.students.get(studentId);
       if (!student) throw new AppError('NOT_FOUND', 'Your student record was not found. Contact the administrator.');
@@ -1326,7 +1380,7 @@ var RFID = (function () {
         card: card ? { rfid_uid_masked: `•••• ${card.rfid_uid.slice(-4)}`, assigned_at: card.assigned_at } : null,
       };
     }
-    
+
     function studentOverview(db, request, session, ctx) {
       const now = manilaAt(ctx.now());
       const studentId = linkedId(db, session, 'student');
@@ -1335,7 +1389,7 @@ var RFID = (function () {
       const classes = myEnrolledClasses(db, studentId);
       const records = historyRows(db, maps, studentId, classes, now, range);
       const counted = (rows) => rows.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled');
-    
+
       const subjects = classes.map((klass) => {
         const rows = records.filter((row) => row.class_id === klass.class_id);
         return {
@@ -1344,14 +1398,14 @@ var RFID = (function () {
           last: rows.find((row) => row.status !== 'cancelled') ?? null,
         };
       });
-    
+
       const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
       const todayCode = dayCodeOf(now.date);
       const today = classes.flatMap((klass) => schedulesOf(db, maps, klass.class_id)
         .filter((slot) => slot.day === todayCode)
         .map((slot) => ({ ...slot, class_label: klass.class_label, subject_title: maps.subjects.get(klass.subject_id)?.subject_title ?? '' })))
         .sort((a, b) => a.start_time.localeCompare(b.start_time));
-    
+
       return {
         profile: studentProfile(db, maps, studentId),
         term_name: activeTerm?.term_name ?? null,
@@ -1363,7 +1417,7 @@ var RFID = (function () {
         recent: records.filter((row) => row.status !== 'cancelled').slice(0, 6),
       };
     }
-    
+
     function studentHistory(db, request, session, ctx) {
       const classId = request.class_id || '';
       const now = manilaAt(ctx.now());
@@ -1385,7 +1439,7 @@ var RFID = (function () {
         totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
       };
     }
-    
+
     function studentGetProfile(db, _request, session) {
       const studentId = linkedId(db, session, 'student');
       const maps = lookups(db);
@@ -1396,7 +1450,7 @@ var RFID = (function () {
         classes: myEnrolledClasses(db, studentId).map((klass) => classInfo(db, maps, klass)),
       };
     }
-    return { CORRECTION_ACTION, lookups, sectionLabel, rosterIds, countedSessions, heldCount, recordOf, statusOf, rate, summarize, sessionCounts, instructorDashboard, instructorListSessions, instructorGetSession, instructorCorrectAttendance, correctAttendance, instructorClassReport, instructorClassRoster, instructorStudentHistory, studentOverview, studentHistory, studentGetProfile };
+    return { CORRECTION_ACTION, lookups, sectionLabel, rosterIds, countedSessions, heldCount, recordOf, statusOf, rate, summarize, sessionCounts, instructorDashboard, instructorListSessions, instructorGetSession, instructorCorrectAttendance, correctAttendance, instructorClassReport, instructorClassRoster, instructorStudentHistory, instructorRecentActivity, studentOverview, studentHistory, studentGetProfile };
   })();
 
   // ---- handlers/dashboard.js ----
@@ -1574,7 +1628,7 @@ var RFID = (function () {
     // Admin: classes (subject + section + instructor), their weekly schedules,
     // and which students are enrolled. The Instructor and Student portals and the
     // RFID session lookup all read from these three tables.
-    const { AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId } = __m["utils"];
+    const { AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, MAX_TEXT } = __m["utils"];
 
     const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
     const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -1917,6 +1971,7 @@ var RFID = (function () {
       if (!row) throw new AppError('NOT_FOUND', 'This student is not enrolled in the class.');
       const cleanReason = cleanText(reason);
       if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
+      if (cleanReason.length > MAX_TEXT) throw validationError({ reason: `Use ${MAX_TEXT} characters or fewer.` });
       row.status = 'dropped';
       writeAudit(db, session, {
         action: 'ENROLL_DROP', entityType: 'Enrollments', entityId: row.enrollment_id,
@@ -1952,9 +2007,10 @@ var RFID = (function () {
 
   // ---- handlers/students.js ----
   __m["handlers/students"] = (function () {
-    const { AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, bumpRosterVersion } = __m["utils"];
+    const { AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, bumpRosterVersion, MAX_TEXT } = __m["utils"];
     const { enrollInSectionClasses, dropSectionClasses } = __m["handlers/classes"];
     const { newUserRow, issueTempPassword, usernameTaken, accountSummary } = __m["auth/admin-users"];
+    const { revokeSessions } = __m["auth/session"];
 
     const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
     const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
@@ -2113,7 +2169,7 @@ var RFID = (function () {
       // Email is optional; when given it must be valid and not used by another account.
       if (value.email && (!EMAIL_PATTERN.test(value.email) || value.email.length > 120)) {
         errors.email = 'Enter a valid email address.';
-      } else if (value.email && db.Users.some((row) => row.email === value.email && row.user_id !== ownUserId)) {
+      } else if (value.email && db.Users.some((row) => String(row.email).toLowerCase() === value.email && row.user_id !== ownUserId)) {
         errors.email = 'This email is already registered to another account.';
       }
 
@@ -2194,6 +2250,7 @@ var RFID = (function () {
       if (student.account_status === status) throw new AppError('NO_CHANGE', `This student is already ${status}.`);
       const cleanReason = cleanText(reason);
       if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
+      if (cleanReason.length > MAX_TEXT) throw validationError({ reason: `Use ${MAX_TEXT} characters or fewer.` });
 
       const now = toManilaIso(ctx.now());
       const user = userOf(db, student_id);
@@ -2202,6 +2259,7 @@ var RFID = (function () {
       if (user) {
         user.account_status = status === 'active' ? 'active' : 'disabled';
         user.updated_at = now;
+        if (status === 'inactive') revokeSessions(db, user.user_id); // else reactivating revives old tokens
       }
 
       let revokedCard = null;
@@ -2284,6 +2342,7 @@ var RFID = (function () {
       if (!card) throw new AppError('NO_ACTIVE_CARD', 'This student has no active card.');
       const cleanReason = cleanText(reason);
       if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
+      if (cleanReason.length > MAX_TEXT) throw validationError({ reason: `Use ${MAX_TEXT} characters or fewer.` });
       card.status = 'revoked';
       card.revoked_at = toManilaIso(ctx.now());
       card.notes = cleanText(`${card.notes} Revoked: ${cleanReason}`);
@@ -2688,6 +2747,7 @@ var RFID = (function () {
     const { AppError, validationError, toManilaIso, cleanText, writeAudit, nextId } = __m["utils"];
     const { normalizeUsername } = __m["auth/account"];
     const { newUserRow, issueTempPassword, usernameProblem, accountSummary } = __m["auth/admin-users"];
+    const { revokeSessions } = __m["auth/session"];
 
     const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
     const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -2745,7 +2805,7 @@ var RFID = (function () {
       // Email is optional; when given it must be valid and not used by another account.
       if (value.email && (!EMAIL_PATTERN.test(value.email) || value.email.length > 120)) {
         errors.email = 'Enter a valid email address.';
-      } else if (value.email && db.Users.some((row) => row.email === value.email && row.user_id !== ownUserId)) {
+      } else if (value.email && db.Users.some((row) => String(row.email).toLowerCase() === value.email && row.user_id !== ownUserId)) {
         errors.email = 'This email is already registered to another account.';
       }
       if (Object.keys(errors).length) throw validationError(errors);
@@ -2793,6 +2853,7 @@ var RFID = (function () {
       if (user) {
         user.account_status = status === 'active' ? 'active' : 'disabled';
         user.updated_at = toManilaIso(ctx.now());
+        if (status === 'inactive') revokeSessions(db, user.user_id); // else reactivating revives old tokens
       }
       writeAudit(db, session, {
         action: status === 'active' ? 'INSTRUCTOR_ACTIVATE' : 'INSTRUCTOR_DEACTIVATE',
@@ -2913,7 +2974,7 @@ var RFID = (function () {
     // Admin device actions (step 4b): list, create, update, status, room, key.
     // A device is never deleted; retired is final. device_key_hash never leaves
     // the server (lists show has_key) and is never written to the AuditLog.
-    const { AppError, validationError, cleanText, writeAudit, indexBy } = __m["utils"];
+    const { AppError, validationError, cleanText, writeAudit, indexBy, MAX_TEXT } = __m["utils"];
 
     const DEVICE_STATUSES = Object.freeze(['active', 'maintenance', 'retired']);
 
@@ -2954,6 +3015,12 @@ var RFID = (function () {
       }
     }
 
+    function deviceNotes(value) {
+      const notes = cleanText(value);
+      if (notes.length > MAX_TEXT) throw validationError({ notes: `Use ${MAX_TEXT} characters or fewer.` });
+      return notes;
+    }
+
     function deviceName(value) {
       const name = cleanText(value);
       if (!name) throw validationError({ device_name: 'This field is required.' });
@@ -2985,7 +3052,7 @@ var RFID = (function () {
         room_id: room.room_id,
         device_name: name,
         status: 'maintenance', // no key yet; the admin activates it after flashing the key
-        notes: cleanText(input.notes),
+        notes: deviceNotes(input.notes),
       });
       db.Devices.push(row);
       writeAudit(db, session, { action: 'DEVICE_CREATE', entityType: 'Devices', entityId: row.device_id, after: publicView(row) }, ctx);
@@ -2994,7 +3061,8 @@ var RFID = (function () {
 
     function updateDevice(db, input, session, ctx) {
       const device = findDevice(db, input.device_id);
-      const value = { device_name: deviceName(input.device_name), notes: cleanText(input.notes) };
+      notRetired(device);
+      const value = { device_name: deviceName(input.device_name), notes: deviceNotes(input.notes) };
       const before = publicView(device);
       Object.assign(device, value);
       writeAudit(db, session, { action: 'DEVICE_UPDATE', entityType: 'Devices', entityId: device.device_id, before, after: publicView(device) }, ctx);
@@ -3161,12 +3229,12 @@ var RFID = (function () {
     const { validationError, manilaAt, indexBy, fullName, effectiveStatus, dateRange } = __m["utils"];
     const { lookups, sectionLabel, rosterIds, countedSessions, heldCount, sessionCounts, rate, correctAttendance } = __m["handlers/portal"];
     const { deviceSummaries } = __m["handlers/dashboard"];
-    
+
     const STATUSES = ['present', 'late', 'absent'];
     const GROUP_BY = ['class', 'section', 'student'];
     const DEFAULT_PAGE_SIZE = 100;
     const MAX_PAGE_SIZE = 500;
-    
+
     function positiveInt(value, fallback, field, fields) {
       if (value === undefined || value === null || value === '') return fallback;
       const number = Number(value);
@@ -3176,7 +3244,7 @@ var RFID = (function () {
       }
       return number;
     }
-    
+
     function listAttendance(db, request) {
       const range = dateRange(request);
       const fields = {};
@@ -3185,14 +3253,14 @@ var RFID = (function () {
       const status = request.status || '';
       if (status && !STATUSES.includes(status)) fields.status = 'Choose Present, Late, or Absent.';
       if (Object.keys(fields).length) throw validationError(fields);
-    
+
       const { class_id: classId, section_id: sectionId, student_id: studentId } = request;
       const sessions = indexBy(db.ClassSessions, 'session_id');
       const classes = indexBy(db.Classes, 'class_id');
       const rooms = indexBy(db.Rooms, 'room_id');
       const students = indexBy(db.Students, 'student_id');
       const users = indexBy(db.Users, 'user_id');
-    
+
       const matches = db.Attendance.filter((row) => {
         const session = sessions.get(row.session_id);
         return range.has(session?.session_date ?? '')
@@ -3202,7 +3270,7 @@ var RFID = (function () {
           && (!status || effectiveStatus(row) === status);
       }).sort((a, b) => String(b.scanned_at).localeCompare(String(a.scanned_at))
         || String(b.attendance_id).localeCompare(String(a.attendance_id)));
-    
+
       const rows = matches.slice((page - 1) * pageSize, page * pageSize).map((row) => {
         const session = sessions.get(row.session_id);
         const student = students.get(row.student_id);
@@ -3232,13 +3300,13 @@ var RFID = (function () {
       });
       return { range: { from: range.from, to: range.to }, page, page_size: pageSize, total: matches.length, rows };
     }
-    
+
     const COUNT_KEYS = ['present', 'late', 'absent', 'not_scanned'];
     const finish = (counts) => {
       const total = counts.present + counts.late + counts.absent;
       return { ...counts, total, rate: rate(counts.present, counts.late, total) };
     };
-    
+
     function getAttendanceReport(db, request, _session, ctx) {
       const groupBy = request.group_by;
       if (!GROUP_BY.includes(groupBy)) throw validationError({ group_by: 'Choose class, section, or student.' });
@@ -3246,7 +3314,7 @@ var RFID = (function () {
       const { class_id: classId, section_id: sectionId } = request;
       const now = manilaAt(ctx.now());
       const maps = lookups(db);
-    
+
       const groups = new Map();
       const groupOf = (key, label) => {
         if (!groups.has(key)) {
@@ -3263,7 +3331,7 @@ var RFID = (function () {
           COUNT_KEYS.forEach((key) => { group[key] += counts[key]; });
         });
       };
-    
+
       db.Classes
         .filter((klass) => (!classId || klass.class_id === classId) && (!sectionId || klass.section_id === sectionId))
         .forEach((klass) => {
@@ -3280,7 +3348,7 @@ var RFID = (function () {
             });
           }
         });
-    
+
       const rows = [...groups.values()]
         .map(({ students, classes, ...group }) => finish({ ...group, enrolled: groupBy === 'student' ? classes : students.size }))
         .sort((a, b) => a.label.localeCompare(b.label));
@@ -3289,7 +3357,7 @@ var RFID = (function () {
         device_id: d.device_id, device_name: d.device_name, room_code: d.room_code, status: d.status,
         queue_count: d.queue_count, last_seen_at: d.last_seen_at, online: d.online,
       }));
-    
+
       return {
         range: { from: range.from, to: range.to },
         group_by: groupBy,
@@ -3301,7 +3369,7 @@ var RFID = (function () {
         pending_offline_scans: devices.reduce((sum, d) => sum + d.queue_count, 0),
       };
     }
-    
+
     function adminCorrectAttendance(db, request, session, ctx) {
       return correctAttendance(db, request, session, ctx);
     }
@@ -3479,9 +3547,8 @@ var RFID = (function () {
       const results = scans.map((scan) => handleScan(db, scan, device, settings, nowMs, receivedAt));
 
       device.last_seen_at = receivedAt;
-      if (typeof request.firmware_version === 'string' && request.firmware_version.trim()) {
-        device.firmware_version = request.firmware_version.trim();
-      }
+      // Same 1-32 rule as heartbeat; a bad value is ignored, never a reason to drop the scans.
+      if (HEARTBEAT_FIELDS.firmware_version(request.firmware_version)) device.firmware_version = request.firmware_version.trim();
       return { results, roster_version: rosterVersion(db) };
     }
 
@@ -3562,10 +3629,10 @@ var RFID = (function () {
     const attendance = __m["handlers/attendance"];
     const { authenticateDevice } = __m["auth/device-auth"];
     const { submitScans, heartbeat, getRoster } = __m["handlers/device"];
-    
+
     const READ = 'read';
     const WRITE = 'write';
-    
+
     // Tabs: Server.gs loads only what an action declares (step 4a).
     //   reads   - loaded fully (space-separated tab names)
     //   writes  - may change; saved if they did (also loaded fully)
@@ -3575,7 +3642,7 @@ var RFID = (function () {
     const AUTH_TABS = Object.freeze(['AuthSessions', 'Users']);
     const CLASS_REF = 'Terms Programs Sections Subjects Rooms Instructors Students Classes Schedules Enrollments';
     const PORTAL = `${CLASS_REF} ClassSessions Attendance RfidCards`;
-    
+
     const ACTIONS = Object.freeze({
       'auth.login': { run: account.login, mode: WRITE, role: PUBLIC,
         reads: 'Users Settings AuthSessions Instructors Students', writes: 'Users AuthSessions', appends: 'AuditLog' },
@@ -3606,7 +3673,7 @@ var RFID = (function () {
       'admin.updateStudent': { run: updateStudent, mode: WRITE, role: 'admin',
         reads: 'Classes Enrollments Programs Sections Settings Students Terms', writes: 'Students Users Settings Enrollments', appends: 'AuditLog' },
       'admin.setStudentStatus': { run: setStudentStatus, mode: WRITE, role: 'admin',
-        reads: 'RfidCards Settings Students', writes: 'Students Users RfidCards Settings', appends: 'AuditLog' },
+        reads: 'RfidCards Settings Students', writes: 'Students Users RfidCards Settings AuthSessions', appends: 'AuditLog' },
       'admin.assignCard': { run: assignCard, mode: WRITE, role: 'admin',
         reads: 'RfidCards Settings Students', writes: 'RfidCards Settings', appends: 'AuditLog' },
       'admin.revokeCard': { run: revokeCard, mode: WRITE, role: 'admin',
@@ -3670,7 +3737,7 @@ var RFID = (function () {
       'admin.updateInstructor': { run: instructors.updateInstructor, mode: WRITE, role: 'admin',
         reads: 'Instructors', writes: 'Instructors Users', appends: 'AuditLog' },
       'admin.setInstructorStatus': { run: instructors.setInstructorStatus, mode: WRITE, role: 'admin',
-        reads: 'Classes Instructors', writes: 'Instructors Users', appends: 'AuditLog' },
+        reads: 'Classes Instructors', writes: 'Instructors Users AuthSessions', appends: 'AuditLog' },
       'admin.listAdmins': { run: admins.listAdmins, mode: READ, role: 'admin' },
       'admin.createAdmin': { run: admins.createAdmin, mode: WRITE, role: 'admin',
         reads: 'Settings', writes: 'Users', appends: 'AuditLog' },
@@ -3720,6 +3787,8 @@ var RFID = (function () {
         reads: PORTAL },
       'instructor.getStudentHistory': { run: portal.instructorStudentHistory, mode: READ, role: 'instructor',
         reads: PORTAL },
+      'instructor.getRecentActivity': { run: portal.instructorRecentActivity, mode: READ, role: 'instructor',
+        reads: 'Attendance ClassSessions Classes Students' },
       'student.getOverview': { run: portal.studentOverview, mode: READ, role: 'student',
         reads: PORTAL },
       'student.getHistory': { run: portal.studentHistory, mode: READ, role: 'student',
@@ -3727,9 +3796,9 @@ var RFID = (function () {
       'student.getProfile': { run: portal.studentGetProfile, mode: READ, role: 'student',
         reads: PORTAL },
     });
-    
+
     const words = (text) => (text ? text.split(' ') : []);
-    
+
     // { read, write, append } tab names for an action, or null if it is unknown.
     function tabsFor(name) {
       const action = findAction(name);
@@ -3738,9 +3807,9 @@ var RFID = (function () {
       const read = [...new Set([...(action.role === PUBLIC ? [] : AUTH_TABS), ...words(action.reads), ...write])];
       return { read, write, append: words(action.appends).filter((tab) => !read.includes(tab)) };
     }
-    
+
     const isTab = (name) => typeof name === 'string' && /^[A-Z]/.test(name);
-    
+
     // Wraps a db that holds only the declared tabs:
     // - rows of read-only and append tabs are frozen (and read-only arrays too),
     //   so an undeclared change throws instead of being silently not saved;
@@ -3771,11 +3840,11 @@ var RFID = (function () {
         },
       });
     }
-    
+
     function findAction(name) {
       return Object.prototype.hasOwnProperty.call(ACTIONS, name) ? ACTIONS[name] : null;
     }
-    
+
     // Looks the action up, checks the session, the role and the forced password
     // change, then runs it. Throws AppError; error.commit === true means the
     // changes made so far must still be saved (failed logins).
@@ -3784,7 +3853,7 @@ var RFID = (function () {
       const action = findAction(name);
       if (!action) throw new AppError('UNKNOWN_ACTION', `Unknown action: ${name}`);
       if (action.role === PUBLIC) return action.run(db, request, null, ctx);
-    
+
       const session = authorize(db, request.session_token, ctx);
       if (action.role !== ANY && session.role !== action.role) {
         throw new AppError('FORBIDDEN', 'You do not have access to this information.');
@@ -3794,28 +3863,28 @@ var RFID = (function () {
       }
       return action.run(db, request, session, ctx);
     }
-    
+
     // device.* requests (ESP32): no user session; the device key is checked first
     // (authenticateDevice). Same tab rules as ACTIONS; a device action with writes
     // runs under the lock. Unknown device.* actions load only Devices for the check.
     const DEVICE_TABS = Object.freeze({ read: ['Devices'], write: [], append: [] });
-    
+
     const DEVICE_ACTIONS = Object.freeze({
       'device.submitScans': { run: submitScans,
         reads: 'Terms Classes Schedules Enrollments RfidCards Students Settings', writes: 'Devices ClassSessions Attendance ScanLog' },
       'device.heartbeat': { run: heartbeat, reads: 'Settings', writes: 'Devices' },
       'device.getRoster': { run: getRoster, reads: 'Devices RfidCards Students Settings' },
     });
-    
+
     const findDeviceAction = (name) => (Object.prototype.hasOwnProperty.call(DEVICE_ACTIONS, name) ? DEVICE_ACTIONS[name] : null);
-    
+
     function deviceTabsFor(name) {
       const action = findDeviceAction(name);
       if (!action) return DEVICE_TABS;
       const write = words(action.writes);
       return { read: [...new Set([...words(action.reads), ...write])], write, append: words(action.appends) };
     }
-    
+
     function runDeviceAction(db, request, ctx) {
       const device = authenticateDevice(db, request, ctx);
       const name = String(request.action || '');

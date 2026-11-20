@@ -612,6 +612,9 @@ function setupViews() {
   };
 
   var att = function (h) { return column('Attendance', h); };
+  // Effective status (a correction wins). Older Sheets may not have the column yet.
+  var effectiveStatus = att('status');
+  try { var ov = att('override_status'); effectiveStatus = 'IF(' + ov + '<>"",' + ov + ',' + att('status') + ')'; } catch (e) { /* keep status */ }
   var attendanceColumns = [
     ['Date', lookup(att('session_id'), 'ClassSessions', 'session_date')],
     ['Time in', 'MID(' + att('scanned_at') + ',12,5)'],
@@ -619,7 +622,7 @@ function setupViews() {
     ['Student', studentName(att('student_id'))],
     ['Class', lookup(lookup(att('session_id'), 'ClassSessions', 'class_id'), 'Classes', 'class_label')],
     ['Room', lookup(lookup(att('session_id'), 'ClassSessions', 'room_id'), 'Rooms', 'room_code')],
-    ['Status', 'PROPER(' + att('status') + ')'],
+    ['Status', 'PROPER(' + effectiveStatus + ')'],
     ['Recorded by', 'IF(' + att('source') + '="device","RFID tap","Instructor correction")'],
   ];
 
@@ -637,7 +640,7 @@ function setupViews() {
   buildView_(ss, VIEW_PREFIX + 'Scans', scanColumns, scan('scanned_at'),
     'Every card tap, including rejected ones (unknown card, not enrolled, no class at that time).');
   buildView_(ss, VIEW_PREFIX + 'Attendance', attendanceColumns, att('student_id'),
-    'Every Present/Late record with names. Absent students have no row (absent = enrolled but no record).');
+    'Every attendance record with names; Status includes corrections. Enrolled students with no row count as absent once the class ends.');
   console.log('Views ready: "' + VIEW_PREFIX + 'Attendance" and "' + VIEW_PREFIX + 'Scans" (newest first).');
 }
 

@@ -1,7 +1,7 @@
 // Admin device actions (step 4b): list, create, update, status, room, key.
 // A device is never deleted; retired is final. device_key_hash never leaves
 // the server (lists show has_key) and is never written to the AuditLog.
-import { AppError, validationError, cleanText, writeAudit, indexBy } from '../utils.js';
+import { AppError, validationError, cleanText, writeAudit, indexBy, MAX_TEXT } from '../utils.js';
 
 export const DEVICE_STATUSES = Object.freeze(['active', 'maintenance', 'retired']);
 
@@ -42,6 +42,12 @@ function checkRoomFree(db, device, roomId) {
   }
 }
 
+function deviceNotes(value) {
+  const notes = cleanText(value);
+  if (notes.length > MAX_TEXT) throw validationError({ notes: `Use ${MAX_TEXT} characters or fewer.` });
+  return notes;
+}
+
 function deviceName(value) {
   const name = cleanText(value);
   if (!name) throw validationError({ device_name: 'This field is required.' });
@@ -73,7 +79,7 @@ export function createDevice(db, input, session, ctx) {
     room_id: room.room_id,
     device_name: name,
     status: 'maintenance', // no key yet; the admin activates it after flashing the key
-    notes: cleanText(input.notes),
+    notes: deviceNotes(input.notes),
   });
   db.Devices.push(row);
   writeAudit(db, session, { action: 'DEVICE_CREATE', entityType: 'Devices', entityId: row.device_id, after: publicView(row) }, ctx);
@@ -82,7 +88,8 @@ export function createDevice(db, input, session, ctx) {
 
 export function updateDevice(db, input, session, ctx) {
   const device = findDevice(db, input.device_id);
-  const value = { device_name: deviceName(input.device_name), notes: cleanText(input.notes) };
+  notRetired(device);
+  const value = { device_name: deviceName(input.device_name), notes: deviceNotes(input.notes) };
   const before = publicView(device);
   Object.assign(device, value);
   writeAudit(db, session, { action: 'DEVICE_UPDATE', entityType: 'Devices', entityId: device.device_id, before, after: publicView(device) }, ctx);

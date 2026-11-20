@@ -160,3 +160,28 @@ Nothing was deleted or moved in this task.
 2. **Frontend phase:** admin devices / settings / attendance + report / correction pages, student date filter, account settings + admin reset/unlock (Step 3). Drop the `late_grace_minutes` field and the demo CSS.
 3. **Cleanup PR (after the deployed Sheet is migrated):** the DELETE / ARCHIVE rows of §4.
 4. **Later:** manual sessions (M), M1-M7, live speed test.
+
+---
+
+## 6. Wrap-up status (branch `backend-wrapup-fixes`)
+
+Tests for all of these are in `backend/tests/wrapup-fixes.test.js`.
+
+| Item | Status |
+|---|---|
+| I1 | **FIXED**: deactivating a student or instructor revokes all their AuthSessions (as for admins); `AuthSessions` is declared in `writes`. |
+| I3 | **FIXED**: `instructor.correctAttendance` on an inactive class → `CLASS_INACTIVE`, nothing written; reads stay allowed; admin correction still works. |
+| D12 | **FIXED**: new READ action `instructor.getRecentActivity {class_id?, limit?}` (own classes only, newest first, `limit` default 20 / max 50, `has_more`). |
+| M1 | **FIXED**: reasons and device notes max 500 characters (`MAX_TEXT`). A bad `firmware_version` in `submitScans` is ignored (the scans are still saved). |
+| M5 | **FIXED**: corrections on a session that has not started → `SESSION_NOT_STARTED` (instructor and admin). |
+| M7 | **FIXED**: email uniqueness ignores case for students and instructors. |
+| M8 | **FIXED (needs a live check)**: `View - Attendance` Status = override if set; note text updated. Formulas are not unit-tested: re-run `setupViews` on the TEST Sheet and look. |
+| M9 | **FIXED**: `updateDevice` on a retired device → `DEVICE_RETIRED`. |
+| M10 | **FIXED**: the dead `scheduled` condition is removed. |
+| M11 | **FIXED**: the NUL byte in CLAUDE.md is gone (the file is now normal text in git, so this one commit shows a whole-file line-ending change). |
+| M12 | **FIXED**: the CLAUDE.md pointer and BACKEND_VERIFICATION rows C6 and D12 are updated. Archiving the old docs is left for the cleanup PR. |
+| M2 | LEFT: needs a device-ops rule (refuse a room move with a queue / while active); it changes admin workflow. |
+| M3 | LEFT: a max scan age is a product decision; it could drop legitimate offline backfill. |
+| M4 | LEFT: design trade-off (public login + lockout); no cheap fix without CacheService/rate limiting. |
+| M6 | LEFT: historical enrollment for reports is a design change (M effort). |
+| I2 / P1-P4 | LEFT: production setup (`setupEmptySheets`, `setupSheets` guard); not in this task's scope. |

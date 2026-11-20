@@ -2,7 +2,7 @@
 // and which students are enrolled. The Instructor and Student portals and the
 // RFID session lookup all read from these three tables.
 import {
-  AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId,
+  AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, MAX_TEXT,
 } from '../utils.js';
 
 const DAYS = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
@@ -346,6 +346,7 @@ export function dropEnrollment(db, { class_id: classId, student_id: studentId, r
   if (!row) throw new AppError('NOT_FOUND', 'This student is not enrolled in the class.');
   const cleanReason = cleanText(reason);
   if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
+  if (cleanReason.length > MAX_TEXT) throw validationError({ reason: `Use ${MAX_TEXT} characters or fewer.` });
   row.status = 'dropped';
   writeAudit(db, session, {
     action: 'ENROLL_DROP', entityType: 'Enrollments', entityId: row.enrollment_id,

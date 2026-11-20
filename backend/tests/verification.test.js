@@ -45,6 +45,7 @@ const READ_CALLS = {
   'instructor.getClassReport': [SESSIONS.instructorAna, { class_id: 'CLS-0001' }],
   'instructor.getClassRoster': [SESSIONS.instructorAna, { class_id: 'CLS-0001' }],
   'instructor.getStudentHistory': [SESSIONS.instructorAna, { class_id: 'CLS-0001', student_id: 'STU-0001' }],
+  'instructor.getRecentActivity': [SESSIONS.instructorAna, {}],
   'student.getOverview': [SESSIONS.student1, {}],
   'student.getHistory': [SESSIONS.student1, {}],
   'student.getProfile': [SESSIONS.student1, {}],

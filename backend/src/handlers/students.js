@@ -1,8 +1,9 @@
 import {
-  AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, bumpRosterVersion,
+  AppError, validationError, toManilaIso, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, bumpRosterVersion, MAX_TEXT,
 } from '../utils.js';
 import { enrollInSectionClasses, dropSectionClasses } from './classes.js';
 import { newUserRow, issueTempPassword, usernameTaken, accountSummary } from '../auth/admin-users.js';
+import { revokeSessions } from '../auth/session.js';
 
 const STUDENT_NUMBER_PATTERN = /^\d{10}$/;
 const NAME_PATTERN = /^\p{L}[\p{L}\p{M} .'-]*$/u;
@@ -161,7 +162,7 @@ function validateStudentInput(db, input, existing = null) {
   // Email is optional; when given it must be valid and not used by another account.
   if (value.email && (!EMAIL_PATTERN.test(value.email) || value.email.length > 120)) {
     errors.email = 'Enter a valid email address.';
-  } else if (value.email && db.Users.some((row) => row.email === value.email && row.user_id !== ownUserId)) {
+  } else if (value.email && db.Users.some((row) => String(row.email).toLowerCase() === value.email && row.user_id !== ownUserId)) {
     errors.email = 'This email is already registered to another account.';
   }
 
@@ -242,6 +243,7 @@ export function setStudentStatus(db, { student_id, status, reason }, session, ct
   if (student.account_status === status) throw new AppError('NO_CHANGE', `This student is already ${status}.`);
   const cleanReason = cleanText(reason);
   if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
+  if (cleanReason.length > MAX_TEXT) throw validationError({ reason: `Use ${MAX_TEXT} characters or fewer.` });
 
   const now = toManilaIso(ctx.now());
   const user = userOf(db, student_id);
@@ -250,6 +252,7 @@ export function setStudentStatus(db, { student_id, status, reason }, session, ct
   if (user) {
     user.account_status = status === 'active' ? 'active' : 'disabled';
     user.updated_at = now;
+    if (status === 'inactive') revokeSessions(db, user.user_id); // else reactivating revives old tokens
   }
 
   let revokedCard = null;
@@ -332,6 +335,7 @@ export function revokeCard(db, { student_id, reason }, session, ctx) {
   if (!card) throw new AppError('NO_ACTIVE_CARD', 'This student has no active card.');
   const cleanReason = cleanText(reason);
   if (cleanReason.length < 3) throw validationError({ reason: 'Please give a short reason.' });
+  if (cleanReason.length > MAX_TEXT) throw validationError({ reason: `Use ${MAX_TEXT} characters or fewer.` });
   card.status = 'revoked';
   card.revoked_at = toManilaIso(ctx.now());
   card.notes = cleanText(`${card.notes} Revoked: ${cleanReason}`);

@@ -90,6 +90,7 @@ const CASES = [
   ['instructor.getClassReport', 'ana', { class_id: 'CLS-0001' }],
   ['instructor.getClassRoster', 'ana', { class_id: 'CLS-0001' }],
   ['instructor.getStudentHistory', 'ana', { class_id: 'CLS-0001', student_id: 'STU-0001' }],
+  ['instructor.getRecentActivity', 'ana', { limit: 5 }],
   ['student.getOverview', 'student', {}],
   ['student.getHistory', 'student', {}],
   ['student.getProfile', 'student', {}],

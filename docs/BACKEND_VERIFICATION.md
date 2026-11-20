@@ -117,7 +117,7 @@ Test names are from `backend/tests/<file>`.
 | D9 | Instructor: assigned classes | PC §9B | `classes[]` | `portal.test.js` | MET | |
 | D10 | Instructor: total students per section | PC §9B | `classes[].enrolled`, `stats.students` | read `portal.js:230-236` | MET | |
 | D11 | Instructor: present and absent counts | PC §9B | `sessions[].present/late/absent` | `portal.test.js` absent tests | MET | BUG-7 fixed (step 4c): `not_scanned` count while running. |
-| D12 | Instructor: recent attendance activity | PC §9B | sessions of the chosen date only | read | PARTIAL | No feed of recent taps for the instructor's classes. |
+| D12 | Instructor: recent attendance activity | PC §9B | `instructor.getRecentActivity` (`portal.js`) | `wrapup-fixes.test.js` D12 | MET (backend) | Remains: frontend (dashboard widget). |
 | D13 | Instructor: attendance history + report generation | PC §9B | see I3, I5 | see above | MET | |
 | D14 | Student: overview, percentage, history, scan time, profile | PC §9C | `student.getOverview` (`totals.rate`), `getHistory`, `getProfile` | `portal.test.js` | MET | |
 
@@ -160,7 +160,7 @@ Test names are from `backend/tests/<file>`.
 | C3 | Only admins create accounts (no sign-up) | CL | only `auth.login` / `auth.logout` are public | `actions.test.js` "auth actions: only login and logout are public" | MET | |
 | C4 | Instructor/admin: username; student: student number | CL | `newUserRow`, `createStudent` | `users.test.js` (student / instructor / admin create) | MET | |
 | C5 | Usernames trimmed, lowercase, unique across all users | CL | `normalizeUsername`, `usernameProblem` | `users.test.js` "usernames are unique across ALL roles, ignoring case" | MET | |
-| C6 | Default password per role from Script Properties; missing → error | CL | `ctx.defaultPassword` | `users.test.js` "fails with NOT_CONFIGURED and changes nothing" | MET | Adds `DEFAULT_ADMIN_PASSWORD`. |
+| C6 | New/reset accounts get a random temporary password (no shared defaults) | CL | `issueTempPassword` (`auth/admin-users.js`) | `temp-passwords.test.js` | MET | Replaced the old per-role default passwords (2026-11-19). |
 | C7 | Salt + pepper + iterated SHA-256, versioned string | CL | `passwords.js` | `passwords.test.js` (format, round-trip, pepper, salt) | MET | |
 | C8 | One hash ≈ 200–500 ms in Apps Script | CL | `PASSWORD_HASH_ITERATIONS = 300` (`passwords.js:22`) | `passwords.test.js` "uses 300 iterations" | MET | 359 ms is computed from your 1500-run; re-run `benchmarkPasswordHash` to confirm. |
 | C9 | Constant-time comparison | CL | `constantTimeEqual` (`passwords.js:72`) | `passwords.test.js` | MET | |
@@ -181,14 +181,14 @@ Test names are from `backend/tests/<file>`.
 
 | Status | Count |
 |---|---|
-| MET | 81 |
-| PARTIAL | 2 |
+| MET | 82 |
+| PARTIAL | 1 |
 | MISSING | 0 |
 | WRONG | 0 |
 | N/A | 2 |
 | **Total** | **85** |
 
-MET includes **MET (backend)** rows (22 of them): the server part is done and tested, and the row's Notes name what still remains (frontend page or ESP32 firmware). No firmware is in this repo yet.
+MET includes **MET (backend)** rows (23 of them): the server part is done and tested, and the row's Notes name what still remains (frontend page or ESP32 firmware). No firmware is in this repo yet.
 
 ---
 

@@ -122,9 +122,8 @@ export function submitScans(db, request, device, ctx) {
   const results = scans.map((scan) => handleScan(db, scan, device, settings, nowMs, receivedAt));
 
   device.last_seen_at = receivedAt;
-  if (typeof request.firmware_version === 'string' && request.firmware_version.trim()) {
-    device.firmware_version = request.firmware_version.trim();
-  }
+  // Same 1-32 rule as heartbeat; a bad value is ignored, never a reason to drop the scans.
+  if (HEARTBEAT_FIELDS.firmware_version(request.firmware_version)) device.firmware_version = request.firmware_version.trim();
   return { results, roster_version: rosterVersion(db) };
 }
 
