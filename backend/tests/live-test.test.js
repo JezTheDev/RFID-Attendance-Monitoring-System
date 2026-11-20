@@ -5,6 +5,8 @@ import { makeDb, withCode } from './helpers/db.js';
 import { makeCtx } from './helpers/auth.js';
 import { prepareLiveTest, cleanupLiveTest, findScheduleClashes } from '../src/maintenance.js';
 import { resolveScan } from '../src/sessions.js';
+import { submitScans } from '../src/handlers/device.js';
+import { getAdminDashboard } from '../src/handlers/dashboard.js';
 
 const at = (iso) => Date.parse(iso);
 const MON_11 = at('2026-11-23T11:00:00+08:00');
@@ -119,5 +121,24 @@ describe('prepareLiveTest / cleanupLiveTest', () => {
   it('NO_LIVE_TEST_SLOT when no active term covers today', () => {
     const { db, ctx } = setup(at('2027-02-01T11:00:00+08:00'));
     assert.throws(() => prepareLiveTest(db, ctx), withCode('NO_LIVE_TEST_SLOT'));
+  });
+});
+
+describe('live test, then cleanup: the admin dashboard still shows the attendance', () => {
+  it('lists the session of the removed LIVE TEST slot, and "Students present" agrees', () => {
+    const { db, ctx } = setup();
+    const r = prepareLiveTest(db, ctx);
+    const device = db.Devices.find((d) => d.device_id === r.device_id);
+    const scans = r.enrolled_uids.slice(0, 2).map((uid, i) => ({
+      scan_id: `${r.device_id}-000001-00000${i + 1}`, rfid_uid: uid, scanned_at: MON_11 / 1000, sync_mode: 'live', time_quality: 'ntp',
+    }));
+    assert.deepEqual(submitScans(db, { sent_at: MON_11 / 1000, scans }, device, ctx).results.map((x) => x.result), ['ACCEPTED', 'ACCEPTED']);
+    cleanupLiveTest(db, ctx);
+
+    const result = getAdminDashboard(db, { date: '2026-11-23' }, null, ctx);
+    const row = result.sessions.find((s) => s.class_id === r.class_id && s.session_id);
+    assert.ok(row, 'the live-test session is listed');
+    assert.equal(row.present, 2);
+    assert.equal(result.stats.students_present, 2);
   });
 });

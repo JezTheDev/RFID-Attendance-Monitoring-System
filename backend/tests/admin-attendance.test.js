@@ -221,3 +221,45 @@ describe('one counting rule for every view', () => {
     assert.deepEqual(pick(getAttendanceReport(db, { group_by: 'class', class_id: 'CLS-0001' }, admin, DURING).groups[0]), EXPECTED, 'admin report');
   });
 });
+
+describe('admin.getDashboard: every session of the day is listed', () => {
+  const day = (db) => getAdminDashboard(db, { date: '2026-11-16' }, admin, CTX);
+  const agree = (result) => assert.equal(
+    result.sessions.reduce((sum, s) => sum + (s.present ?? 0) + (s.late ?? 0), 0),
+    result.stats.students_present,
+    'table and "Students present" agree',
+  );
+
+  it('keeps a session whose schedule was removed, deactivated or whose class is inactive', () => {
+    for (const change of [
+      (db) => { db.Schedules.splice(0, 1); },
+      (db) => { db.Schedules[0].status = 'inactive'; },
+      (db) => { db.Classes.find((c) => c.class_id === 'CLS-0001').status = 'inactive'; },
+    ]) {
+      const db = makeDb();
+      change(db);
+      const result = day(db);
+      assert.deepEqual(result.sessions.map((s) => s.session_id), ['SES-0001']);
+      assert.deepEqual(pick(result.sessions[0]), { present: 1, late: 1, absent: 1, not_scanned: 0 });
+      assert.equal(result.stats.sessions_on_date, 1);
+      agree(result);
+    }
+  });
+
+  it('keeps a session of the day outside the active term', () => {
+    const db = makeDb();
+    db.Terms.forEach((t) => { t.is_active = 'FALSE'; });
+    const result = day(db);
+    assert.deepEqual(result.sessions.map((s) => s.session_id), ['SES-0001']);
+    agree(result);
+  });
+
+  it('lists an active slot without a session once, and a session once', () => {
+    const db = makeDb();
+    assert.deepEqual(day(db).sessions.map((s) => s.session_id), ['SES-0001']);
+    db.ClassSessions.splice(0, 1);
+    db.Attendance.splice(0, 2);
+    const slot = day(db).sessions;
+    assert.deepEqual(slot.map((s) => [s.session_id, s.class_id, s.status, s.present]), [[null, 'CLS-0001', 'no_record', null]]);
+  });
+});

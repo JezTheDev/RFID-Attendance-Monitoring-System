@@ -1,8 +1,8 @@
 import {
-  AppError, setting, manilaAt, dayCodeOf, isValidDate, shiftDate, indexBy, fullName, effectiveStatus,
+  AppError, setting, manilaAt, dayCodeOf, isValidDate, shiftDate, indexBy, fullName,
 } from '../utils.js';
 import { sessionPhase } from '../sessions.js';
-import { rosterIds, sessionCounts } from './portal.js';
+import { rosterIds, sessionCounts, recordOf, statusOf } from './portal.js';
 
 // Non-retired devices with their offline queue (dashboard + attendance report).
 export function deviceSummaries(db, ctx) {
@@ -37,6 +37,7 @@ export function getAdminDashboard(db, { date }, _session, ctx) {
   const devicesById = indexBy(db.Devices, 'device_id');
   const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
   const inTerm = Boolean(activeTerm) && date >= activeTerm.start_date && date <= activeTerm.end_date;
+  const presentIds = new Set(); // "Students present" = present/late in the listed sessions, same rule as the table
 
   const describe = ({ classId, roomId, start, end, status, session, source }) => {
     const sessionId = session?.session_id;
@@ -45,6 +46,11 @@ export function getAdminDashboard(db, { date }, _session, ctx) {
     const counts = session
       ? sessionCounts(db, session, roster, now)
       : { enrolled: roster.length, present: null, late: null, absent: null, not_scanned: null };
+    if (counts.present !== null) {
+      roster.forEach((studentId) => {
+        if (['present', 'late'].includes(statusOf(recordOf(db, sessionId, studentId), session, now))) presentIds.add(studentId);
+      });
+    }
     return {
       session_id: sessionId ?? null,
       class_id: classId,
@@ -61,39 +67,37 @@ export function getAdminDashboard(db, { date }, _session, ctx) {
     };
   };
 
+  // Every session row of the day (real attendance is never hidden, even if its
+  // schedule or class changed later), plus active slots that have no session yet.
+  const daySessions = db.ClassSessions.filter((row) => row.session_date === date);
+  const sessions = daySessions.map((row) => describe({
+    classId: row.class_id, roomId: row.room_id, start: row.scheduled_start, end: row.scheduled_end,
+    status: row.status, session: row, source: row.source === 'manual' ? 'manual' : 'auto',
+  }));
+
   const dayCode = dayCodeOf(date);
-  const scheduled = inTerm
-    ? db.Schedules.filter((row) => row.status === 'active' && row.day_of_week === dayCode && classes.get(row.class_id)?.status === 'active')
+  const withSession = new Set(daySessions.map((row) => row.schedule_id).filter(Boolean));
+  const openSlots = inTerm
+    ? db.Schedules.filter((row) => row.status === 'active' && row.day_of_week === dayCode
+      && classes.get(row.class_id)?.status === 'active' && !withSession.has(row.schedule_id))
     : [];
 
-  const sessions = scheduled.map((slot) => {
-    const session = db.ClassSessions.find((row) => row.schedule_id === slot.schedule_id && row.session_date === date);
+  openSlots.forEach((slot) => {
     let status;
-    if (session) status = session.status;
-    else if (date > now.date || (date === now.date && now.time < slot.start_time)) status = 'scheduled';
+    if (date > now.date || (date === now.date && now.time < slot.start_time)) status = 'scheduled';
     else if (date === now.date && now.time <= slot.end_time) status = 'in_progress';
     else status = 'no_record';
-    return describe({
+    sessions.push(describe({
       classId: slot.class_id, roomId: slot.room_id, start: slot.start_time, end: slot.end_time,
-      status, session, source: 'auto',
-    });
+      status, session: null, source: 'auto',
+    }));
   });
-
-  db.ClassSessions
-    .filter((row) => row.source === 'manual' && row.session_date === date)
-    .forEach((row) => sessions.push(describe({
-      classId: row.class_id, roomId: row.room_id, start: row.scheduled_start, end: row.scheduled_end,
-      status: row.status, session: row, source: 'manual',
-    })));
 
   sessions.sort((a, b) => a.start_time.localeCompare(b.start_time) || a.room_code.localeCompare(b.room_code));
 
   const countedSessions = sessions.filter((row) => row.present !== null);
   const expected = countedSessions.reduce((sum, row) => sum + row.enrolled, 0);
   const attended = countedSessions.reduce((sum, row) => sum + row.present + row.late, 0);
-  const studentsPresent = new Set(
-    db.Attendance.filter((row) => row.scanned_at.slice(0, 10) === date && effectiveStatus(row) !== 'absent').map((row) => row.student_id),
-  ).size;
 
   const devices = deviceSummaries(db, ctx);
 
@@ -154,7 +158,7 @@ export function getAdminDashboard(db, { date }, _session, ctx) {
       active_instructors: db.Instructors.filter((row) => row.account_status === 'active').length,
       active_classes: db.Classes.filter((row) => row.status === 'active').length,
       sessions_on_date: sessions.length,
-      students_present: studentsPresent,
+      students_present: presentIds.size,
       attendance_rate: expected > 0 ? attended / expected : null,
       devices_online: devices.filter((d) => d.online).length,
       devices_total: devices.length,

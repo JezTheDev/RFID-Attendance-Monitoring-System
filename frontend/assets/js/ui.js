@@ -19,6 +19,7 @@ const NAVIGATION = Object.freeze({
         { id: 'academic', label: 'Academic Setup', icon: 'building', href: 'admin/academic.html' },
       ],
     },
+    { section: 'Account', items: [{ id: 'account', label: 'My Account', icon: 'person-gear', href: 'admin/account.html' }] },
   ],
   instructor: [
     { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: 'speedometer2', href: 'instructor/index.html' }] },
@@ -37,7 +38,7 @@ const NAVIGATION = Object.freeze({
   ],
 });
 
-const ROLE_LABELS = Object.freeze({ admin: 'Administrator', instructor: 'Instructor', student: 'Student' });
+export const ROLE_LABELS = Object.freeze({ admin: 'Administrator', instructor: 'Instructor', student: 'Student' });
 
 export function escapeHtml(value) {
   return String(value ?? '')

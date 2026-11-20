@@ -222,6 +222,9 @@ Tab columns and default Settings live in `backend/src/schema.js`
   effective status (`override_status` wins; an override to absent is absent at
   once); `not_scanned` is only for enrolled students with NO row, until the
   session ends, then absent. Cancelled sessions never count.
+- `admin.getDashboard` lists EVERY ClassSession of the date (even if its schedule
+  or class was removed/deactivated later, or outside the term) + active slots with
+  no session yet; `students_present` = present/late students of those sessions.
 - `admin.listAttendance {from?, to?, class_id?, section_id?, student_id?, status?, page?, page_size?}`:
   Attendance rows newest first (`scanned_at`), `status` = effective, `device_status`
   = original; `status` filter ∈ present/late/absent; `section_id` = the CLASS's
