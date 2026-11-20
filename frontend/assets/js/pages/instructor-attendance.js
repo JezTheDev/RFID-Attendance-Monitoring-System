@@ -305,6 +305,7 @@ async function correctFlow(state, studentId, refresh) {
           <input type="radio" class="btn-check" name="status" id="cs_${value}" value="${value}" ${value === current ? 'disabled' : ''} required>
           <label class="btn btn-outline-${ATTENDANCE_STATUS[value].tone}" for="cs_${value}"><i class="bi bi-${ATTENDANCE_STATUS[value].icon} me-1" aria-hidden="true"></i>${ATTENDANCE_STATUS[value].label}</label>`).join('')}
       </div>
+      ${student.status === 'not_scanned' ? '<div class="form-text">Absent is not needed: this student has no tap for this session and is counted as absent automatically when the class ends.</div>' : ''}
       <div class="invalid-feedback d-block" data-error-for="status"></div>
     </fieldset>
     <label class="form-label mt-3" for="cs_reason">Reason</label>
