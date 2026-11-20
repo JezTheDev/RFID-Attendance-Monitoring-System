@@ -117,6 +117,12 @@ export function rangeInputsHtml({ from = '', to = '' } = {}) {
     </div>`;
 }
 
+// A class from the URL that is not (or no longer) the instructor's: drop it and show their
+// own classes instead of a "Try again" that repeats the same refusal.
+export function unknownClassError(error, classId) {
+  return Boolean(classId) && ['FORBIDDEN', 'NOT_FOUND'].includes(error?.code);
+}
+
 // <option>s for an instructor class picker: active classes, then a read-only
 // "Past / inactive classes" group.
 export function classOptionsHtml(classes, pastClasses, selectedId) {

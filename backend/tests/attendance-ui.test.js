@@ -123,6 +123,16 @@ describe('date range helpers (IFIX-07/08/09)', () => {
   });
 });
 
+describe('unknownClassError (IFIX-10)', () => {
+  it('is true only when a class was asked for and the server refused it', () => {
+    assert.equal(ui.unknownClassError({ code: 'FORBIDDEN' }, 'CLS-0003'), true);
+    assert.equal(ui.unknownClassError({ code: 'NOT_FOUND' }, 'CLS-9999'), true);
+    assert.equal(ui.unknownClassError({ code: 'FORBIDDEN' }, ''), false); // no class: nothing to drop, avoid a loop
+    assert.equal(ui.unknownClassError({ code: 'TIMEOUT' }, 'CLS-0001'), false);
+    assert.equal(ui.unknownClassError({ code: 'VALIDATION_ERROR', fields: { to: 'x' } }, 'CLS-0001'), false);
+  });
+});
+
 describe('csvText', () => {
   it('neutralises formulas, quotes commas, and starts with a BOM', () => {
     assert.equal(ui.csvText([['=1+1', 'a,b', '-5', 'ok']]), '﻿\'=1+1,"a,b",\'-5,ok');

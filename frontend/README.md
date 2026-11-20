@@ -8,11 +8,10 @@ It always talks to the **live** Apps Script backend — there is no demo mode.
 | Part | Status |
 |---|---|
 | Design system (PSU maroon/gold), app shell, responsive sidebar | Done |
-| Admin portal: dashboard, students & RFID cards, instructors, admins, classes, academic setup | Done |
-| Instructor portal: dashboard, attendance (sessions + corrections), reports + CSV | Done |
+| Admin portal: dashboard, attendance, students & RFID cards, instructors, admins, classes, academic setup, devices, settings, my account | Done |
+| Instructor portal: dashboard (+ recent activity, past classes), attendance (sessions + corrections + date filter), reports + CSV, my account | Done |
 | Student portal: overview, history, profile | Done |
 | Login page | Username / student number + password (`auth.login`), forced change-password step (`auth.changePassword`). Polish comes in Step 3. |
-| Account Settings page, admin reset/unlock buttons, Devices, System settings pages | Not started |
 
 ## Run it locally
 
@@ -41,8 +40,8 @@ Pages never talk to the Sheet. They only call `callApi(action, payload)` in
 ```
 frontend/
 ├── index.html                 Login
-├── admin/                     index, students, instructors, admins, classes, academic
-├── instructor/                index, attendance, reports
+├── admin/                     index, attendance, students, instructors, admins, classes, academic, devices, settings, account
+├── instructor/                index, attendance, reports, account
 ├── student/                   index, history, profile
 └── assets/
     ├── css/                   app.css (design tokens + components), auth.css, bubbles.css
@@ -75,12 +74,29 @@ Response `data`:
 |---|---|
 | `date`, `today`, `in_term`, `term_name` | Context for the chosen date (Asia/Manila) |
 | `stats` | `active_students`, `active_instructors`, `active_classes`, `sessions_on_date`, `students_present`, `attendance_rate` (0–1 or `null`), `devices_online`, `devices_total` |
-| `sessions[]` | `class_label`, `subject_title`, `room_code`, `instructor_name`, `start_time`, `end_time`, `source` (`auto`/`manual`), `status` (`closed`/`open`/`cancelled`/`scheduled`/`in_progress`/`no_record`), `enrolled`, `present`, `late`, `absent` (counts are `null` unless the session is open or closed) |
+| `sessions[]` | `class_label`, `subject_title`, `room_code`, `instructor_name`, `start_time`, `end_time`, `source` (`auto`/`manual`), `session_id` (`null` = no tap yet), `phase` (`upcoming`/`in_progress`/`ended`/`cancelled`; **use this for labels**: a real session keeps `status: open` after it ends), `enrolled`, `present`, `late`, `absent`, `not_scanned` (no tap yet, only before the end; counts are `null` without a session row) |
 | `devices[]` | `device_id`, `device_name`, `room_code`, `battery_voltage`, `low_battery`, `last_seen_at`, `online`, `queue_count` |
 | `recent_scans[]` | Latest 10 ScanLog rows for the date: `scanned_at`, `student_name` (`null` if unknown card), `rfid_uid`, `room_code`, `result`, `sync_mode` |
 | `alerts[]` | `level` (`danger`/`warning`/`info`), `icon`, `message`, optional `details[]` |
 
 Errors: `NOT_SIGNED_IN`, `FORBIDDEN`, `BAD_REQUEST`.
+
+### Instructor portal (instructor only)
+
+Identity comes from the session (`linked_id`); a class that is not the instructor's → `FORBIDDEN`.
+
+| Action | Request | Notes |
+|---|---|---|
+| `instructor.getDashboard` | `date` | `stats`, `sessions[]` (same session fields as above, incl. `phase`, `not_scanned`), `classes[]` (active), `past_classes[]`, `watchlist[]` |
+| `instructor.getRecentActivity` | `class_id?`, `limit?` (default 20, max 50) | `{limit, has_more, items[]}`: `student_name`, `class_label`, `session_id`, `scanned_at`, `status`, `source`, `sync_mode`, `corrected` |
+| `instructor.listSessions` | `class_id?`, `from?`, `to?` | `classes[]`, `past_classes[]`, `class` (incl. `status`), `range`, `sessions[]` |
+| `instructor.getSession` | `session_id` | `session`, `class` (incl. `status`), `students[]` (`status` incl. `not_scanned`, `corrected`, `correction_reason`) |
+| `instructor.getClassRoster` / `getStudentHistory` | `class_id` (+ `student_id`), `from?`, `to?` | echo `range` |
+| `instructor.getClassReport` | `class_id?`, `from?`, `to?` | `classes[]`, `past_classes[]`, `class`, `range`, `sessions[]`, `students[].marks` (`null` = joined later), `totals` |
+| `instructor.correctAttendance` | `session_id`, `student_id`, `status`, `reason` (5–500) | `SESSION_NOT_STARTED`, `SESSION_CANCELLED`, `CLASS_INACTIVE` (past classes are read-only), `NOT_ENROLLED`; BUG-6 message in `fields.status` |
+
+`past_classes[]` = the instructor's own inactive classes (`class_id`, `class_label`, `term_name`): readable, never correctable.
+Dates: `YYYY-MM-DD`, inclusive; bad date / `from > to` / over 366 days → `VALIDATION_ERROR` in `fields.from` / `fields.to`.
 
 ### Students & RFID cards (admin only)
 

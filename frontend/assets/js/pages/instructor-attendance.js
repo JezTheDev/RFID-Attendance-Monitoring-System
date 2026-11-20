@@ -7,7 +7,7 @@ import {
 import {
   ATTENDANCE_STATUS, attendanceBadge, phaseBadge, countsBarHtml, formatDateShort, formatRate,
   getParam, setParams, scheduleHtml, sessionOptionLabel, statusFilters, canCorrect, classOptionsHtml,
-  dateFieldErrors, rangeInputsHtml,
+  dateFieldErrors, rangeInputsHtml, unknownClassError,
 } from '../components/attendance-ui.js';
 import { openStudentHistory, openClassRoster } from './instructor-history.js';
 
@@ -107,6 +107,13 @@ function start() {
         sessionSelect.innerHTML = '<option value="">Check the dates</option>';
         body.innerHTML = `<div class="card">${stateHtml({ icon: 'calendar-x', title: 'Check the dates', message: 'Fix the date range above, or choose “Whole term”.' })}</div>`;
         if (!classSelect.value) fillClasses();
+        return;
+      }
+      if (unknownClassError(error, state.classId)) {
+        showToast('That class is not one of yours. Showing your classes instead.', 'warning');
+        state.classId = '';
+        state.sessionId = '';
+        loadSessions();
         return;
       }
       body.innerHTML = `<div class="card">${errorStateHtml(error.message)}</div>`;

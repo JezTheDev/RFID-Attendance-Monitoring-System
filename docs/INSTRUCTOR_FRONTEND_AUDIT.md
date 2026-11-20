@@ -150,10 +150,10 @@ Ordered. Effort: **S** < 1 h · **M** half a day · **L** about a day. Frontend 
 | IFIX-07 ✅ | Attendance page: From/To inputs (URL params) → `listSessions {class_id, from, to}`; show `range`. | `instructor-attendance.js` `start`, `loadSessions` | M |
 | IFIX-08 ✅ | Roster + student history panel: accept `{from, to}` and pass them (Reports and Attendance pass their current range); show the range in the panel. | `instructor-history.js` `openClassRoster`, `openStudentHistory` | S |
 | IFIX-09 ✅ | Reports date errors: show `fields.from` / `fields.to` under the inputs (`is-invalid`), still fill the class picker, never leave the skeleton. | `instructor-reports.js` `load` | S |
-| **Batch 4: robustness + polish** | | | |
-| IFIX-10 | `FORBIDDEN` / `NOT_FOUND` deep link: clear `state.classId` and reload the own-class list with a warning toast instead of a "Try again" loop. Same in Reports. | `instructor-attendance.js` `loadSessions`, `instructor-reports.js` `load` | S |
+| **Batch 4: robustness + polish**: DONE 2026-11-20 (IFIX-11 was done in Batch 1) | | | |
+| IFIX-10 ✅ | `FORBIDDEN` / `NOT_FOUND` deep link: clear `state.classId` and reload the own-class list with a warning toast instead of a "Try again" loop. Same in Reports. | `instructor-attendance.js` `loadSessions`, `instructor-reports.js` `load` | S |
 | IFIX-11 ✅ | Tiny `node:test` for `csvText` (formula prefix, quotes, BOM). | `backend/tests` or `frontend` test file | S |
-| IFIX-12 | Update `frontend/README.md` session fields (`phase`, `not_scanned`). | docs | S |
+| IFIX-12 ✅ | Update `frontend/README.md` session fields (`phase`, `not_scanned`). | docs | S |
 | IFIX-P ✅ | **Decided: yes, read-only.** Backend: `past_classes` (own inactive classes: `class_id, class_label, term_name`) on `instructor.getDashboard`, `listSessions`, `getClassReport`; every class object carries `status` (`past-classes.test.js`). Frontend: "Past / inactive classes (read-only)" `<optgroup>` in the Attendance and Reports pickers, a read-only card on the dashboard, banner + no Correct button on Attendance (`canCorrect`). `CLASS_INACTIVE` stays on the server. Done in Batch 1. | `portal.js` `pastClasses`, `classInfo`; `attendance-ui.js` `classOptionsHtml`, `canCorrect` | M |
 
 Not done in this audit: no correction was submitted live (read-only audit; correction paths were checked in code + backend tests); the dashboard on a day with real (`open`) sessions was not seen live, because TEST data has no session today and seeded sessions are `closed`. The `phase` bugs above come from code reading.
