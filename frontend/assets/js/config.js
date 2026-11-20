@@ -3,7 +3,7 @@ export const CONFIG = Object.freeze({
   ORGANIZATION: 'Pampanga State University · Computer Engineering',
 
   // The Web App URL from Apps Script (Deploy > Manage deployments), ends in /exec
-  API_URL: 'https://script.google.com/macros/s/AKfycbywaKk753y64eFmUqpA0ZvcKZJrkSIXol_vFxz9gECwTyO8LkvGYC91FZ2s_d_2pRyh7Q/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbyq7G3cZmNVS5lXEkL5LOLZWv5oaSGqxBLPgMogqouNyU2FiStTKCAbPbSXTQ0mFwSPzg/exec',
 
   TIMEZONE: 'Asia/Manila',
 });
