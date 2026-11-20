@@ -125,10 +125,7 @@ function start() {
     }
   };
 
-  const refresh = async () => {
-    await loadList();
-    if (state.detailsId) loadDetails(state.detailsId);
-  };
+  const refresh = () => Promise.all([loadList(), state.detailsId && loadDetails(state.detailsId)]);
 
   const loadDetails = async (studentId) => {
     state.detailsId = studentId;

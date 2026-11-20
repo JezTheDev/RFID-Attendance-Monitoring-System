@@ -4,15 +4,21 @@ import {
   renderShell, escapeHtml, todayInManila, formatDateLong, formatClockTime,
   formatTimestamp, formatRelative, stateHtml, errorStateHtml,
 } from '../ui.js';
+import { badge, statCard, countsBarHtml } from '../components/attendance-ui.js';
 
-const SESSION_STATUS = {
-  closed: { label: 'Completed', tone: 'success' },
-  open: { label: 'Open', tone: 'primary' },
+// Backend `phase` (sessionPhase); a session row exists only after the first tap.
+const SESSION_PHASE = {
+  upcoming: { label: 'Upcoming', tone: 'info' },
+  in_progress: { label: 'In progress', tone: 'primary' },
+  ended: { label: 'Completed', tone: 'success' },
   cancelled: { label: 'Cancelled', tone: 'secondary' },
-  scheduled: { label: 'Upcoming', tone: 'info' },
-  in_progress: { label: 'In progress · no scans yet', tone: 'warning' },
-  no_record: { label: 'No scans recorded', tone: 'warning' },
 };
+
+function phaseBadge(row) {
+  if (row.session_id === null && row.phase === 'in_progress') return badge({ label: 'In progress · no scans yet', tone: 'warning' });
+  if (row.session_id === null && row.phase === 'ended') return badge({ label: 'No scans recorded', tone: 'warning' });
+  return badge(SESSION_PHASE[row.phase] ?? { label: row.phase, tone: 'secondary' });
+}
 
 const SCAN_RESULT = {
   ACCEPTED: { label: 'Accepted', tone: 'success' },
@@ -85,13 +91,6 @@ function start() {
   load();
 }
 
-function badge({ label, tone }) {
-  const classes = tone === 'primary'
-    ? 'text-bg-primary'
-    : `bg-${tone}-subtle text-${tone}-emphasis border border-${tone}-subtle`;
-  return `<span class="badge rounded-pill ${classes}">${escapeHtml(label)}</span>`;
-}
-
 function loadingHtml() {
   const block = (height) => `<div class="skeleton" style="height:${height}px"></div>`;
   return `
@@ -115,28 +114,12 @@ function dashboardHtml(data) {
     ${scansHtml(data.recent_scans)}`;
 }
 
-function statCard({ icon, label, value, hint, gold = false }) {
-  return `
-    <div class="col-6 col-xl-3">
-      <div class="card stat-card h-100">
-        <div class="card-body">
-          <div class="stat-icon${gold ? ' gold' : ''}" aria-hidden="true"><i class="bi bi-${icon}"></i></div>
-          <div class="min-w-0">
-            <div class="stat-label">${escapeHtml(label)}</div>
-            <div class="stat-value">${escapeHtml(value)}</div>
-            <div class="stat-hint">${escapeHtml(hint)}</div>
-          </div>
-        </div>
-      </div>
-    </div>`;
-}
-
 function statsHtml({ stats }) {
   const rate = stats.attendance_rate === null ? '—' : `${Math.round(stats.attendance_rate * 100)}%`;
   return `
     <div class="row g-3 mb-3">
       ${statCard({ icon: 'person-check', label: 'Students present', value: stats.students_present, hint: `of ${stats.active_students} active students` })}
-      ${statCard({ icon: 'graph-up', label: 'Attendance rate', value: rate, hint: stats.attendance_rate === null ? 'No completed sessions' : 'Present + late, completed sessions', gold: true })}
+      ${statCard({ icon: 'graph-up', label: 'Attendance rate', value: rate, hint: stats.attendance_rate === null ? 'No sessions with scans yet' : 'Present + late of enrolled, sessions with scans', gold: true })}
       ${statCard({ icon: 'calendar3', label: 'Class sessions', value: stats.sessions_on_date, hint: `${stats.active_classes} active classes · ${stats.active_instructors} instructors` })}
       ${statCard({ icon: 'router', label: 'Devices online', value: `${stats.devices_online}/${stats.devices_total}`, hint: 'Based on last check-in', gold: true })}
     </div>`;
@@ -172,7 +155,7 @@ function sessionsHtml(data) {
       <div class="table-responsive d-none d-md-block">
         <table class="table table-hover align-middle">
           <thead>
-            <tr><th>Time</th><th>Class</th><th>Room</th><th>Status</th><th class="num">Present</th><th class="num">Late</th><th class="num">Absent</th></tr>
+            <tr><th>Time</th><th>Class</th><th>Room</th><th>Status</th><th class="num">Present</th><th class="num">Late</th><th class="num">Absent</th><th class="num">Not yet</th></tr>
           </thead>
           <tbody>${data.sessions.map(sessionRowHtml).join('')}</tbody>
         </table>
@@ -189,51 +172,44 @@ function sessionsHtml(data) {
     </div>`;
 }
 
-function attendanceBarHtml(row) {
-  if (row.present === null) return '';
-  const percent = (value) => (row.enrolled ? (value / row.enrolled) * 100 : 0);
-  return `<div class="att-bar" role="img" aria-label="${row.present} present, ${row.late} late, ${row.absent} absent of ${row.enrolled}">
-      <span class="present" style="width:${percent(row.present)}%"></span><span class="late" style="width:${percent(row.late)}%"></span>
-    </div>`;
-}
-
 function sessionItemHtml(row) {
   const counts = row.present === null
     ? `<div class="session-counts"><span>${row.enrolled} enrolled</span></div>`
     : `<div class="session-counts">
-        <span><strong>${row.present}</strong> present</span><span><strong>${row.late}</strong> late</span><span><strong>${row.absent}</strong> absent</span>
+        <span><strong>${row.present}</strong> present</span><span><strong>${row.late}</strong> late</span><span><strong>${row.absent}</strong> absent</span><span><strong>${row.not_scanned}</strong> not yet</span>
       </div>`;
   return `
     <div class="session-item">
       <div class="d-flex justify-content-between align-items-start gap-2">
         <div class="min-w-0">
           <div class="cell-main">${escapeHtml(row.class_label)}${row.source === 'manual' ? ' <span class="badge text-bg-light border ms-1">Manual</span>' : ''}</div>
-          <div class="cell-sub">${formatClockTime(row.start_time)}–${formatClockTime(row.end_time)} · ${escapeHtml(row.room_code)} · ${escapeHtml(row.instructor_name)}</div>
+          <div class="cell-sub">${escapeHtml(formatClockTime(row.start_time))}–${escapeHtml(formatClockTime(row.end_time))} · ${escapeHtml(row.room_code)} · ${escapeHtml(row.instructor_name)}</div>
         </div>
-        ${badge(SESSION_STATUS[row.status] ?? { label: row.status, tone: 'secondary' })}
+        ${phaseBadge(row)}
       </div>
       ${counts}
-      ${attendanceBarHtml(row)}
+      ${countsBarHtml(row)}
     </div>`;
 }
 
 function sessionRowHtml(row) {
   const counted = row.present !== null;
-  const bar = attendanceBarHtml(row);
+  const bar = countsBarHtml(row);
   const cell = (value) => (counted ? value : '<span class="text-secondary">—</span>');
   return `
     <tr>
-      <td class="text-nowrap"><div class="cell-main">${formatClockTime(row.start_time)}</div><div class="cell-sub">to ${formatClockTime(row.end_time)}</div></td>
+      <td class="text-nowrap"><div class="cell-main">${escapeHtml(formatClockTime(row.start_time))}</div><div class="cell-sub">to ${escapeHtml(formatClockTime(row.end_time))}</div></td>
       <td>
         <div class="cell-main">${escapeHtml(row.class_label)}${row.source === 'manual' ? ' <span class="badge text-bg-light border ms-1">Manual</span>' : ''}</div>
         <div class="cell-sub">${escapeHtml(row.subject_title)} · ${escapeHtml(row.instructor_name)} · ${row.enrolled} enrolled</div>
         ${bar}
       </td>
       <td class="text-nowrap">${escapeHtml(row.room_code)}</td>
-      <td>${badge(SESSION_STATUS[row.status] ?? { label: row.status, tone: 'secondary' })}</td>
+      <td>${phaseBadge(row)}</td>
       <td class="num">${cell(row.present)}</td>
       <td class="num">${cell(row.late)}</td>
       <td class="num">${cell(row.absent)}</td>
+      <td class="num">${cell(row.not_scanned)}</td>
     </tr>`;
 }
 

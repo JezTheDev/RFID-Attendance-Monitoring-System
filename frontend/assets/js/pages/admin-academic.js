@@ -109,7 +109,7 @@ const TABS = [
       columns: [
         { label: 'Code', html: (row) => `<div class="cell-main">${escapeHtml(row.subject_code)}</div><div class="cell-sub d-md-none">${escapeHtml(row.subject_title)}</div>` },
         { label: 'Title', hideBelow: 'md', html: (row) => escapeHtml(row.subject_title) },
-        { label: 'Units', numeric: true, html: (row) => row.units },
+        { label: 'Units', numeric: true, html: (row) => escapeHtml(row.units) },
         { label: 'Classes', numeric: true, hideBelow: 'sm', html: (row) => row.class_count },
       ],
       formFields: (row) => [

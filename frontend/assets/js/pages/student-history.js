@@ -132,7 +132,7 @@ function historyHtml(state) {
               <tr>
                 <td class="text-nowrap">${escapeHtml(formatDateShort(row.session_date))}</td>
                 <td><div class="cell-main">${escapeHtml(row.class_label)}</div><div class="cell-sub">${escapeHtml(row.subject_title)}</div></td>
-                <td class="text-nowrap">${formatClockTime(row.start_time)}–${formatClockTime(row.end_time)}</td>
+                <td class="text-nowrap">${escapeHtml(formatClockTime(row.start_time))}–${escapeHtml(formatClockTime(row.end_time))}</td>
                 <td>${escapeHtml(row.room_code)}</td>
                 <td class="text-nowrap">${row.scanned_at ? escapeHtml(formatTimestamp(row.scanned_at)) : '<span class="text-secondary">—</span>'}</td>
                 <td class="text-nowrap">${attendanceBadge(row.status)}${note(row)}</td>

@@ -90,7 +90,7 @@ export function scheduleHtml(schedules) {
   return schedules.map((slot) => `
     <span class="schedule-chip">
       <strong>${escapeHtml(DAY_LABELS[slot.day] ?? slot.day)}</strong>
-      ${formatClockTime(slot.start_time)}–${formatClockTime(slot.end_time)}
+      ${escapeHtml(formatClockTime(slot.start_time))}–${escapeHtml(formatClockTime(slot.end_time))}
       <span class="text-secondary">· ${escapeHtml(slot.room_code)}</span>
     </span>`).join('');
 }

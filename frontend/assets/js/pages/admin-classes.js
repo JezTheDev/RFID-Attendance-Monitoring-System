@@ -72,16 +72,24 @@ function start() {
     errorBox.classList.add('d-none');
     try {
       state.options = await callApi('admin.getClassOptions');
+      fillTermFilter();
       document.getElementById('addClassButton').disabled = false;
       return true;
     } catch (error) {
       errorBox.innerHTML = errorStateHtml(`Could not load terms, subjects, sections, instructors and rooms: ${error.message}`);
       errorBox.querySelector('[data-action="retry"]').addEventListener('click', async () => {
-        if (await loadOptions()) loadList(); // the list fills the term filter
+        await loadOptions();
       });
       errorBox.classList.remove('d-none');
       return false;
     }
+  };
+
+  // Needs both options (terms) and the list (selected term); runs after whichever arrives last.
+  const fillTermFilter = () => {
+    if (!state.options || !state.data) return;
+    termFilter.innerHTML = state.options.terms.map((t) => `<option value="${escapeHtml(t.value)}"${t.value === state.termId ? ' selected' : ''}>${escapeHtml(t.label)}</option>`).join('')
+      || '<option value="">No terms yet</option>';
   };
 
   const loadList = async () => {
@@ -93,10 +101,7 @@ function start() {
       state.data = data;
       state.termId = data.term_id;
       setParams({ term: state.termId });
-      if (state.options) {
-        termFilter.innerHTML = state.options.terms.map((t) => `<option value="${escapeHtml(t.value)}"${t.value === state.termId ? ' selected' : ''}>${escapeHtml(t.label)}</option>`).join('')
-          || '<option value="">No terms yet</option>';
-      }
+      fillTermFilter();
       renderList();
     } catch (error) {
       if (requestId !== state.request) return;
@@ -128,7 +133,7 @@ function start() {
                 <td>
                   <button type="button" class="btn btn-link p-0 text-start text-decoration-none cell-main text-nowrap" data-open="${escapeHtml(row.class_id)}">${escapeHtml(row.class_label)}</button>
                   <div class="cell-sub">${escapeHtml(row.subject_title)}<span class="d-md-none"> · ${escapeHtml(row.instructor_name)}</span></div>
-                  <div class="cell-sub d-xl-none">${row.schedules.map((s) => `${s.day} ${s.start_time}–${s.end_time} ${escapeHtml(s.room_code)}`).join(' · ')}</div>
+                  <div class="cell-sub d-xl-none">${row.schedules.map((s) => `${escapeHtml(s.day)} ${escapeHtml(s.start_time)}–${escapeHtml(s.end_time)} ${escapeHtml(s.room_code)}`).join(' · ')}</div>
                   ${row.schedules.length ? '' : '<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle mt-1">No schedule yet</span>'}
                 </td>
                 <td class="d-none d-md-table-cell">${escapeHtml(row.instructor_name)}</td>
@@ -159,10 +164,7 @@ function start() {
     }
   };
 
-  const refresh = async () => {
-    await loadList();
-    if (state.detailsId) await loadDetails(state.detailsId);
-  };
+  const refresh = () => Promise.all([loadList(), state.detailsId && loadDetails(state.detailsId)]);
 
   const actions = {
     edit: () => editClassFlow(state, refresh),
@@ -199,9 +201,8 @@ function start() {
 
   (async () => {
     document.getElementById('searchInput').value = state.search;
-    await loadOptions();
-    await loadList();
     if (state.detailsId) loadDetails(state.detailsId);
+    await Promise.all([loadOptions(), loadList()]);
     // Coming from Instructors → "Assign subject & section"
     const assignTo = getParam('assign');
     if (assignTo && state.options) {
