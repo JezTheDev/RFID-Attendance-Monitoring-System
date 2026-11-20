@@ -6,6 +6,7 @@
 | Branch | `backend-verification` (from `hash-iterations-300`, which includes `docs/PROJECT_CONTEXT.md`) |
 | Scope | **Backend only**: `backend/src`, `backend/apps-script/Server.gs`, seed data. Frontend not reviewed. |
 | Method | Read every handler; ran the code in Node; wrote tests for what we rely on and for every bug found. No backend logic was changed. |
+| Updated | 2026-11-20 (branch `admin-corrections`): every requirement row, Part 3 and Part 4 re-checked against the code and tests after Step 4. The Evidence section below is the original 2026-11-19 run; the current suite is 565 tests, 0 fail, 0 todo. |
 | Not checked | The live Apps Script / Google Sheet (speed, sharing settings, real quotas). Anything marked **UNVERIFIED** needs that. |
 
 **Expected load (assumed):** one department; a few RFID devices (one per room); classes of about 40 students
@@ -57,12 +58,12 @@ Test names are from `backend/tests/<file>`.
 |---|---|---|---|---|---|---|
 | F1 | RFID-based attendance recording | PC §6 | `device.submitScans` (`handlers/device.js`) | `submit-scans.test.js` "creates the session, an Attendance row and a ScanLog row" | MET (backend) | Remains: firmware (MFRC522 read, send to the Web App). |
 | F2 | Online database synchronization (device → Sheet) | PC §6 | `device.submitScans`, `device.heartbeat`, `device.getRoster` | `submit-scans.test.js`, `devices.test.js` | MET (backend) | Remains: firmware (calling the three actions). |
-| F3 | Accurate timestamping | PC §6, §13 | `utils.manilaNow`, `utils.toManilaIso` | `actions.test.js` manilaNow; `passwords.test.js` toManilaIso; `verification.test.js` Manila day boundary | PARTIAL | Server timestamps are correct Manila ISO. Converting the device's epoch time is not built. |
+| F3 | Accurate timestamping | PC §6, §13 | `utils.manilaNow`, `utils.toManilaIso`; `submitScans`: device epoch `scanned_at` → Manila ISO, `INVALID_TIME` for unverified / 0 / far-future times | `actions.test.js` manilaNow; `passwords.test.js` toManilaIso; `verification.test.js` Manila day boundary; `submit-scans.test.js` "INVALID_TIME …" | MET (backend) | Remains: firmware (NTP sync, send `time_quality`). |
 | F4 | Web-based attendance dashboard (data) | PC §6 | `admin.getDashboard`, `instructor.getDashboard`, `student.getOverview` | `portal.test.js`; `verification.test.js` READ check | MET | Bugs 4 and 7 affect some numbers. |
 | F5 | Rechargeable battery operation | PC §6 | — | — | N/A | Hardware. |
 | F6 | Offline buffering + automatic sync (server side) | PC §6, §13 | `submitScans`: 1–20 scans per request, `scan_id` idempotency, past `scanned_at` placed in the right session | `submit-scans.test.js` "a batch of 5 from yesterday…", "a resent scan_id is ALREADY_RECORDED…" | MET (backend) | Remains: firmware (offline queue on the device, resend when back online). |
 | F7 | LED + buzzer feedback (server returns result codes) | PC §6 | `submitScans` per-scan `result` (ACCEPTED, DUPLICATE, UNREGISTERED, NOT_ENROLLED, NO_ACTIVE_SESSION, SESSION_CANCELLED, INVALID_TIME, ALREADY_RECORDED) + `lcd_line2` | `submit-scans.test.js` one test per result | MET (backend) | Remains: firmware (map each result to LED / buzzer / LCD). |
-| F8 | Low-battery monitoring with dashboard alerts | PC §6 | `dashboard.js:80-90` (low_battery), `:124-126` (alert) | read only; no test | PARTIAL | Dashboard logic exists, but nothing writes `battery_voltage` (no heartbeat). |
+| F8 | Low-battery monitoring with dashboard alerts | PC §6 | `device.heartbeat` writes `battery_voltage`, returns `low_battery` (< Settings `low_battery_voltage`); `dashboard.js` alert | `heartbeat-roster.test.js` "low_battery at the threshold", "admin dashboard shows the heartbeat battery and online status" | MET (backend) | Remains: firmware (measure the battery, send heartbeats). |
 | F9 | Duplicate-scan prevention (server layers) | PC §6, AR §6.9 | `submitScans`: one Attendance row per student per session (DUPLICATE) + `scan_id` idempotency (ALREADY_RECORDED) | `submit-scans.test.js` "second tap … is DUPLICATE", "the same scan_id twice in one batch" | MET (backend) | Remains: firmware (the `duplicate_window_minutes` cooldown on the device, delivered by `device.getRoster`). |
 
 ### 1B. Admin (PC §8)
@@ -73,9 +74,9 @@ Test names are from `backend/tests/<file>`.
 | A2 | Register and assign RFID UIDs | PC §8 | `admin.assignCard`, `revokeCard`, `listUnregisteredUids` | `cards.test.js` (11 tests) | MET | `listUnregisteredUids` has no test (read `students.js:333-350`); it only fills once devices log scans. |
 | A3 | Manage instructors | PC §8 | `admin.list/create/update/setInstructorStatus` | `users.test.js` | MET | |
 | A4 | Manage courses and sections | PC §8 | programs / sections / subjects / terms / rooms in `academic.js`; `admin.*Class*`, schedules, enrollments in `classes.js` | `classes.test.js` (schedules, enrollments); `academic.js` read fully | MET | `academic.js` has **no unit tests**. BUG-3 (room double-booking). |
-| A5 | View all attendance records | PC §8 | `admin.getDashboard` (sessions of one date + counts) | `verification.test.js` READ check | PARTIAL | No admin action to open a session, a class report, or one student's history. Only instructors have those. |
+| A5 | View all attendance records | PC §8 | `admin.listAttendance` (all rows, filters, paging), `admin.getAttendanceReport`, `admin.getDashboard` | `admin-attendance.test.js` | MET (backend) | Remains: frontend (admin attendance page). |
 | A6 | Generate reports | PC §8 | `admin.listAttendance`, `admin.getAttendanceReport` (`attendance.js`) | `admin-attendance.test.js` | MET (backend) | Remains: frontend (admin report page + CSV export). Same as D7. |
-| A7 | Monitor device status | PC §8 | `admin.getDashboard` → `devices[]`, `admin.listRooms` → `device_id` | read `dashboard.js:82-95` | PARTIAL | Read-only list. No device create/assign/key actions; nothing updates device status yet. |
+| A7 | Monitor device status | PC §8 | `admin.listDevices` / `createDevice` / `setDeviceStatus` / `assignDeviceRoom` / `generateDeviceKey`; `device.heartbeat` updates the status fields; `admin.getDashboard` → `devices[]` | `devices.test.js`, `heartbeat-roster.test.js` | MET (backend) | Remains: frontend (admin devices page; the dashboard already shows `devices[]`). |
 | A8 | Manage application settings | PC §8 | `admin.getSettings`, `admin.updateSettings` (`settings.js`) | `settings.test.js` (ranges, all-or-nothing, admin only) | MET (backend) | Remains: frontend (admin settings page). |
 
 ### 1C. Instructor (PC §8)
@@ -112,7 +113,7 @@ Test names are from `backend/tests/<file>`.
 | D5 | Admin: student / instructor / course-section management | PC §9A | see A1, A3, A4 | see above | MET | |
 | D6 | Admin: attendance management | PC §9A | `admin.correctAttendance` (`attendance.js`) → shared `correctAttendance` (`portal.js`) | `admin-corrections.test.js` | MET (backend) | Same rules as the instructor correction (one shared core); no ownership limit. Frontend still to do. |
 | D7 | Admin: reports | PC §9A | `admin.listAttendance`, `admin.getAttendanceReport` (`attendance.js`) | `admin-attendance.test.js` | MET (backend) | Backend only; frontend page + CSV still to do. |
-| D8 | Admin: device monitoring | PC §9A | `devices[]`, offline / low-battery / queue alerts | read `dashboard.js:80-136` | PARTIAL | Same as A7. |
+| D8 | Admin: device monitoring | PC §9A | `devices[]`, offline / low-battery / queue alerts, fed by `device.heartbeat` | `heartbeat-roster.test.js` "admin dashboard shows the heartbeat battery and online status"; `admin-attendance.test.js` "shows queued offline scans per device" | MET (backend) | Same as A7. |
 | D9 | Instructor: assigned classes | PC §9B | `classes[]` | `portal.test.js` | MET | |
 | D10 | Instructor: total students per section | PC §9B | `classes[].enrolled`, `stats.students` | read `portal.js:230-236` | MET | |
 | D11 | Instructor: present and absent counts | PC §9B | `sessions[].present/late/absent` | `portal.test.js` absent tests | MET | BUG-7 fixed (step 4c): `not_scanned` count while running. |
@@ -125,12 +126,12 @@ Test names are from `backend/tests/<file>`.
 | # | Requirement | Source | Backend | Test(s) / evidence | Status | Notes |
 |---|---|---|---|---|---|---|
 | L1 | RFID validation: registered → accept, else reject + result | PC §13 | `submitScans`: active card of an active student → ACCEPTED; else UNREGISTERED (logged in ScanLog) | `submit-scans.test.js` "unknown UID", "a revoked card", "an active card of an inactive student" | MET (backend) | Remains: firmware (show the reject result). |
-| L2 | Duplicate prevention, 5 min, configurable | PC §13 | Settings `duplicate_window_minutes` | seed only | PARTIAL | The setting exists but no code reads it; `device.getRoster` would deliver it to the device. |
-| L3 | Timestamping, Asia/Manila | PC §13 | `manilaNow`, `toManilaIso` | `verification.test.js` boundary tests | PARTIAL | Server side MET; device time not handled yet. |
+| L2 | Duplicate prevention, 5 min, configurable | PC §13 | Settings `duplicate_window_minutes` (editable via `admin.updateSettings`) → `device.getRoster`; server: one Attendance row per student per session (`DUPLICATE`) | `heartbeat-roster.test.js` "missing or older known_version → full roster with numeric settings"; `settings.test.js` "roster_version +1 when duplicate_window_minutes changes"; `submit-scans.test.js` DUPLICATE | MET (backend) | Remains: firmware (enforce the cooldown on the device). |
+| L3 | Timestamping, Asia/Manila | PC §13 | `manilaNow`, `toManilaIso`; device epoch → Manila ISO in `submitScans` | `verification.test.js` boundary tests; `submit-scans.test.js` | MET (backend) | Same as F3. |
 | L4 | Offline sync: confirm, no duplicates during sync | PC §13 | `submitScans` returns one result per `scan_id`; a resent `scan_id` → ALREADY_RECORDED + `original_result`, no new rows | `submit-scans.test.js` "a resent scan_id is ALREADY_RECORDED…" | MET (backend) | Remains: firmware (drop a queued scan only after its result comes back). |
-| L5 | Dashboard: real attendance data | PC §13 | reads Attendance / ClassSessions | `portal.test.js` | MET | **But no code creates ClassSessions** (Part 3). |
-| L6 | Dashboard: device status + battery | PC §13 | see F8 / A7 | — | PARTIAL | |
-| L7 | Distinguish pending offline vs synced records | PC §13 | `sync_mode` in `instructor.getSession` and `recent_scans`; `queue_count` alert | read `portal.js:313`, `dashboard.js:134-136` | PARTIAL | Shown when present; nothing writes it yet. |
+| L5 | Dashboard: real attendance data | PC §13 | reads Attendance / ClassSessions | `portal.test.js`; `submit-scans.test.js` "tap -> instructor.getSession shows the student present -> student.getHistory shows it" | MET | `submitScans` creates the ClassSession on the first tap. |
+| L6 | Dashboard: device status + battery | PC §13 | see F8 / A7 | `heartbeat-roster.test.js` | MET (backend) | Remains: firmware (heartbeats) and the frontend devices page. |
+| L7 | Distinguish pending offline vs synced records | PC §13 | `submitScans` stores `sync_mode` (Attendance + ScanLog); `heartbeat` stores `queue_count`; shown in `instructor.getSession`, the dashboard alert and report `pending_offline_scans` | `submit-scans.test.js` (sync_mode stored, offline batch); `admin-attendance.test.js` "shows queued offline scans per device" | MET (backend) | Remains: firmware (send `sync_mode` / `queue_count`). |
 
 ### 1G. Security and privacy (PC §14)
 
@@ -180,14 +181,14 @@ Test names are from `backend/tests/<file>`.
 
 | Status | Count |
 |---|---|
-| MET | 72 |
-| PARTIAL | 11 |
+| MET | 81 |
+| PARTIAL | 2 |
 | MISSING | 0 |
 | WRONG | 0 |
 | N/A | 2 |
 | **Total** | **85** |
 
-MET includes **MET (backend)** rows (13 of them): the server part is done and tested, and the row's Notes name what still remains (frontend page or ESP32 firmware). No firmware is in this repo yet.
+MET includes **MET (backend)** rows (22 of them): the server part is done and tested, and the row's Notes name what still remains (frontend page or ESP32 firmware). No firmware is in this repo yet.
 
 ---
 
@@ -232,8 +233,8 @@ Each bug has a test in `backend/tests/verification.test.js` that runs, fails, an
 |---|---|---|---|
 | R1 | **High: taking over accounts that haven't signed in yet.** All new students share one default password, and their username is their student number (easy to guess). Anyone who knows the default can sign in first and choose the password, and the lockout doesn't help, because the first try is correct. | `migration.test.js` "migrated users can sign in with the role default" | Before real students: give each account a random one-time password that admins hand out, or have the first login done in front of the admin. Approved design, so your call. |
 | R2 | **Medium: anyone can fill the AuditLog and hold the write lock.** `auth.login` is public; every failed attempt (even an unknown username) takes the script lock, reads the whole Sheet and writes an AuditLog row. A script sending many wrong logins slows everyone down and speeds up BUG-5. | `auth.test.js` "marks failed logins to be saved (commit) and audits them" | Don't audit unknown usernames, or count them in CacheService (no Sheet write). |
-| R3 | **High for Step 4: every request reads all tabs and all writes share one lock.** `loadDb_` (`Server.gs:225-232`) reads every tab on every request, and writes wait up to 20 s for one shared lock (`Server.gs:28,83`). Today that's fine. At class start, 40 taps + logins in a few minutes, with ScanLog/Attendance/AuditLog growing all term, can turn into `BUSY` replies. | read `Server.gs` | **UNVERIFIED** (needs a timing test in real Apps Script). The device path should read only the tabs it needs and append rows instead of rewriting. |
-| R4 | No code ever creates, opens or closes a ClassSession. | `grep` for `ClassSessions.push` / `status = 'open'/'closed'` in `backend/src`: no results | Today the portals only show seeded sessions. See Part 4. |
+| R3 | **Step 4: request time and the one write lock.** Fixed in code (step 4a): each action loads only its declared tabs (one `values.batchGet`) and saves in one `spreadsheets.batchUpdate`; append tabs load only header + last row. Writes still share one lock (`LOCK_WAIT_MS` 10 s → `SERVER_BUSY`). | `tabs.test.js`; `tools/measure_device_api.mjs`; live Web App 2026-11-20: ~2.3–3.7 s per request, up to ~13 s with 10 at once (`Device_API_Spec.md` §3.2) | **Still UNVERIFIED:** 40 taps in 2 minutes on a term-sized Sheet. The device queue + `SERVER_BUSY` retry covers short bursts. |
+| R4 | **Resolved:** `submitScans` creates the ClassSession on the first tap (one per schedule + date, `resolveScan` in `sessions.js`); a session counts as ended once its end time passes (`sessionPhase`, computed when reading, no trigger). | `sessions.test.js`; `submit-scans.test.js` "two students first-tapping an unopened session share ONE new session" | Still open: manual start/extend/cancel by the instructor (AR §4.4). Nothing sets `status = closed`, by design. |
 
 ### Smaller notes (no action needed now)
 
@@ -251,42 +252,43 @@ Each bug has a test in `backend/tests/verification.test.js` that runs, fails, an
 
 I compared the 19 seed tabs (= `setupSheets` columns) with what `backend/src` reads/writes and with AR §5.4.
 
-| Tab | Matches AR §5.4? | Columns the code never reads | Step 4 needs / problems |
+| Tab | Matches AR §5.4? | Columns the code never reads | Notes (after Step 4) |
 |---|---|---|---|
 | Users | Newer than AR (AR still shows `google_sub`, no passwords; **doc out of date**) | — | OK. |
 | AuthSessions | Yes | — | OK. |
 | Students, Instructors, Programs, Sections, Subjects, Terms, Rooms | Yes | — | OK. |
-| RfidCards | Yes | — | OK. `roster_version` is bumped on every card change (`cards.test.js`), ready for `device.getRoster`. |
-| **Devices** | Yes | `device_key_hash`, `firmware_version`, `wifi_rssi`, `time_synced`, `last_heartbeat_at` | Used by heartbeat/auth (Step 4). The spec heartbeat also sends `uptime_seconds` (no column; optional). No admin action creates devices or keys. |
-| Classes | Yes | — | `late_grace_minutes` is only displayed; no present/late logic uses it yet. |
-| Schedules | Yes | — | **BUG-3** must be fixed so one room has at most one class at a time. |
-| Enrollments | Yes | — | OK (BUG-2 affects correctness). |
-| **ClassSessions** | Yes | `opened_by`, `closed_by` | **Blocker:** nothing creates rows or changes `status`. Unique (schedule_id, session_date) must be enforced in code. |
-| Attendance | Yes | — | OK. Code must enforce unique (session_id, student_id) and unique `scan_id`. `scanned_at` must be stored as Manila ISO (dashboards slice the date from it). |
-| **ScanLog** | Yes | `log_id` (written by the seed only) | Add **`time_quality`** (to explain `INVALID_TIME`) and ideally `card_id`. `scan_id` lookup is needed for `ALREADY_RECORDED`. |
+| RfidCards | Yes | — | OK. `roster_version` is bumped on every card change (`cards.test.js`) and read by `device.getRoster`. |
+| **Devices** | Yes | — | Used by device auth, `heartbeat` and the admin device actions (step 4b/4e). The heartbeat's `uptime_seconds` is validated but has no column (optional). |
+| Classes | Yes | — | `late_grace_minutes` is only stored/displayed: a tap is always PRESENT (decision, see CLAUDE.md). |
+| Schedules | Yes | — | OK. BUG-3 fixed; `listScheduleClashes` reports old clashes. |
+| Enrollments | Yes | — | OK. BUG-2 fixed (a section change moves enrollments). |
+| **ClassSessions** | Yes | `opened_by`, `closed_by` | Created by `submitScans` on the first tap, one per (schedule_id, session_date) (`resolveScan`). Ended = computed from the time (`sessionPhase`). |
+| Attendance | Yes | — | OK. Unique (session_id, student_id) → `DUPLICATE`; unique `scan_id` → `ALREADY_RECORDED`; `scanned_at` stored as Manila ISO (`submit-scans.test.js`). |
+| **ScanLog** | Yes | — | Written for every tap by `submitScans`; `scan_id` lookup gives `ALREADY_RECORDED`. Still no **`time_quality`** column (stored on Attendance rows only, so an `INVALID_TIME` scan's reason is not kept) and no `card_id`. |
 | AuditLog | Yes | — | BUG-5 FIXED. Step 4a: write actions load only its header + last row; the portals no longer read it (correction reasons are in `Attendance.override_reason`). |
-| **Settings** | Yes (+2 login keys) | not read: `duplicate_window_minutes`, `late_grace_minutes`, `early_window_minutes`, `accept_after_end_minutes`, `heartbeat_interval_seconds` | All five are for the session engine / roster. `allowed_email_rule` removed (correct). |
+| **Settings** | Yes (+2 login keys) | not read: `late_grace_minutes` (kept, unused by decision) | `early_window_minutes`, `accept_after_end_minutes` → `sessions.js`; `duplicate_window_minutes`, `heartbeat_interval_seconds` → `device.getRoster`; 10 keys editable via `admin.updateSettings`. `allowed_email_rule` removed (correct). |
 
-Missing tables: none. The schema is ready for Step 4; what's missing is the code, not columns (except ScanLog `time_quality`).
+Missing tables: none. Step 4 is built on this schema. Only open column gap: ScanLog `time_quality` (and `card_id`).
 
 ---
 
 ## Part 4 — Gap list for Step 4
 
 Goal: **student taps RFID → attendance is saved under the right class session → it shows in the portals.**
-Effort: **S** ≈ under half a day, **M** ≈ 1–2 days, **L** ≈ 3+ days.
+Status re-checked 2026-11-20 against `backend/src` and the tests. The server side of this goal is **done**;
+what remains is the frontend pages, the ESP32 firmware, and the items marked OPEN below.
 
-| # | Build this | Why | Effort |
+| # | Build this | Status | Evidence / what remains |
 |---|---|---|---|
-| 1 | **Fix BUG-3** (re-activate checks room clashes) and **BUG-5** (loop instead of spread) | The engine assumes one class per room per time; BUG-5 can stop all writes later. | S |
-| 2 | **Devices admin actions**: list, create (room, name), show a new device key **once** (store only its hash), rotate key, retire. One active device per room. | A device must exist before it can authenticate. | M |
-| 3 | **Device auth** in `runAction`: a third kind of caller (`device_id` + `device_key`, hash compare, `INVALID_DEVICE_KEY` / `DEVICE_DISABLED` / `DEVICE_NOT_ASSIGNED`); update `last_seen_at`. | PC §14 "validate incoming ESP32 requests". | S |
-| 4 | **Session engine** as pure, tested functions: device → room; manual session first; else active term + day + `start − early_window ≤ t ≤ end + accept_after_end`; create the ClassSession on the first tap (one per schedule + date); back-to-back tie-breaker; `cancelled` → `SESSION_CANCELLED`; present/late from the class's `late_grace_minutes` or the setting. Follow AR §4.2–4.3. | The core of "right class session". | L |
-| 5 | **`device.submitScans`** (1–20 scans): epoch → Manila ISO (`toManilaIso`), `INVALID_TIME` for 0 / far-off times, normalize UID → active card → student, `ALREADY_RECORDED` by `scan_id`, `NOT_ENROLLED`, `DUPLICATE` per session, write Attendance + ScanLog (every tap, with `time_quality`), return results in order + `roster_version` + `lcd_line2` (max 16 chars). | Device_API_Spec §6.1, §8.1. | L |
-| 6 | **`device.heartbeat`**: battery, RSSI, queue_count, time_synced, firmware → Devices; return `low_battery`. | Turns on F8 / A7 / L6. | S |
-| 7 | **`device.getRoster`**: active cards + `duplicate_window_minutes` + `heartbeat_interval_seconds`, only when `roster_version` changed. | Offline mode + configurable duplicate window. | S |
-| 8 | **Session closing**: decide when `open` becomes `closed` so absences count. Recommended: treat a session as closed once `end + accept_after_end` has passed, computed when reading (no timer needed). Alternative: a time-driven trigger every 15 min. | Without it, absent counts never appear for real sessions. | M |
-| 9 | **End-to-end test** in the `server-gs.test.js` style: `doPost(device.submitScans)` → `instructor.getSession` shows Present → `student.getHistory` shows the tap. | Proves the whole flow before the hardware arrives. | S |
-| 10 | **Speed check in real Apps Script**: 40 taps in 2 minutes with a term-sized Sheet. If too slow, let the device path read only the needed tabs and append rows. | R3 is unverified. | M |
-| 11 | Before the demo, fix **BUG-1, BUG-6, BUG-7, BUG-8** (attendance correction) and decide BUG-2, R1. | Wrong numbers in front of instructors. | S each |
-| 12 | After the MVP: instructor manual session start/extend/cancel (AR §4.4), admin reports, settings page actions, student date filter (S5). | Remaining MISSING rows. | M each |
+| 1 | Fix **BUG-3** (re-activate checks room clashes) and **BUG-5** (loop instead of spread) | DONE | Part 2, Confirmed bugs. |
+| 2 | **Devices admin actions**: list, create, key shown once (hash stored), new key, retire; one active device per room | DONE (backend) | `admin.*Device*`, `devices.test.js`. Remains: frontend devices page. |
+| 3 | **Device auth**: `device_id` + `device_key`, `INVALID_DEVICE_KEY` / `DEVICE_DISABLED` / `DEVICE_NOT_ASSIGNED` | DONE | `authenticateDevice`, `devices.test.js`. |
+| 4 | **Session engine** (pure): device → room → class slot with `early_window` / `accept_after_end`, one ClassSession per schedule + date, `SESSION_CANCELLED` | DONE, except manual sessions | `sessions.js` `resolveScan`, `sessions.test.js`. A tap is always PRESENT (decision). OPEN: manual start/extend/cancel (AR §4.4). |
+| 5 | **`device.submitScans`** (1–20 scans, epoch → Manila ISO, `INVALID_TIME`, `ALREADY_RECORDED`, `NOT_ENROLLED`, `DUPLICATE`, Attendance + ScanLog, `lcd_line2`) | DONE | `submit-scans.test.js`. ScanLog has no `time_quality` column (Part 3). |
+| 6 | **`device.heartbeat`** → Devices, returns `low_battery` | DONE | `heartbeat-roster.test.js`; `server-gs.test.js` (one row, no AuditLog). |
+| 7 | **`device.getRoster`** (only when `roster_version` changed) | DONE | `heartbeat-roster.test.js`. |
+| 8 | **Session closing** so absences count | DONE | Computed when reading (`sessionPhase` / `missingStatus`), no trigger; `verification.test.js` BUG-7. |
+| 9 | **End-to-end test**: tap → `instructor.getSession` → `student.getHistory` | DONE | `submit-scans.test.js` "tap -> instructor.getSession …"; Server.gs path in `server-gs.test.js`. |
+| 10 | **Speed check in real Apps Script** | PARTIAL | Declared tabs + one batchUpdate (step 4a); live 2.3–3.7 s per request (`Device_API_Spec.md` §3.2); live device test `tools/live_device_test.mjs`. OPEN: 40 taps in 2 minutes on a term-sized Sheet (R3). |
+| 11 | Fix **BUG-1, BUG-2, BUG-6, BUG-7, BUG-8**; decide R1 | DONE | Part 2. R1 decided: a random temporary password per account (CLAUDE.md). |
+| 12 | After the MVP: manual sessions (AR §4.4), admin reports, admin settings, admin corrections (D6), student date filter (S5) | Backend DONE except manual sessions | `admin.getAttendanceReport`, `admin.updateSettings`, `admin.correctAttendance`, date filters. OPEN: manual sessions (backend) and every frontend page. |
