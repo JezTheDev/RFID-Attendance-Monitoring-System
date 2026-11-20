@@ -3,7 +3,13 @@ import { appUrl, signOut } from './auth.js';
 
 const NAVIGATION = Object.freeze({
   admin: [
-    { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: 'speedometer2', href: 'admin/index.html' }] },
+    {
+      section: 'Overview',
+      items: [
+        { id: 'dashboard', label: 'Dashboard', icon: 'speedometer2', href: 'admin/index.html' },
+        { id: 'attendance', label: 'Attendance', icon: 'clipboard-check', href: 'admin/attendance.html' },
+      ],
+    },
     {
       section: 'People',
       items: [

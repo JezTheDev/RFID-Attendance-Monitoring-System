@@ -99,14 +99,20 @@ export function scheduleText(schedules) {
   return (schedules ?? []).map((slot) => `${DAY_LABELS[slot.day] ?? slot.day} ${formatClockTime(slot.start_time)}–${formatClockTime(slot.end_time)} (${slot.room_code})`).join(', ');
 }
 
+// CSV text with a UTF-8 BOM (so Excel reads names correctly). A cell starting
+// with = + - @ gets a leading ' so a spreadsheet never runs it as a formula.
+export function csvText(rows) {
+  const cell = (value) => {
+    let text = String(value ?? '');
+    if (/^[=+\-@]/.test(text)) text = `'${text}`;
+    return /[",\r\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  };
+  return `﻿${rows.map((row) => row.map(cell).join(',')).join('\r\n')}`;
+}
+
 // Builds a CSV file in the browser and starts the download.
 export function downloadCsv(filename, rows) {
-  const cell = (value) => {
-    const text = String(value ?? '');
-    return /[",\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
-  };
-  const csv = rows.map((row) => row.map(cell).join(',')).join('\r\n');
-  const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob([csvText(rows)], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
