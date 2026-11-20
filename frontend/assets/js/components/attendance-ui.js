@@ -5,7 +5,7 @@ export const ATTENDANCE_STATUS = Object.freeze({
   present: { label: 'Present', tone: 'success', icon: 'check-circle' },
   late: { label: 'Late', tone: 'warning', icon: 'clock' },
   absent: { label: 'Absent', tone: 'danger', icon: 'x-circle' },
-  not_scanned: { label: 'Not scanned yet', tone: 'secondary', icon: 'hourglass-split' },
+  not_scanned: { label: 'Not yet', tone: 'secondary', icon: 'hourglass-split' },
   cancelled: { label: 'Class cancelled', tone: 'secondary', icon: 'slash-circle' },
 });
 

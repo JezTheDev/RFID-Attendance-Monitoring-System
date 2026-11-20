@@ -266,7 +266,8 @@ function statusFields(current = '') {
     <label class="form-label mt-3" for="c_reason">Reason</label>
     <textarea class="form-control" id="c_reason" name="reason" rows="2" minlength="5" maxlength="500" required placeholder="e.g. Card reader was down; student was present"></textarea>
     <div class="invalid-feedback" data-error-for="reason"></div>
-    <div class="form-text">Required. Kept with the record and in the audit log.</div>`;
+    <div class="form-text">Required. Kept with the record and in the audit log.</div>
+    <div class="form-text">The student can see this reason.</div>`;
 }
 
 async function correctFlow(row, reload) {

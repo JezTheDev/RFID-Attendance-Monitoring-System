@@ -130,14 +130,15 @@ Ordered. Effort: **S** < 1 h · **M** half a day · **L** about a day. Frontend 
 
 | # | Task | Functions / files | Effort |
 |---|---|---|---|
+| **All batches DONE 2026-11-20** (SFIX-05 approved: role only, never the user id or name) | | | |
 | **Batch 1: wording + cleanup** | | | |
-| SFIX-01 | "Not yet" everywhere: `ATTENDANCE_STATUS.not_scanned.label` and `MARK.not_scanned.label`. | `attendance-ui.js`, `instructor-reports.js` | S |
-| SFIX-02 | Overview card hints (Present / Late / Absent, no "grace period"). Delete the 3 dead `NOT_SIGNED_IN` checks. | `student-dashboard.js` `overviewHtml`, `start`; `student-history.js` `load`; `student-profile.js` `start` | S |
+| SFIX-01 ✅ | "Not yet" everywhere: `ATTENDANCE_STATUS.not_scanned.label` and `MARK.not_scanned.label`. | `attendance-ui.js`, `instructor-reports.js` | S |
+| SFIX-02 ✅ | Overview card hints (Present / Late / Absent, no "grace period"). Delete the 3 dead `NOT_SIGNED_IN` checks. | `student-dashboard.js` `overviewHtml`, `start`; `student-history.js` `load`; `student-profile.js` `start` | S |
 | **Batch 2: missing pieces** | | | |
-| SFIX-03 | History From/To (+ "Whole term"): URL params `from`/`to` → `student.getHistory {class_id, from, to}`; show `range`; `fields.from`/`fields.to` under the inputs (`is-invalid`), never a stuck skeleton. | `student-history.js` `start`, `load` | M |
-| SFIX-04 | My Account: `student/account.html` (`data-role="student"`) + nav item in `NAVIGATION.student`; README folder list. | new HTML, `ui.js`, `frontend/README.md` | S |
+| SFIX-03 ✅ | History From/To (+ "Whole term"): URL params `from`/`to` → `student.getHistory {class_id, from, to}`; show `range`; `fields.from`/`fields.to` under the inputs (`is-invalid`), never a stuck skeleton. | `student-history.js` `start`, `load` | M |
+| SFIX-04 ✅ | My Account: `student/account.html` (`data-role="student"`) + nav item in `NAVIGATION.student`; README folder list. | new HTML, `ui.js`, `frontend/README.md` | S |
 | **Batch 3: corrections + polish** | | | |
-| SFIX-05 | **(needs owner OK)** Backend: `correction_reason` on `historyRows` (student history + instructor student history); test that it is the row's `override_reason` and own rows only. Frontend: show it in the Corrected tag tooltip + a small line on mobile; neutral wording "Corrected". Build + `npm test`. | `portal.js` `historyRows`, `portal.test.js`; `student-history.js` `historyHtml` (`note`); `instructor-history.js` (optional) | S |
-| SFIX-06 | "Not yet" status button in History when any record is `not_scanned`. `FORBIDDEN` class deep link: warning toast before falling back to All subjects. | `student-history.js` `start`, `historyHtml`, `load` | S |
+| SFIX-05 ✅ | Backend: `correction: {reason, at, by_role}` (`by_role` = "Instructor" / "Admin") on `historyRows` (`correctionOf`, `student-corrections.test.js`); note "The student can see this reason." in the instructor and admin correction dialogs. Was: (student history + instructor student history); test that it is the row's `override_reason` and own rows only. Frontend: show it in the Corrected tag tooltip + a small line on mobile; neutral wording "Corrected". Build + `npm test`. | `portal.js` `historyRows`, `portal.test.js`; `student-history.js` `historyHtml` (`note`); `instructor-history.js` (optional) | S |
+| SFIX-06 ✅ | "Not yet" status button in History when any record is `not_scanned`. `FORBIDDEN` class deep link: warning toast before falling back to All subjects. | `student-history.js` `start`, `historyHtml`, `load` | S |
 
 Not done in this audit: no browser run (layout at 375 px / 1366 px was not looked at this time; the pages use the same components as the instructor portal, which passed at both widths). The TEST student had no `not_scanned`, `cancelled`, corrected or manual record, so those badges and tags were checked in code only. After the live check, `9999000001`'s password is a random one nobody knows; use `resetTestUserPassword('9999000001')` or `admin.resetPassword` to sign in as that student again.

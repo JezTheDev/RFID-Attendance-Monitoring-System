@@ -24,7 +24,6 @@ function start() {
     try {
       body.innerHTML = profileHtml(await callApi('student.getProfile'));
     } catch (error) {
-      if (error.code === 'NOT_SIGNED_IN') return void requireRole('student');
       body.innerHTML = `<div class="card">${errorStateHtml(error.message)}</div>`;
       body.querySelector('[data-action="retry"]').addEventListener('click', load);
     }

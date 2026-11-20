@@ -311,6 +311,7 @@ async function correctFlow(state, studentId, refresh) {
     <label class="form-label mt-3" for="cs_reason">Reason</label>
     <textarea class="form-control" id="cs_reason" name="reason" rows="2" maxlength="500" minlength="5" required placeholder="e.g. Card not read by the device; student was in class"></textarea>
     <div class="invalid-feedback" data-error-for="reason"></div>
+    <div class="form-text">The student can see this reason.</div>
     <p class="small text-secondary mt-2 mb-0"><i class="bi bi-shield-check me-1" aria-hidden="true"></i>The change and your reason are saved in the audit log.</p>
     ${student.corrected ? `<p class="small text-secondary mt-1 mb-0">Last correction: ${escapeHtml(student.correction_reason)}</p>` : ''}`;
 

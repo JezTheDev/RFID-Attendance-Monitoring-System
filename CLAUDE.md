@@ -286,4 +286,5 @@ Also run `node --check <file>` on changed JS files.
 - Never sort the raw tabs by hand (use the "View - …" tabs): append tabs take
   the next id from the LAST row.
 - Correction reasons live in `Attendance.override_reason`; the portals never
-  read AuditLog.
+  read AuditLog. Students see them: `historyRows` adds `correction: {reason, at,
+  by_role}` with the ROLE only ("Instructor" / "Admin"), never the user id or name.

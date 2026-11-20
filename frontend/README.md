@@ -10,7 +10,7 @@ It always talks to the **live** Apps Script backend — there is no demo mode.
 | Design system (PSU maroon/gold), app shell, responsive sidebar | Done |
 | Admin portal: dashboard, attendance, students & RFID cards, instructors, admins, classes, academic setup, devices, settings, my account | Done |
 | Instructor portal: dashboard (+ recent activity, past classes), attendance (sessions + corrections + date filter), reports + CSV, my account | Done |
-| Student portal: overview, history, profile | Done |
+| Student portal: overview, history (date filter, corrections with reason + role), profile, my account | Done |
 | Login page | Username / student number + password (`auth.login`), forced change-password step (`auth.changePassword`). Polish comes in Step 3. |
 
 ## Run it locally
@@ -42,7 +42,7 @@ frontend/
 ├── index.html                 Login
 ├── admin/                     index, attendance, students, instructors, admins, classes, academic, devices, settings, account
 ├── instructor/                index, attendance, reports, account
-├── student/                   index, history, profile
+├── student/                   index, history, profile, account
 └── assets/
     ├── css/                   app.css (design tokens + components), auth.css, bubbles.css
     └── js/

@@ -48,7 +48,10 @@ const NAVIGATION = Object.freeze({
   student: [
     { section: 'Overview', items: [{ id: 'dashboard', label: 'My Attendance', icon: 'speedometer2', href: 'student/index.html' }] },
     { section: 'Records', items: [{ id: 'history', label: 'Attendance History', icon: 'clock-history', href: 'student/history.html' }] },
-    { section: 'Account', items: [{ id: 'profile', label: 'My Profile', icon: 'person-vcard', href: 'student/profile.html' }] },
+    { section: 'Account', items: [
+      { id: 'profile', label: 'My Profile', icon: 'person-vcard', href: 'student/profile.html' },
+      { id: 'account', label: 'My Account', icon: 'person-gear', href: 'student/account.html' },
+    ] },
   ],
 });
 

@@ -30,7 +30,6 @@ function start() {
       document.getElementById('profileLine').textContent = `${profile.student_number} · ${profile.section_label}${data.term_name ? ` · ${data.term_name}` : ''}`;
       body.innerHTML = overviewHtml(data);
     } catch (error) {
-      if (error.code === 'NOT_SIGNED_IN') return void requireRole('student');
       body.innerHTML = `<div class="card">${errorStateHtml(error.message)}</div>`;
       body.querySelector('[data-action="retry"]').addEventListener('click', load);
     }
@@ -43,9 +42,9 @@ function overviewHtml(data) {
   return `
     <div class="row g-3 mb-3">
       ${statCard({ icon: 'graph-up', label: 'Overall attendance', value: formatRate(totals.rate), hint: `${totals.total} class session${totals.total === 1 ? '' : 's'} so far` })}
-      ${statCard({ icon: 'check-circle', label: 'Present', value: totals.present, hint: 'On time', gold: true })}
-      ${statCard({ icon: 'clock', label: 'Late', value: totals.late, hint: 'Tapped after the grace period' })}
-      ${statCard({ icon: 'x-circle', label: 'Absent', value: totals.absent, hint: 'No tap recorded', gold: true })}
+      ${statCard({ icon: 'check-circle', label: 'Present', value: totals.present, hint: 'Tapped in', gold: true })}
+      ${statCard({ icon: 'clock', label: 'Late', value: totals.late, hint: 'Set by your instructor (a tap is always present)' })}
+      ${statCard({ icon: 'x-circle', label: 'Absent', value: totals.absent, hint: 'No tap, or marked absent', gold: true })}
     </div>
     ${totals.rate !== null && totals.rate < 0.8 ? `
       <div class="alert alert-warning d-flex gap-2 align-items-start" role="status">

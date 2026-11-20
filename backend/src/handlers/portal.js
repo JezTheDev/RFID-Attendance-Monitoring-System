@@ -644,10 +644,18 @@ function myEnrolledClasses(db, studentId) {
     .sort((a, b) => a.class_label.localeCompare(b.class_label));
 }
 
+const CORRECTOR_ROLE = { admin: 'Admin', instructor: 'Instructor' };
+
+// Why / when / which ROLE corrected a row. Never the user id or name (students see it).
+function correctionOf(db, record) {
+  if (!record?.override_reason) return null;
+  const manual = record.source === 'manual' && !record.override_by;
+  const userId = manual ? record.created_by : record.override_by;
+  const role = db.Users.find((row) => row.user_id === userId)?.role;
+  return { reason: record.override_reason, at: manual ? record.received_at : record.override_at, by_role: CORRECTOR_ROLE[role] ?? null };
+}
+
 function historyRows(db, maps, studentId, classes, now, range) {
-  const corrections = new Set(db.Attendance
-    .filter((row) => row.student_id === studentId && row.override_reason)
-    .map((row) => correctionKey(row.session_id, row.student_id)));
 
   return classes.flatMap((klass) => db.ClassSessions
     .filter((row) => row.class_id === klass.class_id && range.has(row.session_date)
@@ -668,7 +676,8 @@ function historyRows(db, maps, studentId, classes, now, range) {
         status: row.status === 'cancelled' ? 'cancelled' : statusOf(record, row, now),
         scanned_at: record?.source === 'device' ? record.scanned_at : null,
         manual: record?.source === 'manual',
-        corrected: corrections.has(correctionKey(row.session_id, studentId)),
+        corrected: Boolean(record?.override_reason),
+        correction: correctionOf(db, record),
       };
     }))
     .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.start_time.localeCompare(a.start_time));

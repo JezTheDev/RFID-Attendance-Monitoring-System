@@ -13,7 +13,7 @@ const MARK = {
   present: { letter: 'P', tone: 'success', label: 'Present' },
   late: { letter: 'L', tone: 'warning', label: 'Late' },
   absent: { letter: 'A', tone: 'danger', label: 'Absent' },
-  not_scanned: { letter: '·', tone: 'secondary', label: 'Not scanned yet' },
+  not_scanned: { letter: '·', tone: 'secondary', label: 'Not yet' },
   null: { letter: '–', tone: 'secondary', label: 'Not enrolled yet' }, // backend mark null: joined after this session
 };
 
