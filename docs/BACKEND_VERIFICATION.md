@@ -55,15 +55,15 @@ Test names are from `backend/tests/<file>`.
 
 | # | Requirement | Source | Backend action(s) / function(s) | Test(s) / evidence | Status | Notes |
 |---|---|---|---|---|---|---|
-| F1 | RFID-based attendance recording | PC §6 | — (no `device.*` action in `actions.js`) | `actions.test.js`: action table has only `auth/admin/instructor/student` | MISSING | Step 4 (Part 4). |
-| F2 | Online database synchronization (device → Sheet) | PC §6 | — | same | MISSING | `device.submitScans` not built. |
+| F1 | RFID-based attendance recording | PC §6 | `device.submitScans` (`handlers/device.js`) | `submit-scans.test.js` "creates the session, an Attendance row and a ScanLog row" | MET (backend) | Remains: firmware (MFRC522 read, send to the Web App). |
+| F2 | Online database synchronization (device → Sheet) | PC §6 | `device.submitScans`, `device.heartbeat`, `device.getRoster` | `submit-scans.test.js`, `devices.test.js` | MET (backend) | Remains: firmware (calling the three actions). |
 | F3 | Accurate timestamping | PC §6, §13 | `utils.manilaNow`, `utils.toManilaIso` | `actions.test.js` manilaNow; `passwords.test.js` toManilaIso; `verification.test.js` Manila day boundary | PARTIAL | Server timestamps are correct Manila ISO. Converting the device's epoch time is not built. |
 | F4 | Web-based attendance dashboard (data) | PC §6 | `admin.getDashboard`, `instructor.getDashboard`, `student.getOverview` | `portal.test.js`; `verification.test.js` READ check | MET | Bugs 4 and 7 affect some numbers. |
 | F5 | Rechargeable battery operation | PC §6 | — | — | N/A | Hardware. |
-| F6 | Offline buffering + automatic sync (server side) | PC §6, §13 | — | — | MISSING | Needs `scan_id` idempotency in `submitScans`. |
-| F7 | LED + buzzer feedback (server returns result codes) | PC §6 | — | — | MISSING | Result codes are defined in Device_API_Spec §8.1 but not implemented. |
+| F6 | Offline buffering + automatic sync (server side) | PC §6, §13 | `submitScans`: 1–20 scans per request, `scan_id` idempotency, past `scanned_at` placed in the right session | `submit-scans.test.js` "a batch of 5 from yesterday…", "a resent scan_id is ALREADY_RECORDED…" | MET (backend) | Remains: firmware (offline queue on the device, resend when back online). |
+| F7 | LED + buzzer feedback (server returns result codes) | PC §6 | `submitScans` per-scan `result` (ACCEPTED, DUPLICATE, UNREGISTERED, NOT_ENROLLED, NO_ACTIVE_SESSION, SESSION_CANCELLED, INVALID_TIME, ALREADY_RECORDED) + `lcd_line2` | `submit-scans.test.js` one test per result | MET (backend) | Remains: firmware (map each result to LED / buzzer / LCD). |
 | F8 | Low-battery monitoring with dashboard alerts | PC §6 | `dashboard.js:80-90` (low_battery), `:124-126` (alert) | read only; no test | PARTIAL | Dashboard logic exists, but nothing writes `battery_voltage` (no heartbeat). |
-| F9 | Duplicate-scan prevention (server layers) | PC §6, AR §6.9 | — | — | MISSING | Session uniqueness + scan_id idempotency not built. |
+| F9 | Duplicate-scan prevention (server layers) | PC §6, AR §6.9 | `submitScans`: one Attendance row per student per session (DUPLICATE) + `scan_id` idempotency (ALREADY_RECORDED) | `submit-scans.test.js` "second tap … is DUPLICATE", "the same scan_id twice in one batch" | MET (backend) | Remains: firmware (the `duplicate_window_minutes` cooldown on the device, delivered by `device.getRoster`). |
 
 ### 1B. Admin (PC §8)
 
@@ -74,9 +74,9 @@ Test names are from `backend/tests/<file>`.
 | A3 | Manage instructors | PC §8 | `admin.list/create/update/setInstructorStatus` | `users.test.js` | MET | |
 | A4 | Manage courses and sections | PC §8 | programs / sections / subjects / terms / rooms in `academic.js`; `admin.*Class*`, schedules, enrollments in `classes.js` | `classes.test.js` (schedules, enrollments); `academic.js` read fully | MET | `academic.js` has **no unit tests**. BUG-3 (room double-booking). |
 | A5 | View all attendance records | PC §8 | `admin.getDashboard` (sessions of one date + counts) | `verification.test.js` READ check | PARTIAL | No admin action to open a session, a class report, or one student's history. Only instructors have those. |
-| A6 | Generate reports | PC §8 | — | — | MISSING | `instructor.getClassReport` exists, but only for the instructor's own classes. |
+| A6 | Generate reports | PC §8 | `admin.listAttendance`, `admin.getAttendanceReport` (`attendance.js`) | `admin-attendance.test.js` | MET (backend) | Remains: frontend (admin report page + CSV export). Same as D7. |
 | A7 | Monitor device status | PC §8 | `admin.getDashboard` → `devices[]`, `admin.listRooms` → `device_id` | read `dashboard.js:82-95` | PARTIAL | Read-only list. No device create/assign/key actions; nothing updates device status yet. |
-| A8 | Manage application settings | PC §8 | — | — | MISSING | Settings tab exists; no `admin.*Setting*` action. |
+| A8 | Manage application settings | PC §8 | `admin.getSettings`, `admin.updateSettings` (`settings.js`) | `settings.test.js` (ranges, all-or-nothing, admin only) | MET (backend) | Remains: frontend (admin settings page). |
 
 ### 1C. Instructor (PC §8)
 
@@ -124,10 +124,10 @@ Test names are from `backend/tests/<file>`.
 
 | # | Requirement | Source | Backend | Test(s) / evidence | Status | Notes |
 |---|---|---|---|---|---|---|
-| L1 | RFID validation: registered → accept, else reject + result | PC §13 | `normalizeUid` (`students.js:12`) only | `cards.test.js` UID format | MISSING | No scan path. |
+| L1 | RFID validation: registered → accept, else reject + result | PC §13 | `submitScans`: active card of an active student → ACCEPTED; else UNREGISTERED (logged in ScanLog) | `submit-scans.test.js` "unknown UID", "a revoked card", "an active card of an inactive student" | MET (backend) | Remains: firmware (show the reject result). |
 | L2 | Duplicate prevention, 5 min, configurable | PC §13 | Settings `duplicate_window_minutes` | seed only | PARTIAL | The setting exists but no code reads it; `device.getRoster` would deliver it to the device. |
 | L3 | Timestamping, Asia/Manila | PC §13 | `manilaNow`, `toManilaIso` | `verification.test.js` boundary tests | PARTIAL | Server side MET; device time not handled yet. |
-| L4 | Offline sync: confirm, no duplicates during sync | PC §13 | — | — | MISSING | |
+| L4 | Offline sync: confirm, no duplicates during sync | PC §13 | `submitScans` returns one result per `scan_id`; a resent `scan_id` → ALREADY_RECORDED + `original_result`, no new rows | `submit-scans.test.js` "a resent scan_id is ALREADY_RECORDED…" | MET (backend) | Remains: firmware (drop a queued scan only after its result comes back). |
 | L5 | Dashboard: real attendance data | PC §13 | reads Attendance / ClassSessions | `portal.test.js` | MET | **But no code creates ClassSessions** (Part 3). |
 | L6 | Dashboard: device status + battery | PC §13 | see F8 / A7 | — | PARTIAL | |
 | L7 | Distinguish pending offline vs synced records | PC §13 | `sync_mode` in `instructor.getSession` and `recent_scans`; `queue_count` alert | read `portal.js:313`, `dashboard.js:134-136` | PARTIAL | Shown when present; nothing writes it yet. |
@@ -143,8 +143,8 @@ Test names are from `backend/tests/<file>`.
 | X5 | Instructors only access their assigned classes | PC §14 | `ownClass()` (`portal.js:131-137`) | `portal.test.js` (4 tests) | MET | |
 | X6 | Admin functions protected | PC §14 | role `admin` in `actions.js` | `actions.test.js`, `auth.test.js` | MET | |
 | X7 | No secret credentials in frontend / responses | PC §14 | secrets only in Script Properties (`context.js`) | `auth.test.js` "no response or audit row contains a password, a hash, or a token hash" | MET | Backend side only. |
-| X8 | Validate incoming ESP32 requests | PC §14 | — | — | MISSING | Device key check not built. |
-| X9 | Protect against unauthorized attendance submissions | PC §14 | — | — | MISSING | No device endpoint exists yet, so nothing is open today. |
+| X8 | Validate incoming ESP32 requests | PC §14 | `authenticateDevice` (`auth/device-auth.js`): peppered key hash; strict field checks in `submitScans` / `heartbeat` (`BAD_REQUEST`) | `devices.test.js` "unknown device and wrong key give the SAME error"; `submit-scans.test.js` bad-input tests | MET (backend) | Remains: firmware (store the key outside the repo, in `secrets.h`). |
+| X9 | Protect against unauthorized attendance submissions | PC §14 | Key check first, then `DEVICE_DISABLED` (not active), `DEVICE_NOT_ASSIGNED`; `scan_id` must start with the device's own id | `submit-scans.test.js` "wrong key … nothing written", "a device in maintenance", "scan_id of another device"; `devices.test.js` "DEVICE_NOT_ASSIGNED" | MET | Server-only requirement. |
 | X10 | Validate and sanitize user inputs | PC §14 | validators in every handler (`cleanText`, patterns, existence checks) | `users.test.js`, `cards.test.js`, `classes.test.js` | MET | `academic.js` validators were read but have no tests. |
 | X11 | Do not expose the whole Sheet | PC §14 | Web App returns per-action data only | read `Server.gs` | PARTIAL | Sheet sharing settings are **UNVERIFIED** (not in the repo). |
 | X12 | Use test data during development | PC §14 | `seed-data.json` (fake, `@example.com`) | `migration.test.js` "contains no passwords, hashes or google_sub" | MET | |
@@ -180,14 +180,14 @@ Test names are from `backend/tests/<file>`.
 
 | Status | Count |
 |---|---|
-| MET | 61 |
+| MET | 72 |
 | PARTIAL | 11 |
-| MISSING | 11 |
+| MISSING | 0 |
 | WRONG | 0 |
 | N/A | 2 |
 | **Total** | **85** |
 
-Almost all **MISSING** rows belong to one piece of work: the Device API and session engine (Step 4), plus admin reports and settings.
+MET includes **MET (backend)** rows (13 of them): the server part is done and tested, and the row's Notes name what still remains (frontend page or ESP32 firmware). No firmware is in this repo yet.
 
 ---
 
