@@ -51,8 +51,10 @@ export function isValidDate(dateString) {
 const MAX_RANGE_DAYS = 366;
 const dayNumber = (dateString) => Date.parse(`${dateString}T00:00:00Z`) / 86400000;
 
-// Optional inclusive { from, to } filter (YYYY-MM-DD, Manila dates). '' = no bound.
-export function dateRange({ from = '', to = '' } = {}) {
+// Optional inclusive { from, to } filter (YYYY-MM-DD, Manila dates). '' or null = no bound.
+export function dateRange(request = {}) {
+  const from = request.from ?? '';
+  const to = request.to ?? '';
   const fields = {};
   if (from !== '' && !isValidDate(from)) fields.from = 'Enter a valid start date (YYYY-MM-DD).';
   if (to !== '' && !isValidDate(to)) fields.to = 'Enter a valid end date (YYYY-MM-DD).';

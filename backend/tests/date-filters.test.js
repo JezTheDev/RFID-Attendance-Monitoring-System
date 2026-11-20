@@ -18,6 +18,11 @@ describe('dateRange helper', () => {
     assert.equal(dateRange({ from: '', to: '' }).has('2026-11-16'), true);
   });
 
+  it('treats null like empty (no bound)', () => {
+    const range = dateRange({ from: null, to: null });
+    assert.deepEqual([range.from, range.to, range.has('2026-01-01')], ['', '', true]);
+  });
+
   it('includes the from and to days themselves, excludes the days outside', () => {
     const range = dateRange({ from: '2026-11-09', to: '2026-11-16' });
     assert.deepEqual(['2026-11-08', '2026-11-09', '2026-11-16', '2026-11-17'].map(range.has), [false, true, true, false]);
@@ -84,6 +89,10 @@ describe('student.getHistory', () => {
     const result = portal.studentHistory(weekDb(), { student_id: 'STU-0004', from: '2026-11-01', to: '2026-11-30' }, SESSIONS.student1, CTX);
     assert.deepEqual(result.records.map((r) => r.class_id), ['CLS-0001', 'CLS-0001', 'CLS-0001']);
     assert.throws(() => portal.studentHistory(weekDb(), { class_id: 'CLS-0002', ...ONLY_16 }, SESSIONS.student1, CTX), withCode('FORBIDDEN'));
+  });
+
+  it('a class the student is not in is FORBIDDEN even with a bad date', () => {
+    assert.throws(() => portal.studentHistory(weekDb(), { class_id: 'CLS-0002', from: 'x' }, SESSIONS.student1, CTX), withCode('FORBIDDEN'));
   });
 
   it('rejects bad input', () => {

@@ -611,11 +611,11 @@ export function studentHistory(db, request, session, ctx) {
   const classId = request.class_id || '';
   const now = manilaAt(ctx.now());
   const studentId = linkedId(db, session, 'student');
-  const range = dateRange(request);
   const maps = lookups(db);
   const classes = myEnrolledClasses(db, studentId);
   const chosen = classId ? classes.filter((row) => row.class_id === classId) : classes;
   if (classId && !chosen.length) throw new AppError('FORBIDDEN', 'You are not enrolled in this class.');
+  const range = dateRange(request);
   const records = historyRows(db, maps, studentId, chosen, now, range);
   return {
     classes: classes.map((klass) => ({

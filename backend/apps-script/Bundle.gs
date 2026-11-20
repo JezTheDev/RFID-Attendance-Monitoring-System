@@ -60,8 +60,10 @@ var RFID = (function () {
     const MAX_RANGE_DAYS = 366;
     const dayNumber = (dateString) => Date.parse(`${dateString}T00:00:00Z`) / 86400000;
 
-    // Optional inclusive { from, to } filter (YYYY-MM-DD, Manila dates). '' = no bound.
-    function dateRange({ from = '', to = '' } = {}) {
+    // Optional inclusive { from, to } filter (YYYY-MM-DD, Manila dates). '' or null = no bound.
+    function dateRange(request = {}) {
+      const from = request.from ?? '';
+      const to = request.to ?? '';
       const fields = {};
       if (from !== '' && !isValidDate(from)) fields.from = 'Enter a valid start date (YYYY-MM-DD).';
       if (to !== '' && !isValidDate(to)) fields.to = 'Enter a valid end date (YYYY-MM-DD).';
@@ -2711,11 +2713,11 @@ var RFID = (function () {
       const classId = request.class_id || '';
       const now = manilaAt(ctx.now());
       const studentId = linkedId(db, session, 'student');
-      const range = dateRange(request);
       const maps = lookups(db);
       const classes = myEnrolledClasses(db, studentId);
       const chosen = classId ? classes.filter((row) => row.class_id === classId) : classes;
       if (classId && !chosen.length) throw new AppError('FORBIDDEN', 'You are not enrolled in this class.');
+      const range = dateRange(request);
       const records = historyRows(db, maps, studentId, chosen, now, range);
       return {
         classes: classes.map((klass) => ({
