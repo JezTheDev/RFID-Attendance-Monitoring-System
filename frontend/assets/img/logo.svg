@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Placeholder logo (favicon + login bubbles). Replace with the real logo later. -->
+  <rect width="64" height="64" rx="14" fill="#7a1f1f"/>
+  <rect x="18" y="12" width="28" height="40" rx="5" fill="none" stroke="#e0a526" stroke-width="4"/>
+  <rect x="27" y="17" width="10" height="3" rx="1.5" fill="#e0a526"/>
+  <circle cx="32" cy="30" r="5" fill="#e0a526"/>
+  <path d="M23 45c1.5-5 5-7.5 9-7.5s7.5 2.5 9 7.5" fill="#e0a526"/>
+</svg>

@@ -64,10 +64,6 @@ function start() {
       body.innerHTML = dashboardHtml(data);
     } catch (error) {
       if (requestId !== requestCounter) return;
-      if (error.code === 'NOT_SIGNED_IN') {
-        requireRole('admin');
-        return;
-      }
       body.innerHTML = `<div class="card">${errorStateHtml(error.message)}</div>`;
       body.querySelector('[data-action="retry"]').addEventListener('click', load);
     }

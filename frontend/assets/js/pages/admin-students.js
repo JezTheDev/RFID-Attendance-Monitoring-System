@@ -61,6 +61,7 @@ function start() {
         </form>
       </div>
     </div>
+    <div class="card mb-3 d-none" id="optionsError"></div>
     <div class="card" id="studentsCard"></div>
     <div class="offcanvas offcanvas-end" tabindex="-1" id="studentDetails" aria-labelledby="studentDetailsTitle" style="--bs-offcanvas-width: 440px">
       <div class="offcanvas-header border-bottom">
@@ -75,6 +76,8 @@ function start() {
   document.getElementById('studentDetails').addEventListener('hidden.bs.offcanvas', () => { state.detailsId = null; });
 
   const loadOptions = async () => {
+    const errorBox = document.getElementById('optionsError');
+    errorBox.classList.add('d-none');
     try {
       const options = await callApi('admin.getStudentOptions');
       state.sections = options.sections;
@@ -82,7 +85,9 @@ function start() {
         options.sections.map((s) => `<option value="${escapeHtml(s.section_id)}">${escapeHtml(s.label)}</option>`).join(''));
       document.getElementById('addStudentButton').disabled = false;
     } catch (error) {
-      showToast(`Could not load sections: ${error.message}`, 'danger');
+      errorBox.innerHTML = errorStateHtml(`Could not load sections: ${error.message}`);
+      errorBox.querySelector('[data-action="retry"]').addEventListener('click', loadOptions);
+      errorBox.classList.remove('d-none');
     }
   };
 
@@ -107,6 +112,7 @@ function start() {
       listCard.innerHTML = listHtml(data, state);
     } catch (error) {
       if (requestId !== listRequest) return;
+      document.getElementById('studentCounts').textContent = '';
       listCard.innerHTML = errorStateHtml(error.message);
       listCard.querySelector('[data-action="retry"]').addEventListener('click', loadList);
     } finally {
@@ -285,7 +291,7 @@ function detailsHtml({ student, account, cards, enrollments, attendance }) {
       <dt class="col-4 fw-normal text-secondary">Username</dt><dd class="col-8 font-monospace">${escapeHtml(account?.username ?? '')}</dd>
       <dt class="col-4 fw-normal text-secondary">Email</dt><dd class="col-8 text-break">${escapeHtml(account?.email || student.email || '—')}</dd>
       <dt class="col-4 fw-normal text-secondary">Account</dt><dd class="col-8">${account ? escapeHtml(account.account_status) : '<span class="text-danger">Missing user record</span>'}</dd>
-      <dt class="col-4 fw-normal text-secondary">Password</dt><dd class="col-8">${account?.locked ? '<span class="text-danger">Locked (too many failed sign-ins)</span>' : account?.must_change_password ? 'Default (not changed yet)' : 'Changed by the student'}</dd>
+      <dt class="col-4 fw-normal text-secondary">Password</dt><dd class="col-8">${account?.locked ? '<span class="text-danger">Locked (too many failed sign-ins)</span>' : account?.must_change_password ? 'Temporary password (not changed yet)' : 'Changed by the student'}</dd>
       <dt class="col-4 fw-normal text-secondary">Last sign-in</dt><dd class="col-8">${account?.last_login_at ? escapeHtml(formatDateTime(account.last_login_at)) : '—'}</dd>
     </dl>
 
@@ -322,7 +328,7 @@ function studentFormHtml(sections, student = null) {
       ${help ? `<div class="form-text">${help}</div>` : ''}
     </div>`;
   return `
-    ${field('student_number', 'Student number', `<input class="form-control" id="f_student_number" name="student_number" inputmode="numeric" pattern="\\d{10}" maxlength="10" required value="${value('student_number')}">`, '10 digits, for example 2024310398.')}
+    ${field('student_number', 'Student number', `<input class="form-control" id="f_student_number" name="student_number" inputmode="numeric" pattern="\\d{10}" maxlength="10" required value="${value('student_number')}">`, '10 digits, for example 2026000001.')}
     <div class="row g-2">
       <div class="col-sm-6">${field('first_name', 'First name', `<input class="form-control" id="f_first_name" name="first_name" maxlength="60" required autocomplete="off" value="${value('first_name')}">`)}</div>
       <div class="col-sm-6">${field('last_name', 'Last name', `<input class="form-control" id="f_last_name" name="last_name" maxlength="60" required autocomplete="off" value="${value('last_name')}">`)}</div>

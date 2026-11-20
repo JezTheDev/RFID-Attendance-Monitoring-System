@@ -1,5 +1,8 @@
 import { CONFIG } from './config.js';
-import { getSession } from './session.js';
+import { getSession, saveSession, endExpiredSession } from './session.js';
+
+const LOGIN_URL = new URL('../../index.html', import.meta.url).href;
+const TIMEOUT_MS = 45000; // Apps Script can take ~15 s when busy; never wait forever
 
 export class ApiError extends Error {
   constructor(code, message, fields = null) {
@@ -17,6 +20,7 @@ export async function callApi(action, payload = {}) {
   const response = await sendToServer(request);
 
   if (!response || response.ok !== true) {
+    leaveIfSignedOut(response?.error?.code);
     throw new ApiError(
       response?.error?.code ?? 'UNKNOWN_ERROR',
       response?.error?.message ?? 'The request could not be completed.',
@@ -24,6 +28,19 @@ export async function callApi(action, payload = {}) {
     );
   }
   return response.data;
+}
+
+// Any page, any request: an ended session goes back to the login page.
+function leaveIfSignedOut(code) {
+  if (code === 'NOT_SIGNED_IN') {
+    endExpiredSession(); // the login page says "Your session expired…"
+  } else if (code === 'PASSWORD_CHANGE_REQUIRED') {
+    const session = getSession();
+    if (session) saveSession({ ...session, must_change_password: true }); // login page opens the change form
+  } else {
+    return;
+  }
+  if (window.location.href.split(/[?#]/)[0] !== LOGIN_URL) window.location.replace(LOGIN_URL);
 }
 
 async function sendToServer(request) {
@@ -37,8 +54,12 @@ async function sendToServer(request) {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(request),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
-  } catch {
+  } catch (error) {
+    if (error?.name === 'TimeoutError') {
+      throw new ApiError('TIMEOUT', 'The server took too long to answer. Please try again.');
+    }
     throw new ApiError('NETWORK_ERROR', 'Cannot reach the server. Check your internet connection.');
   }
 

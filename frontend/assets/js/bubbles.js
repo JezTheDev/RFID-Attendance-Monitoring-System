@@ -1,8 +1,8 @@
 // Floating logo bubbles for the login page background.
-// Change LOGO_SRC to your logo file. If it can't be loaded,
+// Change LOGO_SRC to your logo file (logo.svg is a placeholder). If it can't be loaded,
 // the bubbles show the badge icon instead.
 (function () {
-  var LOGO_SRC = 'assets/img/logo.png';
+  var LOGO_SRC = 'assets/img/logo.svg';
   var COUNT = window.innerWidth < 600 ? 9 : 16;   // how many bubbles
   var MIN_DUR = 14, MAX_DUR = 28;                 // seconds to float up (lower = faster)
 

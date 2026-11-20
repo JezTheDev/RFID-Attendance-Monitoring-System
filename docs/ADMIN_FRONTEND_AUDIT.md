@@ -158,7 +158,7 @@ Notes: `must_change_password` → change form opens straight away with the old p
 | `assets/js/bubbles.js:5` | `LOGO_SRC = 'assets/img/logo.png'`, but **the file does not exist** → 404 on every login load (seen in the console). | Add the logo or DELETE the image from the bubbles. |
 | `/favicon.ico` | 404 on every page. | Add one small favicon (or a `<link rel="icon">` data URI). |
 | `admin-students.js:288` | "Password: **Default (not changed yet)**": the default-password era. | Change to "Temporary password (not changed yet)". |
-| `admin-students.js:325` | Help text example "10 digits, for example **2024310398**": looks like a real student number. | Replace with a fake one (e.g. `2024000001`). |
+| `admin-students.js:325` | Help text example used what looks like a real student number. | Replace with an obviously fake one. **Done in Batch 1** (`2026000001`). |
 | `admin-dashboard.js:9-15` | `SESSION_STATUS.closed` / `scheduled` never come from the backend for real sessions; `open` is shown after the class ends. | Replace with a `phase` map (see Dashboard BROKEN). |
 | `admin-academic.js:128` | Mentions a "Devices page" that does not exist yet. | KEEP; it becomes true after FIX-08. |
 | `ui.js:371` | Reason textarea `maxlength="200"`, backend allows 500 (`MAX_TEXT`). | KEEP (stricter is safe), or raise to 500 for consistency. |

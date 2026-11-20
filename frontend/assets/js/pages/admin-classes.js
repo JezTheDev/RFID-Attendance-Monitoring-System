@@ -47,6 +47,7 @@ function start() {
         </form>
       </div>
     </div>
+    <div class="card mb-3 d-none" id="optionsError"></div>
     <div class="card" id="classList"></div>
     <div class="offcanvas offcanvas-end" tabindex="-1" id="classDetails" aria-labelledby="classDetailsTitle" style="--bs-offcanvas-width: 520px">
       <div class="offcanvas-header border-bottom">
@@ -67,11 +68,19 @@ function start() {
   });
 
   const loadOptions = async () => {
+    const errorBox = document.getElementById('optionsError');
+    errorBox.classList.add('d-none');
     try {
       state.options = await callApi('admin.getClassOptions');
       document.getElementById('addClassButton').disabled = false;
+      return true;
     } catch (error) {
-      showToast(`Could not load choices: ${error.message}`, 'danger');
+      errorBox.innerHTML = errorStateHtml(`Could not load terms, subjects, sections, instructors and rooms: ${error.message}`);
+      errorBox.querySelector('[data-action="retry"]').addEventListener('click', async () => {
+        if (await loadOptions()) loadList(); // the list fills the term filter
+      });
+      errorBox.classList.remove('d-none');
+      return false;
     }
   };
 
