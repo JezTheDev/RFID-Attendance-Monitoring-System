@@ -23,6 +23,8 @@ const CASES = [
   ['auth.me', 'admin', {}],
   ['auth.changePassword', 'admin', { old_password: PASSWORD, new_password: 'Changed2026x' }],
   ['admin.getDashboard', 'admin', { date: '2026-11-16' }],
+  ['admin.listAttendance', 'admin', { status: 'present', section_id: 'SEC-0001' }],
+  ['admin.getAttendanceReport', 'admin', { group_by: 'section' }],
   ['admin.getStudentOptions', 'admin', {}],
   ['admin.listStudents', 'admin', {}],
   ['admin.getStudent', 'admin', { student_id: 'STU-0001' }],

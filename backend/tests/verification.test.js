@@ -37,6 +37,8 @@ const READ_CALLS = {
   'admin.getClassOptions': [SESSIONS.admin, {}],
   'admin.listClasses': [SESSIONS.admin, {}],
   'admin.getClass': [SESSIONS.admin, { class_id: 'CLS-0001' }],
+  'admin.listAttendance': [SESSIONS.admin, {}],
+  'admin.getAttendanceReport': [SESSIONS.admin, { group_by: 'student' }],
   'instructor.getDashboard': [SESSIONS.instructorAna, { date: '2026-11-16' }],
   'instructor.listSessions': [SESSIONS.instructorAna, { class_id: 'CLS-0001' }],
   'instructor.getSession': [SESSIONS.instructorAna, { session_id: 'SES-0001' }],
@@ -106,7 +108,7 @@ describe('known bugs (todo until fixed)', () => {
       'CLS-0001 and the new class now both own RM-0001 on MON 08:00-10:00');
   });
 
-  it('BUG-4 admin dashboard attendance rate never exceeds 100%', { todo: 'BUG-4: dashboard.js:23 counts records of dropped students' }, () => {
+  it('BUG-4 admin dashboard attendance rate never exceeds 100%', () => {
     const db = makeDb();
     db.Attendance.push({ ...db.Attendance[0], attendance_id: 'ATT-00009', student_id: 'STU-0003' });
     classes.dropEnrollment(db, { class_id: 'CLS-0001', student_id: 'STU-0003', reason: 'shifted' }, SESSIONS.admin, CTX);

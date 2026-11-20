@@ -2,6 +2,28 @@ import {
   AppError, setting, manilaAt, dayCodeOf, isValidDate, shiftDate, indexBy, fullName, effectiveStatus,
 } from '../utils.js';
 import { sessionPhase } from '../sessions.js';
+import { rosterIds, sessionCounts } from './portal.js';
+
+// Non-retired devices with their offline queue (dashboard + attendance report).
+export function deviceSummaries(db, ctx) {
+  const rooms = indexBy(db.Rooms, 'room_id');
+  const lowBatteryVoltage = Number(setting(db, 'low_battery_voltage', 3.5));
+  const offlineAfterMs = Number(setting(db, 'device_offline_after_minutes', 10)) * 60000;
+  return db.Devices.filter((row) => row.status !== 'retired').map((row) => {
+    const battery = row.battery_voltage === '' ? null : Number(row.battery_voltage);
+    return {
+      device_id: row.device_id,
+      device_name: row.device_name,
+      room_code: rooms.get(row.room_id)?.room_code ?? '',
+      status: row.status,
+      battery_voltage: battery,
+      low_battery: battery !== null && battery < lowBatteryVoltage,
+      last_seen_at: row.last_seen_at || null,
+      online: Boolean(row.last_seen_at) && ctx.now() - Date.parse(row.last_seen_at) <= offlineAfterMs,
+      queue_count: Number(row.queue_count || 0),
+    };
+  });
+}
 
 export function getAdminDashboard(db, { date }, _session, ctx) {
   if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
@@ -16,20 +38,13 @@ export function getAdminDashboard(db, { date }, _session, ctx) {
   const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
   const inTerm = Boolean(activeTerm) && date >= activeTerm.start_date && date <= activeTerm.end_date;
 
-  const enrolledCount = (classId) => db.Enrollments.filter((row) => row.class_id === classId
-    && row.status === 'enrolled' && students.get(row.student_id)?.account_status === 'active').length;
-
   const describe = ({ classId, roomId, start, end, status, session, source }) => {
     const sessionId = session?.session_id;
     const klass = classes.get(classId);
-    const records = sessionId ? db.Attendance.filter((row) => row.session_id === sessionId) : [];
-    const present = records.filter((row) => effectiveStatus(row) === 'present').length;
-    const late = records.filter((row) => effectiveStatus(row) === 'late').length;
-    const enrolled = enrolledCount(classId);
-    const counted = status === 'closed' || status === 'open';
-    // No record: not_scanned until the session ends, absent after (BUG-7).
-    const missing = Math.max(enrolled - present - late, 0);
-    const ended = Boolean(session) && sessionPhase(session, now) === 'ended';
+    const roster = rosterIds(db, { students }, classId);
+    const counts = session
+      ? sessionCounts(db, session, roster, now)
+      : { enrolled: roster.length, present: null, late: null, absent: null, not_scanned: null };
     return {
       session_id: sessionId ?? null,
       class_id: classId,
@@ -42,11 +57,7 @@ export function getAdminDashboard(db, { date }, _session, ctx) {
       source,
       status,
       phase: sessionPhase(session ?? { status: 'open', session_date: date, scheduled_start: start, scheduled_end: end }, now),
-      enrolled,
-      present: counted ? present : null,
-      late: counted ? late : null,
-      absent: counted ? (ended ? missing : 0) : null,
-      not_scanned: counted ? (ended ? 0 : missing) : null,
+      ...counts,
     };
   };
 
@@ -84,22 +95,7 @@ export function getAdminDashboard(db, { date }, _session, ctx) {
     db.Attendance.filter((row) => row.scanned_at.slice(0, 10) === date && effectiveStatus(row) !== 'absent').map((row) => row.student_id),
   ).size;
 
-  const lowBatteryVoltage = Number(setting(db, 'low_battery_voltage', 3.5));
-  const offlineAfterMs = Number(setting(db, 'device_offline_after_minutes', 10)) * 60000;
-  const devices = db.Devices.filter((row) => row.status !== 'retired').map((row) => {
-    const battery = row.battery_voltage === '' ? null : Number(row.battery_voltage);
-    return {
-      device_id: row.device_id,
-      device_name: row.device_name,
-      room_code: rooms.get(row.room_id)?.room_code ?? '',
-      status: row.status,
-      battery_voltage: battery,
-      low_battery: battery !== null && battery < lowBatteryVoltage,
-      last_seen_at: row.last_seen_at || null,
-      online: Boolean(row.last_seen_at) && ctx.now() - Date.parse(row.last_seen_at) <= offlineAfterMs,
-      queue_count: Number(row.queue_count || 0),
-    };
-  });
+  const devices = deviceSummaries(db, ctx);
 
   const activeCardsByUid = new Map(db.RfidCards.filter((row) => row.status === 'active').map((row) => [row.rfid_uid, row]));
   const recentScans = db.ScanLog

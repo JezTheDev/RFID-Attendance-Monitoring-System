@@ -22,7 +22,7 @@ function linkedId(db, session, role) {
   return user.linked_id;
 }
 
-function lookups(db) {
+export function lookups(db) {
   return {
     classes: indexBy(db.Classes, 'class_id'),
     subjects: indexBy(db.Subjects, 'subject_id'),
@@ -34,7 +34,7 @@ function lookups(db) {
   };
 }
 
-function sectionLabel(maps, sectionId) {
+export function sectionLabel(maps, sectionId) {
   const section = maps.sections.get(sectionId);
   if (!section) return '';
   const program = maps.programs.get(section.program_id);
@@ -53,7 +53,7 @@ function schedulesOf(db, maps, classId) {
     }));
 }
 
-function rosterIds(db, maps, classId) {
+export function rosterIds(db, maps, classId) {
   return db.Enrollments
     .filter((row) => row.class_id === classId && row.status === 'enrolled'
       && maps.students.get(row.student_id)?.account_status === 'active')
@@ -61,17 +61,35 @@ function rosterIds(db, maps, classId) {
 }
 
 // Sessions that count toward attendance: held (closed) or currently open.
-function countedSessions(db, classId) {
+export function countedSessions(db, classId) {
   return db.ClassSessions
     .filter((row) => row.class_id === classId && (row.status === 'closed' || row.status === 'open'))
     .sort((a, b) => a.session_date.localeCompare(b.session_date) || a.scheduled_start.localeCompare(b.scheduled_start));
 }
 
 // An open session that has not started yet (early tap) is not held.
-const heldCount = (sessions, now) => sessions.filter((s) => sessionPhase(s, now) !== 'upcoming').length;
+export const heldCount = (sessions, now) => sessions.filter((s) => sessionPhase(s, now) !== 'upcoming').length;
 
-function recordOf(db, sessionId, studentId) {
-  return db.Attendance.find((row) => row.session_id === sessionId && row.student_id === studentId) ?? null;
+// session_id -> student_id -> first row. Rebuilt when rows are added (correctAttendance).
+const attendanceIndex = new WeakMap();
+function recordsBySession(db) {
+  const rows = db.Attendance;
+  let cached = attendanceIndex.get(rows);
+  if (!cached || cached.length !== rows.length) {
+    const map = new Map();
+    rows.forEach((row) => {
+      if (!map.has(row.session_id)) map.set(row.session_id, new Map());
+      const students = map.get(row.session_id);
+      if (!students.has(row.student_id)) students.set(row.student_id, row);
+    });
+    cached = { length: rows.length, map };
+    attendanceIndex.set(rows, cached);
+  }
+  return cached.map;
+}
+
+export function recordOf(db, sessionId, studentId) {
+  return recordsBySession(db).get(sessionId)?.get(studentId) ?? null;
 }
 
 function correctionKey(sessionId, studentId) {
@@ -88,15 +106,15 @@ function correctionsFor(db, sessionId) {
   return map;
 }
 
-function statusOf(record, session, now) {
+export function statusOf(record, session, now) {
   return record ? effectiveStatus(record) : missingStatus(session, now);
 }
 
-function rate(present, late, total) {
+export function rate(present, late, total) {
   return total > 0 ? (present + late) / total : null;
 }
 
-function summarize(statuses) {
+export function summarize(statuses) {
   const present = statuses.filter((s) => s === 'present').length;
   const late = statuses.filter((s) => s === 'late').length;
   const absent = statuses.filter((s) => s === 'absent').length;
@@ -104,20 +122,24 @@ function summarize(statuses) {
   return { present, late, absent, total, rate: rate(present, late, total) };
 }
 
-// No record: not_scanned until the session ends, absent after (BUG-7).
-function sessionCounts(db, session, roster, now) {
-  const records = db.Attendance.filter((row) => row.session_id === session.session_id && roster.includes(row.student_id));
-  const present = records.filter((row) => effectiveStatus(row) === 'present').length;
-  const late = records.filter((row) => effectiveStatus(row) === 'late').length;
+// Same rule as statusOf for every view: a row counts by its effective status
+// (an override to absent is absent at once); no row is not_scanned until the
+// session ends, absent after (BUG-7).
+export function sessionCounts(db, session, roster, now) {
   const counted = session.status === 'closed' || session.status === 'open';
-  const missing = Math.max(roster.length - present - late, 0);
-  const ended = sessionPhase(session, now) === 'ended';
+  const totals = { present: 0, late: 0, absent: 0, not_scanned: 0 };
+  if (counted) {
+    roster.forEach((studentId) => {
+      const status = statusOf(recordOf(db, session.session_id, studentId), session, now);
+      if (status in totals) totals[status] += 1;
+    });
+  }
   return {
     enrolled: roster.length,
-    present: counted ? present : null,
-    late: counted ? late : null,
-    absent: counted ? (ended ? missing : 0) : null,
-    not_scanned: counted ? (ended ? 0 : missing) : null,
+    present: counted ? totals.present : null,
+    late: counted ? totals.late : null,
+    absent: counted ? totals.absent : null,
+    not_scanned: counted ? totals.not_scanned : null,
   };
 }
 

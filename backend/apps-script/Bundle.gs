@@ -722,10 +722,697 @@ var RFID = (function () {
     return { sessionPhase, missingStatus, resolveScan };
   })();
 
+  // ---- handlers/portal.js ----
+  __m["handlers/portal"] = (function () {
+    // Handlers for the Instructor and Student portals.
+    // Ownership rule (architecture doc, section 7.2): the server never trusts an
+    // instructor_id / student_id sent by the browser. It reads linked_id from the
+    // signed-in user and only returns rows that belong to that person.
+    const { AppError, validationError, manilaAt, dayCodeOf, isValidDate, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, dateRange } = __m["utils"];
+    const { missingStatus, sessionPhase } = __m["sessions"];
+
+    const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+    const CORRECTABLE = ['present', 'late', 'absent'];
+    const CORRECTION_ACTION = 'ATTENDANCE_CORRECT';
+
+    /* ---------------- shared helpers ---------------- */
+
+    function linkedId(db, session, role) {
+      const user = db.Users.find((row) => row.user_id === session.user_id);
+      if (!user || user.role !== role || !user.linked_id) {
+        throw new AppError('FORBIDDEN', 'Your account is not linked to a record yet. Contact the administrator.');
+      }
+      return user.linked_id;
+    }
+
+    function lookups(db) {
+      return {
+        classes: indexBy(db.Classes, 'class_id'),
+        subjects: indexBy(db.Subjects, 'subject_id'),
+        sections: indexBy(db.Sections, 'section_id'),
+        rooms: indexBy(db.Rooms, 'room_id'),
+        instructors: indexBy(db.Instructors, 'instructor_id'),
+        students: indexBy(db.Students, 'student_id'),
+        programs: indexBy(db.Programs, 'program_id'),
+      };
+    }
+
+    function sectionLabel(maps, sectionId) {
+      const section = maps.sections.get(sectionId);
+      if (!section) return '';
+      const program = maps.programs.get(section.program_id);
+      return `${program?.program_code ?? ''} ${section.section_name}`.trim();
+    }
+
+    function schedulesOf(db, maps, classId) {
+      return db.Schedules
+        .filter((row) => row.class_id === classId && row.status === 'active')
+        .sort((a, b) => DAY_ORDER.indexOf(a.day_of_week) - DAY_ORDER.indexOf(b.day_of_week) || a.start_time.localeCompare(b.start_time))
+        .map((row) => ({
+          day: row.day_of_week,
+          start_time: row.start_time,
+          end_time: row.end_time,
+          room_code: maps.rooms.get(row.room_id)?.room_code ?? '',
+        }));
+    }
+
+    function rosterIds(db, maps, classId) {
+      return db.Enrollments
+        .filter((row) => row.class_id === classId && row.status === 'enrolled'
+          && maps.students.get(row.student_id)?.account_status === 'active')
+        .map((row) => row.student_id);
+    }
+
+    // Sessions that count toward attendance: held (closed) or currently open.
+    function countedSessions(db, classId) {
+      return db.ClassSessions
+        .filter((row) => row.class_id === classId && (row.status === 'closed' || row.status === 'open'))
+        .sort((a, b) => a.session_date.localeCompare(b.session_date) || a.scheduled_start.localeCompare(b.scheduled_start));
+    }
+
+    // An open session that has not started yet (early tap) is not held.
+    const heldCount = (sessions, now) => sessions.filter((s) => sessionPhase(s, now) !== 'upcoming').length;
+
+    // session_id -> student_id -> first row. Rebuilt when rows are added (correctAttendance).
+    const attendanceIndex = new WeakMap();
+    function recordsBySession(db) {
+      const rows = db.Attendance;
+      let cached = attendanceIndex.get(rows);
+      if (!cached || cached.length !== rows.length) {
+        const map = new Map();
+        rows.forEach((row) => {
+          if (!map.has(row.session_id)) map.set(row.session_id, new Map());
+          const students = map.get(row.session_id);
+          if (!students.has(row.student_id)) students.set(row.student_id, row);
+        });
+        cached = { length: rows.length, map };
+        attendanceIndex.set(rows, cached);
+      }
+      return cached.map;
+    }
+
+    function recordOf(db, sessionId, studentId) {
+      return recordsBySession(db).get(sessionId)?.get(studentId) ?? null;
+    }
+
+    function correctionKey(sessionId, studentId) {
+      return `${sessionId}:${studentId}`;
+    }
+
+    // Corrected rows (device overrides and manual rows) carry the reason in
+    // override_reason, so the portals never read the ever-growing AuditLog.
+    function correctionsFor(db, sessionId) {
+      const map = new Map();
+      db.Attendance
+        .filter((row) => row.session_id === sessionId && row.override_reason)
+        .forEach((row) => map.set(correctionKey(row.session_id, row.student_id), { reason: row.override_reason }));
+      return map;
+    }
+
+    function statusOf(record, session, now) {
+      return record ? effectiveStatus(record) : missingStatus(session, now);
+    }
+
+    function rate(present, late, total) {
+      return total > 0 ? (present + late) / total : null;
+    }
+
+    function summarize(statuses) {
+      const present = statuses.filter((s) => s === 'present').length;
+      const late = statuses.filter((s) => s === 'late').length;
+      const absent = statuses.filter((s) => s === 'absent').length;
+      const total = present + late + absent;
+      return { present, late, absent, total, rate: rate(present, late, total) };
+    }
+
+    // Same rule as statusOf for every view: a row counts by its effective status
+    // (an override to absent is absent at once); no row is not_scanned until the
+    // session ends, absent after (BUG-7).
+    function sessionCounts(db, session, roster, now) {
+      const counted = session.status === 'closed' || session.status === 'open';
+      const totals = { present: 0, late: 0, absent: 0, not_scanned: 0 };
+      if (counted) {
+        roster.forEach((studentId) => {
+          const status = statusOf(recordOf(db, session.session_id, studentId), session, now);
+          if (status in totals) totals[status] += 1;
+        });
+      }
+      return {
+        enrolled: roster.length,
+        present: counted ? totals.present : null,
+        late: counted ? totals.late : null,
+        absent: counted ? totals.absent : null,
+        not_scanned: counted ? totals.not_scanned : null,
+      };
+    }
+
+    function describeSession(db, maps, session, roster, now) {
+      return {
+        session_id: session.session_id,
+        class_id: session.class_id,
+        class_label: maps.classes.get(session.class_id)?.class_label ?? session.class_id,
+        session_date: session.session_date,
+        start_time: session.actual_start || session.scheduled_start,
+        end_time: session.actual_end || session.scheduled_end,
+        room_code: maps.rooms.get(session.room_id)?.room_code ?? '',
+        source: session.source,
+        status: session.status,
+        phase: sessionPhase(session, now),
+        reason: session.override_reason || '',
+        ...sessionCounts(db, session, roster, now),
+      };
+    }
+
+    function ownClass(db, instructorId, classId) {
+      const klass = db.Classes.find((row) => row.class_id === classId);
+      if (!klass || klass.instructor_id !== instructorId) {
+        throw new AppError('FORBIDDEN', 'This class is not assigned to you.');
+      }
+      return klass;
+    }
+
+    function classInfo(db, maps, klass) {
+      const subject = maps.subjects.get(klass.subject_id);
+      return {
+        class_id: klass.class_id,
+        class_label: klass.class_label,
+        subject_code: subject?.subject_code ?? '',
+        subject_title: subject?.subject_title ?? '',
+        section_label: sectionLabel(maps, klass.section_id),
+        instructor_name: fullName(maps.instructors.get(klass.instructor_id)),
+        schedules: schedulesOf(db, maps, klass.class_id),
+      };
+    }
+
+    /* ---------------- Instructor ---------------- */
+
+    function myClasses(db, instructorId) {
+      return db.Classes
+        .filter((row) => row.instructor_id === instructorId && row.status === 'active')
+        .sort((a, b) => a.class_label.localeCompare(b.class_label));
+    }
+
+    function classSummary(db, maps, klass, now) {
+      const roster = rosterIds(db, maps, klass.class_id);
+      const sessions = countedSessions(db, klass.class_id);
+      const statuses = [];
+      sessions.forEach((session) => roster.forEach((studentId) => {
+        const status = statusOf(recordOf(db, session.session_id, studentId), session, now);
+        if (status !== 'not_scanned') statuses.push(status);
+      }));
+      const totals = summarize(statuses);
+      return {
+        ...classInfo(db, maps, klass),
+        enrolled: roster.length,
+        sessions_held: heldCount(sessions, now),
+        last_session_date: sessions.length ? sessions[sessions.length - 1].session_date : null,
+        attendance_rate: totals.rate,
+        totals,
+      };
+    }
+
+    function instructorDashboard(db, { date }, session, ctx) {
+      if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
+      const instructorId = linkedId(db, session, 'instructor');
+      const maps = lookups(db);
+      const now = manilaAt(ctx.now());
+      const instructor = maps.instructors.get(instructorId);
+      const classes = myClasses(db, instructorId);
+      const classIds = new Set(classes.map((row) => row.class_id));
+      const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
+      const inTerm = Boolean(activeTerm) && date >= activeTerm.start_date && date <= activeTerm.end_date;
+
+      // Sessions on the chosen date: every scheduled slot + manual sessions
+      const dayCode = dayCodeOf(date);
+      const sessions = [];
+      if (inTerm) {
+        db.Schedules
+          .filter((row) => row.status === 'active' && row.day_of_week === dayCode && classIds.has(row.class_id))
+          .forEach((slot) => {
+            const roster = rosterIds(db, maps, slot.class_id);
+            const held = db.ClassSessions.find((row) => row.schedule_id === slot.schedule_id && row.session_date === date);
+            if (held) {
+              sessions.push(describeSession(db, maps, held, roster, now));
+              return;
+            }
+            let status;
+            if (date > now.date || (date === now.date && now.time < slot.start_time)) status = 'scheduled';
+            else if (date === now.date && now.time <= slot.end_time) status = 'in_progress';
+            else status = 'no_record';
+            sessions.push({
+              session_id: null,
+              class_id: slot.class_id,
+              class_label: maps.classes.get(slot.class_id)?.class_label ?? slot.class_id,
+              session_date: date,
+              start_time: slot.start_time,
+              end_time: slot.end_time,
+              room_code: maps.rooms.get(slot.room_id)?.room_code ?? '',
+              source: 'auto',
+              status,
+              phase: sessionPhase({ status: 'open', session_date: date, scheduled_start: slot.start_time, scheduled_end: slot.end_time }, now),
+              reason: '',
+              enrolled: roster.length,
+              present: null,
+              late: null,
+              absent: null,
+              not_scanned: null,
+            });
+          });
+      }
+      db.ClassSessions
+        .filter((row) => row.source === 'manual' && row.session_date === date && classIds.has(row.class_id))
+        .forEach((row) => sessions.push(describeSession(db, maps, row, rosterIds(db, maps, row.class_id), now)));
+      sessions.sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+      const summaries = classes.map((klass) => classSummary(db, maps, klass, now));
+      const all = summaries.reduce((acc, row) => ({
+        present: acc.present + row.totals.present,
+        late: acc.late + row.totals.late,
+        total: acc.total + row.totals.total,
+      }), { present: 0, late: 0, total: 0 });
+      const uniqueStudents = new Set(classes.flatMap((klass) => rosterIds(db, maps, klass.class_id)));
+
+      // Students who need follow-up: below 80% in any class with at least 2 sessions
+      const watchlist = [];
+      classes.forEach((klass) => {
+        const held = countedSessions(db, klass.class_id);
+        if (held.length < 2) return;
+        rosterIds(db, maps, klass.class_id).forEach((studentId) => {
+          const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now)).filter((s) => s !== 'not_scanned'));
+          if (totals.rate !== null && totals.rate < 0.8) {
+            const student = maps.students.get(studentId);
+            watchlist.push({
+              student_id: studentId,
+              student_name: fullName(student),
+              student_number: student?.student_number ?? '',
+              class_id: klass.class_id,
+              class_label: klass.class_label,
+              ...totals,
+            });
+          }
+        });
+      });
+      watchlist.sort((a, b) => a.rate - b.rate || b.absent - a.absent);
+
+      return {
+        date,
+        today: now.date,
+        in_term: inTerm,
+        term_name: activeTerm?.term_name ?? null,
+        instructor: { name: fullName(instructor), department: instructor?.department ?? '' },
+        stats: {
+          classes: classes.length,
+          students: uniqueStudents.size,
+          sessions_on_date: sessions.length,
+          attendance_rate: rate(all.present, all.late, all.total),
+        },
+        sessions,
+        classes: summaries,
+        watchlist: watchlist.slice(0, 8),
+      };
+    }
+
+    function instructorListSessions(db, request, session, ctx) {
+      const classId = request.class_id;
+      const now = manilaAt(ctx.now());
+      const instructorId = linkedId(db, session, 'instructor');
+      const maps = lookups(db);
+      const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
+      if (!classId) return { classes, class: null, sessions: [] };
+      const klass = ownClass(db, instructorId, classId);
+      const range = dateRange(request);
+      const roster = rosterIds(db, maps, classId);
+      const sessions = db.ClassSessions
+        .filter((row) => row.class_id === classId && range.has(row.session_date))
+        .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.scheduled_start.localeCompare(a.scheduled_start))
+        .map((row) => describeSession(db, maps, row, roster, now));
+      return { classes, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, range: { from: range.from, to: range.to }, sessions };
+    }
+
+    function instructorGetSession(db, { session_id: sessionId }, session, ctx) {
+      const now = manilaAt(ctx.now());
+      const instructorId = linkedId(db, session, 'instructor');
+      const maps = lookups(db);
+      const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
+      if (!classSession) throw new AppError('NOT_FOUND', 'This class session was not found.');
+      const klass = ownClass(db, instructorId, classSession.class_id);
+      const roster = rosterIds(db, maps, klass.class_id);
+      const corrections = correctionsFor(db, sessionId);
+
+      const students = roster.map((studentId) => {
+        const student = maps.students.get(studentId);
+        const record = recordOf(db, sessionId, studentId);
+        const correction = corrections.get(correctionKey(sessionId, studentId));
+        return {
+          student_id: studentId,
+          student_number: student?.student_number ?? '',
+          first_name: student?.first_name ?? '',
+          last_name: student?.last_name ?? '',
+          status: classSession.status === 'cancelled' ? 'cancelled' : statusOf(record, classSession, now),
+          scanned_at: record?.source === 'device' ? record.scanned_at : null,
+          source: record?.source ?? null,
+          sync_mode: record?.sync_mode ?? null,
+          corrected: Boolean(correction),
+          correction_reason: correction?.reason ?? '',
+        };
+      }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+
+      return {
+        session: describeSession(db, maps, classSession, roster, now),
+        class: classInfo(db, maps, klass),
+        students,
+      };
+    }
+
+    function instructorCorrectAttendance(db, request, session, ctx) {
+      const now = manilaAt(ctx.now());
+      const instructorId = linkedId(db, session, 'instructor');
+      const maps = lookups(db);
+      const sessionId = request.session_id;
+      const studentId = request.student_id;
+      const status = request.status;
+      const reason = cleanText(request.reason);
+
+      const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
+      if (!classSession) throw new AppError('NOT_FOUND', 'This class session was not found.');
+      ownClass(db, instructorId, classSession.class_id);
+      if (classSession.status === 'cancelled') {
+        throw new AppError('SESSION_CANCELLED', 'Attendance cannot be changed for a cancelled class.');
+      }
+      if (!rosterIds(db, maps, classSession.class_id).includes(studentId)) {
+        throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
+      }
+
+      const fields = {};
+      if (!CORRECTABLE.includes(status)) fields.status = 'Choose Present, Late, or Absent.';
+      if (reason.length < 5) fields.reason = 'Give a short reason (at least 5 characters).';
+      if (Object.keys(fields).length) throw validationError(fields);
+
+      const record = recordOf(db, sessionId, studentId);
+      const before = statusOf(record, classSession, now);
+      if (before === status) throw validationError({ status: 'The student already has this status.' });
+
+      // Never delete a row or edit the device fields (architecture 7.2 rule 4):
+      // a retried scan_id must still find its row.
+      if (record) {
+        Object.assign(record, {
+          override_status: status, override_by: session.user_id, override_at: now.iso, override_reason: reason,
+        });
+      } else if (status !== 'absent') {
+        const student = maps.students.get(studentId);
+        const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
+        const stamp = `${classSession.session_date}T${classSession.scheduled_start}:00+08:00`;
+        db.Attendance.push({
+          attendance_id: nextId(db.Attendance, 'attendance_id', 'ATT', 5),
+          session_id: sessionId,
+          student_id: student.student_id,
+          card_id: card?.card_id ?? '',
+          rfid_uid: card?.rfid_uid ?? '',
+          device_id: '',
+          scan_id: '',
+          scanned_at: stamp,
+          received_at: now.iso,
+          status,
+          source: 'manual',
+          sync_mode: '',
+          time_quality: '',
+          created_by: session.user_id,
+          override_status: '',
+          override_by: '',
+          override_at: '',
+          override_reason: reason,
+        });
+      }
+
+      writeAudit(db, session, {
+        action: CORRECTION_ACTION,
+        entityType: 'Attendance',
+        entityId: correctionKey(sessionId, studentId),
+        before: { status: before },
+        after: { status },
+        reason,
+      }, ctx);
+      return { session_id: sessionId, student_id: studentId, status };
+    }
+
+    function instructorClassReport(db, request, session, ctx) {
+      const classId = request.class_id;
+      const now = manilaAt(ctx.now());
+      const instructorId = linkedId(db, session, 'instructor');
+      const maps = lookups(db);
+      const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
+      if (!classId) return { classes, class: null };
+      const klass = ownClass(db, instructorId, classId);
+      const range = dateRange(request);
+
+      const roster = rosterIds(db, maps, classId);
+      const sessions = countedSessions(db, classId)
+        .filter((row) => range.has(row.session_date));
+
+      const students = roster.map((studentId) => {
+        const student = maps.students.get(studentId);
+        const marks = sessions.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now));
+        return {
+          student_id: studentId,
+          student_number: student?.student_number ?? '',
+          first_name: student?.first_name ?? '',
+          last_name: student?.last_name ?? '',
+          marks,
+          ...summarize(marks.filter((s) => s !== 'not_scanned')),
+        };
+      }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+
+      const totals = summarize(students.flatMap((row) => row.marks).filter((s) => s !== 'not_scanned'));
+      const cancelled = db.ClassSessions.filter((row) => row.class_id === classId && row.status === 'cancelled'
+        && range.has(row.session_date)).length;
+
+      return {
+        classes,
+        class: { ...classInfo(db, maps, klass), enrolled: roster.length },
+        range: { from: range.from, to: range.to },
+        generated_at: now.iso,
+        sessions: sessions.map((row) => describeSession(db, maps, row, roster, now)),
+        cancelled_sessions: cancelled,
+        students,
+        totals,
+      };
+    }
+
+    // Everyone enrolled in one of the instructor's classes, with their attendance
+    // so far. Works even before the first class session.
+    function instructorClassRoster(db, request, session, ctx) {
+      const classId = request.class_id;
+      const now = manilaAt(ctx.now());
+      const instructorId = linkedId(db, session, 'instructor');
+      const maps = lookups(db);
+      const klass = ownClass(db, instructorId, classId);
+      const range = dateRange(request);
+      const held = countedSessions(db, classId).filter((row) => range.has(row.session_date));
+      const students = rosterIds(db, maps, classId).map((studentId) => {
+        const student = maps.students.get(studentId);
+        const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now)).filter((s) => s !== 'not_scanned'));
+        const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
+        return {
+          student_id: studentId,
+          student_number: student?.student_number ?? '',
+          first_name: student?.first_name ?? '',
+          last_name: student?.last_name ?? '',
+          section_label: sectionLabel(maps, student?.section_id),
+          other_section: student?.section_id !== klass.section_id,
+          has_card: Boolean(card),
+          ...totals,
+        };
+      }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
+      return {
+        class: { ...classInfo(db, maps, klass), enrolled: students.length, sessions_held: heldCount(held, now) },
+        range: { from: range.from, to: range.to },
+        students,
+      };
+    }
+
+    function instructorStudentHistory(db, request, session, ctx) {
+      const { class_id: classId, student_id: studentId } = request;
+      const now = manilaAt(ctx.now());
+      const instructorId = linkedId(db, session, 'instructor');
+      const maps = lookups(db);
+      const klass = ownClass(db, instructorId, classId);
+      if (!rosterIds(db, maps, classId).includes(studentId)) {
+        throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
+      }
+      const range = dateRange(request);
+      const student = maps.students.get(studentId);
+      const records = historyRows(db, maps, studentId, [klass], now, range);
+      return {
+        student: {
+          student_id: studentId,
+          name: fullName(student),
+          student_number: student?.student_number ?? '',
+          section_label: sectionLabel(maps, student?.section_id),
+        },
+        class: classInfo(db, maps, klass),
+        range: { from: range.from, to: range.to },
+        records,
+        totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
+      };
+    }
+
+    /* ---------------- Student ---------------- */
+
+    function myEnrolledClasses(db, studentId) {
+      const ids = new Set(db.Enrollments.filter((row) => row.student_id === studentId && row.status === 'enrolled').map((row) => row.class_id));
+      return db.Classes.filter((row) => ids.has(row.class_id) && row.status === 'active')
+        .sort((a, b) => a.class_label.localeCompare(b.class_label));
+    }
+
+    function historyRows(db, maps, studentId, classes, now, range) {
+      const corrections = new Set(db.Attendance
+        .filter((row) => row.student_id === studentId && row.override_reason)
+        .map((row) => correctionKey(row.session_id, row.student_id)));
+
+      return classes.flatMap((klass) => db.ClassSessions
+        .filter((row) => row.class_id === klass.class_id && row.status !== 'scheduled' && range.has(row.session_date))
+        .map((row) => {
+          const record = recordOf(db, row.session_id, studentId);
+          const subject = maps.subjects.get(klass.subject_id);
+          return {
+            session_id: row.session_id,
+            class_id: klass.class_id,
+            class_label: klass.class_label,
+            subject_code: subject?.subject_code ?? '',
+            subject_title: subject?.subject_title ?? '',
+            session_date: row.session_date,
+            start_time: row.actual_start || row.scheduled_start,
+            end_time: row.actual_end || row.scheduled_end,
+            room_code: maps.rooms.get(row.room_id)?.room_code ?? '',
+            status: row.status === 'cancelled' ? 'cancelled' : statusOf(record, row, now),
+            scanned_at: record?.source === 'device' ? record.scanned_at : null,
+            manual: record?.source === 'manual',
+            corrected: corrections.has(correctionKey(row.session_id, studentId)),
+          };
+        }))
+        .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.start_time.localeCompare(a.start_time));
+    }
+
+    function studentProfile(db, maps, studentId) {
+      const student = maps.students.get(studentId);
+      if (!student) throw new AppError('NOT_FOUND', 'Your student record was not found. Contact the administrator.');
+      const section = maps.sections.get(student.section_id);
+      const program = maps.programs.get(student.program_id);
+      const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
+      return {
+        name: fullName(student),
+        first_name: student.first_name,
+        last_name: student.last_name,
+        student_number: student.student_number,
+        email: student.email,
+        program_code: program?.program_code ?? '',
+        program_name: program?.program_name ?? '',
+        year_level: student.year_level,
+        section_label: sectionLabel(maps, student.section_id),
+        section_name: section?.section_name ?? '',
+        account_status: student.account_status,
+        card: card ? { rfid_uid_masked: `•••• ${card.rfid_uid.slice(-4)}`, assigned_at: card.assigned_at } : null,
+      };
+    }
+
+    function studentOverview(db, request, session, ctx) {
+      const now = manilaAt(ctx.now());
+      const studentId = linkedId(db, session, 'student');
+      const range = dateRange(request);
+      const maps = lookups(db);
+      const classes = myEnrolledClasses(db, studentId);
+      const records = historyRows(db, maps, studentId, classes, now, range);
+      const counted = (rows) => rows.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled');
+
+      const subjects = classes.map((klass) => {
+        const rows = records.filter((row) => row.class_id === klass.class_id);
+        return {
+          ...classInfo(db, maps, klass),
+          ...summarize(counted(rows)),
+          last: rows.find((row) => row.status !== 'cancelled') ?? null,
+        };
+      });
+
+      const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
+      const todayCode = dayCodeOf(now.date);
+      const today = classes.flatMap((klass) => schedulesOf(db, maps, klass.class_id)
+        .filter((slot) => slot.day === todayCode)
+        .map((slot) => ({ ...slot, class_label: klass.class_label, subject_title: maps.subjects.get(klass.subject_id)?.subject_title ?? '' })))
+        .sort((a, b) => a.start_time.localeCompare(b.start_time));
+
+      return {
+        profile: studentProfile(db, maps, studentId),
+        term_name: activeTerm?.term_name ?? null,
+        today_date: now.date,
+        today,
+        range: { from: range.from, to: range.to },
+        totals: summarize(counted(records)),
+        subjects,
+        recent: records.filter((row) => row.status !== 'cancelled').slice(0, 6),
+      };
+    }
+
+    function studentHistory(db, request, session, ctx) {
+      const classId = request.class_id || '';
+      const now = manilaAt(ctx.now());
+      const studentId = linkedId(db, session, 'student');
+      const maps = lookups(db);
+      const classes = myEnrolledClasses(db, studentId);
+      const chosen = classId ? classes.filter((row) => row.class_id === classId) : classes;
+      if (classId && !chosen.length) throw new AppError('FORBIDDEN', 'You are not enrolled in this class.');
+      const range = dateRange(request);
+      const records = historyRows(db, maps, studentId, chosen, now, range);
+      return {
+        classes: classes.map((klass) => ({
+          class_id: klass.class_id,
+          class_label: klass.class_label,
+          subject_title: maps.subjects.get(klass.subject_id)?.subject_title ?? '',
+        })),
+        range: { from: range.from, to: range.to },
+        records,
+        totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
+      };
+    }
+
+    function studentGetProfile(db, _request, session) {
+      const studentId = linkedId(db, session, 'student');
+      const maps = lookups(db);
+      const user = db.Users.find((row) => row.user_id === session.user_id);
+      return {
+        profile: studentProfile(db, maps, studentId),
+        account: { username: user?.username ?? '', email: user?.email ?? '', last_login_at: user?.last_login_at || null },
+        classes: myEnrolledClasses(db, studentId).map((klass) => classInfo(db, maps, klass)),
+      };
+    }
+    return { CORRECTION_ACTION, lookups, sectionLabel, rosterIds, countedSessions, heldCount, recordOf, statusOf, rate, summarize, sessionCounts, instructorDashboard, instructorListSessions, instructorGetSession, instructorCorrectAttendance, instructorClassReport, instructorClassRoster, instructorStudentHistory, studentOverview, studentHistory, studentGetProfile };
+  })();
+
   // ---- handlers/dashboard.js ----
   __m["handlers/dashboard"] = (function () {
     const { AppError, setting, manilaAt, dayCodeOf, isValidDate, shiftDate, indexBy, fullName, effectiveStatus } = __m["utils"];
     const { sessionPhase } = __m["sessions"];
+    const { rosterIds, sessionCounts } = __m["handlers/portal"];
+
+    // Non-retired devices with their offline queue (dashboard + attendance report).
+    function deviceSummaries(db, ctx) {
+      const rooms = indexBy(db.Rooms, 'room_id');
+      const lowBatteryVoltage = Number(setting(db, 'low_battery_voltage', 3.5));
+      const offlineAfterMs = Number(setting(db, 'device_offline_after_minutes', 10)) * 60000;
+      return db.Devices.filter((row) => row.status !== 'retired').map((row) => {
+        const battery = row.battery_voltage === '' ? null : Number(row.battery_voltage);
+        return {
+          device_id: row.device_id,
+          device_name: row.device_name,
+          room_code: rooms.get(row.room_id)?.room_code ?? '',
+          status: row.status,
+          battery_voltage: battery,
+          low_battery: battery !== null && battery < lowBatteryVoltage,
+          last_seen_at: row.last_seen_at || null,
+          online: Boolean(row.last_seen_at) && ctx.now() - Date.parse(row.last_seen_at) <= offlineAfterMs,
+          queue_count: Number(row.queue_count || 0),
+        };
+      });
+    }
 
     function getAdminDashboard(db, { date }, _session, ctx) {
       if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
@@ -740,20 +1427,13 @@ var RFID = (function () {
       const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
       const inTerm = Boolean(activeTerm) && date >= activeTerm.start_date && date <= activeTerm.end_date;
 
-      const enrolledCount = (classId) => db.Enrollments.filter((row) => row.class_id === classId
-        && row.status === 'enrolled' && students.get(row.student_id)?.account_status === 'active').length;
-
       const describe = ({ classId, roomId, start, end, status, session, source }) => {
         const sessionId = session?.session_id;
         const klass = classes.get(classId);
-        const records = sessionId ? db.Attendance.filter((row) => row.session_id === sessionId) : [];
-        const present = records.filter((row) => effectiveStatus(row) === 'present').length;
-        const late = records.filter((row) => effectiveStatus(row) === 'late').length;
-        const enrolled = enrolledCount(classId);
-        const counted = status === 'closed' || status === 'open';
-        // No record: not_scanned until the session ends, absent after (BUG-7).
-        const missing = Math.max(enrolled - present - late, 0);
-        const ended = Boolean(session) && sessionPhase(session, now) === 'ended';
+        const roster = rosterIds(db, { students }, classId);
+        const counts = session
+          ? sessionCounts(db, session, roster, now)
+          : { enrolled: roster.length, present: null, late: null, absent: null, not_scanned: null };
         return {
           session_id: sessionId ?? null,
           class_id: classId,
@@ -766,11 +1446,7 @@ var RFID = (function () {
           source,
           status,
           phase: sessionPhase(session ?? { status: 'open', session_date: date, scheduled_start: start, scheduled_end: end }, now),
-          enrolled,
-          present: counted ? present : null,
-          late: counted ? late : null,
-          absent: counted ? (ended ? missing : 0) : null,
-          not_scanned: counted ? (ended ? 0 : missing) : null,
+          ...counts,
         };
       };
 
@@ -808,22 +1484,7 @@ var RFID = (function () {
         db.Attendance.filter((row) => row.scanned_at.slice(0, 10) === date && effectiveStatus(row) !== 'absent').map((row) => row.student_id),
       ).size;
 
-      const lowBatteryVoltage = Number(setting(db, 'low_battery_voltage', 3.5));
-      const offlineAfterMs = Number(setting(db, 'device_offline_after_minutes', 10)) * 60000;
-      const devices = db.Devices.filter((row) => row.status !== 'retired').map((row) => {
-        const battery = row.battery_voltage === '' ? null : Number(row.battery_voltage);
-        return {
-          device_id: row.device_id,
-          device_name: row.device_name,
-          room_code: rooms.get(row.room_id)?.room_code ?? '',
-          status: row.status,
-          battery_voltage: battery,
-          low_battery: battery !== null && battery < lowBatteryVoltage,
-          last_seen_at: row.last_seen_at || null,
-          online: Boolean(row.last_seen_at) && ctx.now() - Date.parse(row.last_seen_at) <= offlineAfterMs,
-          queue_count: Number(row.queue_count || 0),
-        };
-      });
+      const devices = deviceSummaries(db, ctx);
 
       const activeCardsByUid = new Map(db.RfidCards.filter((row) => row.status === 'active').map((row) => [row.rfid_uid, row]));
       const recentScans = db.ScanLog
@@ -893,7 +1554,7 @@ var RFID = (function () {
         alerts,
       };
     }
-    return { getAdminDashboard };
+    return { deviceSummaries, getAdminDashboard };
   })();
 
   // ---- handlers/classes.js ----
@@ -2101,649 +2762,6 @@ var RFID = (function () {
     return { listInstructors, createInstructor, updateInstructor, setInstructorStatus };
   })();
 
-  // ---- handlers/portal.js ----
-  __m["handlers/portal"] = (function () {
-    // Handlers for the Instructor and Student portals.
-    // Ownership rule (architecture doc, section 7.2): the server never trusts an
-    // instructor_id / student_id sent by the browser. It reads linked_id from the
-    // signed-in user and only returns rows that belong to that person.
-    const { AppError, validationError, manilaAt, dayCodeOf, isValidDate, indexBy, fullName, cleanText, writeAudit, nextId, effectiveStatus, dateRange } = __m["utils"];
-    const { missingStatus, sessionPhase } = __m["sessions"];
-
-    const DAY_ORDER = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
-    const CORRECTABLE = ['present', 'late', 'absent'];
-    const CORRECTION_ACTION = 'ATTENDANCE_CORRECT';
-
-    /* ---------------- shared helpers ---------------- */
-
-    function linkedId(db, session, role) {
-      const user = db.Users.find((row) => row.user_id === session.user_id);
-      if (!user || user.role !== role || !user.linked_id) {
-        throw new AppError('FORBIDDEN', 'Your account is not linked to a record yet. Contact the administrator.');
-      }
-      return user.linked_id;
-    }
-
-    function lookups(db) {
-      return {
-        classes: indexBy(db.Classes, 'class_id'),
-        subjects: indexBy(db.Subjects, 'subject_id'),
-        sections: indexBy(db.Sections, 'section_id'),
-        rooms: indexBy(db.Rooms, 'room_id'),
-        instructors: indexBy(db.Instructors, 'instructor_id'),
-        students: indexBy(db.Students, 'student_id'),
-        programs: indexBy(db.Programs, 'program_id'),
-      };
-    }
-
-    function sectionLabel(maps, sectionId) {
-      const section = maps.sections.get(sectionId);
-      if (!section) return '';
-      const program = maps.programs.get(section.program_id);
-      return `${program?.program_code ?? ''} ${section.section_name}`.trim();
-    }
-
-    function schedulesOf(db, maps, classId) {
-      return db.Schedules
-        .filter((row) => row.class_id === classId && row.status === 'active')
-        .sort((a, b) => DAY_ORDER.indexOf(a.day_of_week) - DAY_ORDER.indexOf(b.day_of_week) || a.start_time.localeCompare(b.start_time))
-        .map((row) => ({
-          day: row.day_of_week,
-          start_time: row.start_time,
-          end_time: row.end_time,
-          room_code: maps.rooms.get(row.room_id)?.room_code ?? '',
-        }));
-    }
-
-    function rosterIds(db, maps, classId) {
-      return db.Enrollments
-        .filter((row) => row.class_id === classId && row.status === 'enrolled'
-          && maps.students.get(row.student_id)?.account_status === 'active')
-        .map((row) => row.student_id);
-    }
-
-    // Sessions that count toward attendance: held (closed) or currently open.
-    function countedSessions(db, classId) {
-      return db.ClassSessions
-        .filter((row) => row.class_id === classId && (row.status === 'closed' || row.status === 'open'))
-        .sort((a, b) => a.session_date.localeCompare(b.session_date) || a.scheduled_start.localeCompare(b.scheduled_start));
-    }
-
-    // An open session that has not started yet (early tap) is not held.
-    const heldCount = (sessions, now) => sessions.filter((s) => sessionPhase(s, now) !== 'upcoming').length;
-
-    function recordOf(db, sessionId, studentId) {
-      return db.Attendance.find((row) => row.session_id === sessionId && row.student_id === studentId) ?? null;
-    }
-
-    function correctionKey(sessionId, studentId) {
-      return `${sessionId}:${studentId}`;
-    }
-
-    // Corrected rows (device overrides and manual rows) carry the reason in
-    // override_reason, so the portals never read the ever-growing AuditLog.
-    function correctionsFor(db, sessionId) {
-      const map = new Map();
-      db.Attendance
-        .filter((row) => row.session_id === sessionId && row.override_reason)
-        .forEach((row) => map.set(correctionKey(row.session_id, row.student_id), { reason: row.override_reason }));
-      return map;
-    }
-
-    function statusOf(record, session, now) {
-      return record ? effectiveStatus(record) : missingStatus(session, now);
-    }
-
-    function rate(present, late, total) {
-      return total > 0 ? (present + late) / total : null;
-    }
-
-    function summarize(statuses) {
-      const present = statuses.filter((s) => s === 'present').length;
-      const late = statuses.filter((s) => s === 'late').length;
-      const absent = statuses.filter((s) => s === 'absent').length;
-      const total = present + late + absent;
-      return { present, late, absent, total, rate: rate(present, late, total) };
-    }
-
-    // No record: not_scanned until the session ends, absent after (BUG-7).
-    function sessionCounts(db, session, roster, now) {
-      const records = db.Attendance.filter((row) => row.session_id === session.session_id && roster.includes(row.student_id));
-      const present = records.filter((row) => effectiveStatus(row) === 'present').length;
-      const late = records.filter((row) => effectiveStatus(row) === 'late').length;
-      const counted = session.status === 'closed' || session.status === 'open';
-      const missing = Math.max(roster.length - present - late, 0);
-      const ended = sessionPhase(session, now) === 'ended';
-      return {
-        enrolled: roster.length,
-        present: counted ? present : null,
-        late: counted ? late : null,
-        absent: counted ? (ended ? missing : 0) : null,
-        not_scanned: counted ? (ended ? 0 : missing) : null,
-      };
-    }
-
-    function describeSession(db, maps, session, roster, now) {
-      return {
-        session_id: session.session_id,
-        class_id: session.class_id,
-        class_label: maps.classes.get(session.class_id)?.class_label ?? session.class_id,
-        session_date: session.session_date,
-        start_time: session.actual_start || session.scheduled_start,
-        end_time: session.actual_end || session.scheduled_end,
-        room_code: maps.rooms.get(session.room_id)?.room_code ?? '',
-        source: session.source,
-        status: session.status,
-        phase: sessionPhase(session, now),
-        reason: session.override_reason || '',
-        ...sessionCounts(db, session, roster, now),
-      };
-    }
-
-    function ownClass(db, instructorId, classId) {
-      const klass = db.Classes.find((row) => row.class_id === classId);
-      if (!klass || klass.instructor_id !== instructorId) {
-        throw new AppError('FORBIDDEN', 'This class is not assigned to you.');
-      }
-      return klass;
-    }
-
-    function classInfo(db, maps, klass) {
-      const subject = maps.subjects.get(klass.subject_id);
-      return {
-        class_id: klass.class_id,
-        class_label: klass.class_label,
-        subject_code: subject?.subject_code ?? '',
-        subject_title: subject?.subject_title ?? '',
-        section_label: sectionLabel(maps, klass.section_id),
-        instructor_name: fullName(maps.instructors.get(klass.instructor_id)),
-        schedules: schedulesOf(db, maps, klass.class_id),
-      };
-    }
-
-    /* ---------------- Instructor ---------------- */
-
-    function myClasses(db, instructorId) {
-      return db.Classes
-        .filter((row) => row.instructor_id === instructorId && row.status === 'active')
-        .sort((a, b) => a.class_label.localeCompare(b.class_label));
-    }
-
-    function classSummary(db, maps, klass, now) {
-      const roster = rosterIds(db, maps, klass.class_id);
-      const sessions = countedSessions(db, klass.class_id);
-      const statuses = [];
-      sessions.forEach((session) => roster.forEach((studentId) => {
-        const status = statusOf(recordOf(db, session.session_id, studentId), session, now);
-        if (status !== 'not_scanned') statuses.push(status);
-      }));
-      const totals = summarize(statuses);
-      return {
-        ...classInfo(db, maps, klass),
-        enrolled: roster.length,
-        sessions_held: heldCount(sessions, now),
-        last_session_date: sessions.length ? sessions[sessions.length - 1].session_date : null,
-        attendance_rate: totals.rate,
-        totals,
-      };
-    }
-
-    function instructorDashboard(db, { date }, session, ctx) {
-      if (!isValidDate(date)) throw new AppError('BAD_REQUEST', 'Please choose a valid date.');
-      const instructorId = linkedId(db, session, 'instructor');
-      const maps = lookups(db);
-      const now = manilaAt(ctx.now());
-      const instructor = maps.instructors.get(instructorId);
-      const classes = myClasses(db, instructorId);
-      const classIds = new Set(classes.map((row) => row.class_id));
-      const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
-      const inTerm = Boolean(activeTerm) && date >= activeTerm.start_date && date <= activeTerm.end_date;
-
-      // Sessions on the chosen date: every scheduled slot + manual sessions
-      const dayCode = dayCodeOf(date);
-      const sessions = [];
-      if (inTerm) {
-        db.Schedules
-          .filter((row) => row.status === 'active' && row.day_of_week === dayCode && classIds.has(row.class_id))
-          .forEach((slot) => {
-            const roster = rosterIds(db, maps, slot.class_id);
-            const held = db.ClassSessions.find((row) => row.schedule_id === slot.schedule_id && row.session_date === date);
-            if (held) {
-              sessions.push(describeSession(db, maps, held, roster, now));
-              return;
-            }
-            let status;
-            if (date > now.date || (date === now.date && now.time < slot.start_time)) status = 'scheduled';
-            else if (date === now.date && now.time <= slot.end_time) status = 'in_progress';
-            else status = 'no_record';
-            sessions.push({
-              session_id: null,
-              class_id: slot.class_id,
-              class_label: maps.classes.get(slot.class_id)?.class_label ?? slot.class_id,
-              session_date: date,
-              start_time: slot.start_time,
-              end_time: slot.end_time,
-              room_code: maps.rooms.get(slot.room_id)?.room_code ?? '',
-              source: 'auto',
-              status,
-              phase: sessionPhase({ status: 'open', session_date: date, scheduled_start: slot.start_time, scheduled_end: slot.end_time }, now),
-              reason: '',
-              enrolled: roster.length,
-              present: null,
-              late: null,
-              absent: null,
-              not_scanned: null,
-            });
-          });
-      }
-      db.ClassSessions
-        .filter((row) => row.source === 'manual' && row.session_date === date && classIds.has(row.class_id))
-        .forEach((row) => sessions.push(describeSession(db, maps, row, rosterIds(db, maps, row.class_id), now)));
-      sessions.sort((a, b) => a.start_time.localeCompare(b.start_time));
-
-      const summaries = classes.map((klass) => classSummary(db, maps, klass, now));
-      const all = summaries.reduce((acc, row) => ({
-        present: acc.present + row.totals.present,
-        late: acc.late + row.totals.late,
-        total: acc.total + row.totals.total,
-      }), { present: 0, late: 0, total: 0 });
-      const uniqueStudents = new Set(classes.flatMap((klass) => rosterIds(db, maps, klass.class_id)));
-
-      // Students who need follow-up: below 80% in any class with at least 2 sessions
-      const watchlist = [];
-      classes.forEach((klass) => {
-        const held = countedSessions(db, klass.class_id);
-        if (held.length < 2) return;
-        rosterIds(db, maps, klass.class_id).forEach((studentId) => {
-          const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now)).filter((s) => s !== 'not_scanned'));
-          if (totals.rate !== null && totals.rate < 0.8) {
-            const student = maps.students.get(studentId);
-            watchlist.push({
-              student_id: studentId,
-              student_name: fullName(student),
-              student_number: student?.student_number ?? '',
-              class_id: klass.class_id,
-              class_label: klass.class_label,
-              ...totals,
-            });
-          }
-        });
-      });
-      watchlist.sort((a, b) => a.rate - b.rate || b.absent - a.absent);
-
-      return {
-        date,
-        today: now.date,
-        in_term: inTerm,
-        term_name: activeTerm?.term_name ?? null,
-        instructor: { name: fullName(instructor), department: instructor?.department ?? '' },
-        stats: {
-          classes: classes.length,
-          students: uniqueStudents.size,
-          sessions_on_date: sessions.length,
-          attendance_rate: rate(all.present, all.late, all.total),
-        },
-        sessions,
-        classes: summaries,
-        watchlist: watchlist.slice(0, 8),
-      };
-    }
-
-    function instructorListSessions(db, request, session, ctx) {
-      const classId = request.class_id;
-      const now = manilaAt(ctx.now());
-      const instructorId = linkedId(db, session, 'instructor');
-      const maps = lookups(db);
-      const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
-      if (!classId) return { classes, class: null, sessions: [] };
-      const klass = ownClass(db, instructorId, classId);
-      const range = dateRange(request);
-      const roster = rosterIds(db, maps, classId);
-      const sessions = db.ClassSessions
-        .filter((row) => row.class_id === classId && range.has(row.session_date))
-        .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.scheduled_start.localeCompare(a.scheduled_start))
-        .map((row) => describeSession(db, maps, row, roster, now));
-      return { classes, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, range: { from: range.from, to: range.to }, sessions };
-    }
-
-    function instructorGetSession(db, { session_id: sessionId }, session, ctx) {
-      const now = manilaAt(ctx.now());
-      const instructorId = linkedId(db, session, 'instructor');
-      const maps = lookups(db);
-      const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
-      if (!classSession) throw new AppError('NOT_FOUND', 'This class session was not found.');
-      const klass = ownClass(db, instructorId, classSession.class_id);
-      const roster = rosterIds(db, maps, klass.class_id);
-      const corrections = correctionsFor(db, sessionId);
-
-      const students = roster.map((studentId) => {
-        const student = maps.students.get(studentId);
-        const record = recordOf(db, sessionId, studentId);
-        const correction = corrections.get(correctionKey(sessionId, studentId));
-        return {
-          student_id: studentId,
-          student_number: student?.student_number ?? '',
-          first_name: student?.first_name ?? '',
-          last_name: student?.last_name ?? '',
-          status: classSession.status === 'cancelled' ? 'cancelled' : statusOf(record, classSession, now),
-          scanned_at: record?.source === 'device' ? record.scanned_at : null,
-          source: record?.source ?? null,
-          sync_mode: record?.sync_mode ?? null,
-          corrected: Boolean(correction),
-          correction_reason: correction?.reason ?? '',
-        };
-      }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-
-      return {
-        session: describeSession(db, maps, classSession, roster, now),
-        class: classInfo(db, maps, klass),
-        students,
-      };
-    }
-
-    function instructorCorrectAttendance(db, request, session, ctx) {
-      const now = manilaAt(ctx.now());
-      const instructorId = linkedId(db, session, 'instructor');
-      const maps = lookups(db);
-      const sessionId = request.session_id;
-      const studentId = request.student_id;
-      const status = request.status;
-      const reason = cleanText(request.reason);
-
-      const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
-      if (!classSession) throw new AppError('NOT_FOUND', 'This class session was not found.');
-      ownClass(db, instructorId, classSession.class_id);
-      if (classSession.status === 'cancelled') {
-        throw new AppError('SESSION_CANCELLED', 'Attendance cannot be changed for a cancelled class.');
-      }
-      if (!rosterIds(db, maps, classSession.class_id).includes(studentId)) {
-        throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
-      }
-
-      const fields = {};
-      if (!CORRECTABLE.includes(status)) fields.status = 'Choose Present, Late, or Absent.';
-      if (reason.length < 5) fields.reason = 'Give a short reason (at least 5 characters).';
-      if (Object.keys(fields).length) throw validationError(fields);
-
-      const record = recordOf(db, sessionId, studentId);
-      const before = statusOf(record, classSession, now);
-      if (before === status) throw validationError({ status: 'The student already has this status.' });
-
-      // Never delete a row or edit the device fields (architecture 7.2 rule 4):
-      // a retried scan_id must still find its row.
-      if (record) {
-        Object.assign(record, {
-          override_status: status, override_by: session.user_id, override_at: now.iso, override_reason: reason,
-        });
-      } else if (status !== 'absent') {
-        const student = maps.students.get(studentId);
-        const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
-        const stamp = `${classSession.session_date}T${classSession.scheduled_start}:00+08:00`;
-        db.Attendance.push({
-          attendance_id: nextId(db.Attendance, 'attendance_id', 'ATT', 5),
-          session_id: sessionId,
-          student_id: student.student_id,
-          card_id: card?.card_id ?? '',
-          rfid_uid: card?.rfid_uid ?? '',
-          device_id: '',
-          scan_id: '',
-          scanned_at: stamp,
-          received_at: now.iso,
-          status,
-          source: 'manual',
-          sync_mode: '',
-          time_quality: '',
-          created_by: session.user_id,
-          override_status: '',
-          override_by: '',
-          override_at: '',
-          override_reason: reason,
-        });
-      }
-
-      writeAudit(db, session, {
-        action: CORRECTION_ACTION,
-        entityType: 'Attendance',
-        entityId: correctionKey(sessionId, studentId),
-        before: { status: before },
-        after: { status },
-        reason,
-      }, ctx);
-      return { session_id: sessionId, student_id: studentId, status };
-    }
-
-    function instructorClassReport(db, request, session, ctx) {
-      const classId = request.class_id;
-      const now = manilaAt(ctx.now());
-      const instructorId = linkedId(db, session, 'instructor');
-      const maps = lookups(db);
-      const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
-      if (!classId) return { classes, class: null };
-      const klass = ownClass(db, instructorId, classId);
-      const range = dateRange(request);
-
-      const roster = rosterIds(db, maps, classId);
-      const sessions = countedSessions(db, classId)
-        .filter((row) => range.has(row.session_date));
-
-      const students = roster.map((studentId) => {
-        const student = maps.students.get(studentId);
-        const marks = sessions.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now));
-        return {
-          student_id: studentId,
-          student_number: student?.student_number ?? '',
-          first_name: student?.first_name ?? '',
-          last_name: student?.last_name ?? '',
-          marks,
-          ...summarize(marks.filter((s) => s !== 'not_scanned')),
-        };
-      }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-
-      const totals = summarize(students.flatMap((row) => row.marks).filter((s) => s !== 'not_scanned'));
-      const cancelled = db.ClassSessions.filter((row) => row.class_id === classId && row.status === 'cancelled'
-        && range.has(row.session_date)).length;
-
-      return {
-        classes,
-        class: { ...classInfo(db, maps, klass), enrolled: roster.length },
-        range: { from: range.from, to: range.to },
-        generated_at: now.iso,
-        sessions: sessions.map((row) => describeSession(db, maps, row, roster, now)),
-        cancelled_sessions: cancelled,
-        students,
-        totals,
-      };
-    }
-
-    // Everyone enrolled in one of the instructor's classes, with their attendance
-    // so far. Works even before the first class session.
-    function instructorClassRoster(db, request, session, ctx) {
-      const classId = request.class_id;
-      const now = manilaAt(ctx.now());
-      const instructorId = linkedId(db, session, 'instructor');
-      const maps = lookups(db);
-      const klass = ownClass(db, instructorId, classId);
-      const range = dateRange(request);
-      const held = countedSessions(db, classId).filter((row) => range.has(row.session_date));
-      const students = rosterIds(db, maps, classId).map((studentId) => {
-        const student = maps.students.get(studentId);
-        const totals = summarize(held.map((s) => statusOf(recordOf(db, s.session_id, studentId), s, now)).filter((s) => s !== 'not_scanned'));
-        const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
-        return {
-          student_id: studentId,
-          student_number: student?.student_number ?? '',
-          first_name: student?.first_name ?? '',
-          last_name: student?.last_name ?? '',
-          section_label: sectionLabel(maps, student?.section_id),
-          other_section: student?.section_id !== klass.section_id,
-          has_card: Boolean(card),
-          ...totals,
-        };
-      }).sort((a, b) => a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name));
-      return {
-        class: { ...classInfo(db, maps, klass), enrolled: students.length, sessions_held: heldCount(held, now) },
-        range: { from: range.from, to: range.to },
-        students,
-      };
-    }
-
-    function instructorStudentHistory(db, request, session, ctx) {
-      const { class_id: classId, student_id: studentId } = request;
-      const now = manilaAt(ctx.now());
-      const instructorId = linkedId(db, session, 'instructor');
-      const maps = lookups(db);
-      const klass = ownClass(db, instructorId, classId);
-      if (!rosterIds(db, maps, classId).includes(studentId)) {
-        throw new AppError('NOT_ENROLLED', 'This student is not enrolled in the class.');
-      }
-      const range = dateRange(request);
-      const student = maps.students.get(studentId);
-      const records = historyRows(db, maps, studentId, [klass], now, range);
-      return {
-        student: {
-          student_id: studentId,
-          name: fullName(student),
-          student_number: student?.student_number ?? '',
-          section_label: sectionLabel(maps, student?.section_id),
-        },
-        class: classInfo(db, maps, klass),
-        range: { from: range.from, to: range.to },
-        records,
-        totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
-      };
-    }
-
-    /* ---------------- Student ---------------- */
-
-    function myEnrolledClasses(db, studentId) {
-      const ids = new Set(db.Enrollments.filter((row) => row.student_id === studentId && row.status === 'enrolled').map((row) => row.class_id));
-      return db.Classes.filter((row) => ids.has(row.class_id) && row.status === 'active')
-        .sort((a, b) => a.class_label.localeCompare(b.class_label));
-    }
-
-    function historyRows(db, maps, studentId, classes, now, range) {
-      const corrections = new Set(db.Attendance
-        .filter((row) => row.student_id === studentId && row.override_reason)
-        .map((row) => correctionKey(row.session_id, row.student_id)));
-
-      return classes.flatMap((klass) => db.ClassSessions
-        .filter((row) => row.class_id === klass.class_id && row.status !== 'scheduled' && range.has(row.session_date))
-        .map((row) => {
-          const record = recordOf(db, row.session_id, studentId);
-          const subject = maps.subjects.get(klass.subject_id);
-          return {
-            session_id: row.session_id,
-            class_id: klass.class_id,
-            class_label: klass.class_label,
-            subject_code: subject?.subject_code ?? '',
-            subject_title: subject?.subject_title ?? '',
-            session_date: row.session_date,
-            start_time: row.actual_start || row.scheduled_start,
-            end_time: row.actual_end || row.scheduled_end,
-            room_code: maps.rooms.get(row.room_id)?.room_code ?? '',
-            status: row.status === 'cancelled' ? 'cancelled' : statusOf(record, row, now),
-            scanned_at: record?.source === 'device' ? record.scanned_at : null,
-            manual: record?.source === 'manual',
-            corrected: corrections.has(correctionKey(row.session_id, studentId)),
-          };
-        }))
-        .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.start_time.localeCompare(a.start_time));
-    }
-
-    function studentProfile(db, maps, studentId) {
-      const student = maps.students.get(studentId);
-      if (!student) throw new AppError('NOT_FOUND', 'Your student record was not found. Contact the administrator.');
-      const section = maps.sections.get(student.section_id);
-      const program = maps.programs.get(student.program_id);
-      const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
-      return {
-        name: fullName(student),
-        first_name: student.first_name,
-        last_name: student.last_name,
-        student_number: student.student_number,
-        email: student.email,
-        program_code: program?.program_code ?? '',
-        program_name: program?.program_name ?? '',
-        year_level: student.year_level,
-        section_label: sectionLabel(maps, student.section_id),
-        section_name: section?.section_name ?? '',
-        account_status: student.account_status,
-        card: card ? { rfid_uid_masked: `•••• ${card.rfid_uid.slice(-4)}`, assigned_at: card.assigned_at } : null,
-      };
-    }
-
-    function studentOverview(db, request, session, ctx) {
-      const now = manilaAt(ctx.now());
-      const studentId = linkedId(db, session, 'student');
-      const range = dateRange(request);
-      const maps = lookups(db);
-      const classes = myEnrolledClasses(db, studentId);
-      const records = historyRows(db, maps, studentId, classes, now, range);
-      const counted = (rows) => rows.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled');
-
-      const subjects = classes.map((klass) => {
-        const rows = records.filter((row) => row.class_id === klass.class_id);
-        return {
-          ...classInfo(db, maps, klass),
-          ...summarize(counted(rows)),
-          last: rows.find((row) => row.status !== 'cancelled') ?? null,
-        };
-      });
-
-      const activeTerm = db.Terms.find((term) => term.is_active === 'TRUE');
-      const todayCode = dayCodeOf(now.date);
-      const today = classes.flatMap((klass) => schedulesOf(db, maps, klass.class_id)
-        .filter((slot) => slot.day === todayCode)
-        .map((slot) => ({ ...slot, class_label: klass.class_label, subject_title: maps.subjects.get(klass.subject_id)?.subject_title ?? '' })))
-        .sort((a, b) => a.start_time.localeCompare(b.start_time));
-
-      return {
-        profile: studentProfile(db, maps, studentId),
-        term_name: activeTerm?.term_name ?? null,
-        today_date: now.date,
-        today,
-        range: { from: range.from, to: range.to },
-        totals: summarize(counted(records)),
-        subjects,
-        recent: records.filter((row) => row.status !== 'cancelled').slice(0, 6),
-      };
-    }
-
-    function studentHistory(db, request, session, ctx) {
-      const classId = request.class_id || '';
-      const now = manilaAt(ctx.now());
-      const studentId = linkedId(db, session, 'student');
-      const maps = lookups(db);
-      const classes = myEnrolledClasses(db, studentId);
-      const chosen = classId ? classes.filter((row) => row.class_id === classId) : classes;
-      if (classId && !chosen.length) throw new AppError('FORBIDDEN', 'You are not enrolled in this class.');
-      const range = dateRange(request);
-      const records = historyRows(db, maps, studentId, chosen, now, range);
-      return {
-        classes: classes.map((klass) => ({
-          class_id: klass.class_id,
-          class_label: klass.class_label,
-          subject_title: maps.subjects.get(klass.subject_id)?.subject_title ?? '',
-        })),
-        range: { from: range.from, to: range.to },
-        records,
-        totals: summarize(records.map((row) => row.status).filter((s) => s !== 'not_scanned' && s !== 'cancelled')),
-      };
-    }
-
-    function studentGetProfile(db, _request, session) {
-      const studentId = linkedId(db, session, 'student');
-      const maps = lookups(db);
-      const user = db.Users.find((row) => row.user_id === session.user_id);
-      return {
-        profile: studentProfile(db, maps, studentId),
-        account: { username: user?.username ?? '', email: user?.email ?? '', last_login_at: user?.last_login_at || null },
-        classes: myEnrolledClasses(db, studentId).map((klass) => classInfo(db, maps, klass)),
-      };
-    }
-    return { CORRECTION_ACTION, instructorDashboard, instructorListSessions, instructorGetSession, instructorCorrectAttendance, instructorClassReport, instructorClassRoster, instructorStudentHistory, studentOverview, studentHistory, studentGetProfile };
-  })();
-
   // ---- handlers/admins.js ----
   __m["handlers/admins"] = (function () {
     // Admin accounts. Unlike students and instructors, an admin has no separate
@@ -3094,6 +3112,157 @@ var RFID = (function () {
     return { EDITABLE_SETTINGS, getSettings, updateSettings };
   })();
 
+  // ---- handlers/attendance.js ----
+  __m["handlers/attendance"] = (function () {
+    // Admin: every attendance row (filtered, paged) and the attendance report.
+    // Read-only. Counting reuses the portal helpers, so the numbers always match
+    // the instructor and student views.
+    const { validationError, manilaAt, indexBy, fullName, effectiveStatus, dateRange } = __m["utils"];
+    const { lookups, sectionLabel, rosterIds, countedSessions, heldCount, sessionCounts, rate } = __m["handlers/portal"];
+    const { deviceSummaries } = __m["handlers/dashboard"];
+
+    const STATUSES = ['present', 'late', 'absent'];
+    const GROUP_BY = ['class', 'section', 'student'];
+    const DEFAULT_PAGE_SIZE = 100;
+    const MAX_PAGE_SIZE = 500;
+
+    function positiveInt(value, fallback, field, fields) {
+      if (value === undefined || value === null || value === '') return fallback;
+      const number = Number(value);
+      if (!Number.isInteger(number) || number < 1) {
+        fields[field] = 'Enter a whole number of 1 or more.';
+        return fallback;
+      }
+      return number;
+    }
+
+    function listAttendance(db, request) {
+      const range = dateRange(request);
+      const fields = {};
+      const page = positiveInt(request.page, 1, 'page', fields);
+      const pageSize = Math.min(positiveInt(request.page_size, DEFAULT_PAGE_SIZE, 'page_size', fields), MAX_PAGE_SIZE);
+      const status = request.status || '';
+      if (status && !STATUSES.includes(status)) fields.status = 'Choose Present, Late, or Absent.';
+      if (Object.keys(fields).length) throw validationError(fields);
+
+      const { class_id: classId, section_id: sectionId, student_id: studentId } = request;
+      const sessions = indexBy(db.ClassSessions, 'session_id');
+      const classes = indexBy(db.Classes, 'class_id');
+      const rooms = indexBy(db.Rooms, 'room_id');
+      const students = indexBy(db.Students, 'student_id');
+      const users = indexBy(db.Users, 'user_id');
+
+      const matches = db.Attendance.filter((row) => {
+        const session = sessions.get(row.session_id);
+        return range.has(session?.session_date ?? '')
+          && (!classId || session?.class_id === classId)
+          && (!sectionId || classes.get(session?.class_id)?.section_id === sectionId)
+          && (!studentId || row.student_id === studentId)
+          && (!status || effectiveStatus(row) === status);
+      }).sort((a, b) => String(b.scanned_at).localeCompare(String(a.scanned_at))
+        || String(b.attendance_id).localeCompare(String(a.attendance_id)));
+
+      const rows = matches.slice((page - 1) * pageSize, page * pageSize).map((row) => {
+        const session = sessions.get(row.session_id);
+        const student = students.get(row.student_id);
+        const overrideUser = users.get(row.override_by);
+        return {
+          attendance_id: row.attendance_id,
+          session_id: row.session_id,
+          session_date: session?.session_date ?? '',
+          class_id: session?.class_id ?? '',
+          class_label: classes.get(session?.class_id)?.class_label ?? '',
+          room_code: rooms.get(session?.room_id)?.room_code ?? '',
+          student_id: row.student_id,
+          student_number: student?.student_number ?? '',
+          student_name: fullName(student),
+          scanned_at: row.scanned_at,
+          status: effectiveStatus(row),
+          device_status: row.status,
+          source: row.source,
+          sync_mode: row.sync_mode || '',
+          time_quality: row.time_quality || '',
+          corrected: Boolean(row.override_status),
+          override_by: row.override_by || '',
+          override_by_name: overrideUser ? (overrideUser.display_name || overrideUser.username) : '',
+          override_at: row.override_at || '',
+          override_reason: row.override_reason || '',
+        };
+      });
+      return { range: { from: range.from, to: range.to }, page, page_size: pageSize, total: matches.length, rows };
+    }
+
+    const COUNT_KEYS = ['present', 'late', 'absent', 'not_scanned'];
+    const finish = (counts) => {
+      const total = counts.present + counts.late + counts.absent;
+      return { ...counts, total, rate: rate(counts.present, counts.late, total) };
+    };
+
+    function getAttendanceReport(db, request, _session, ctx) {
+      const groupBy = request.group_by;
+      if (!GROUP_BY.includes(groupBy)) throw validationError({ group_by: 'Choose class, section, or student.' });
+      const range = dateRange(request);
+      const { class_id: classId, section_id: sectionId } = request;
+      const now = manilaAt(ctx.now());
+      const maps = lookups(db);
+
+      const groups = new Map();
+      const groupOf = (key, label) => {
+        if (!groups.has(key)) {
+          groups.set(key, { key, label, sessions_held: 0, students: new Set(), classes: 0, present: 0, late: 0, absent: 0, not_scanned: 0 });
+        }
+        return groups.get(key);
+      };
+      const add = (group, sessions, roster, held) => {
+        group.sessions_held += held;
+        group.classes += 1;
+        roster.forEach((id) => group.students.add(id));
+        sessions.forEach((session) => {
+          const counts = sessionCounts(db, session, roster, now);
+          COUNT_KEYS.forEach((key) => { group[key] += counts[key]; });
+        });
+      };
+
+      db.Classes
+        .filter((klass) => (!classId || klass.class_id === classId) && (!sectionId || klass.section_id === sectionId))
+        .forEach((klass) => {
+          const sessions = countedSessions(db, klass.class_id).filter((row) => range.has(row.session_date));
+          if (klass.status !== 'active' && !sessions.length) return;
+          const roster = rosterIds(db, maps, klass.class_id);
+          const held = heldCount(sessions, now);
+          if (groupBy === 'class') add(groupOf(klass.class_id, klass.class_label), sessions, roster, held);
+          else if (groupBy === 'section') add(groupOf(klass.section_id, sectionLabel(maps, klass.section_id)), sessions, roster, held);
+          else {
+            roster.forEach((id) => {
+              const student = maps.students.get(id);
+              add(groupOf(id, `${student?.student_number ?? ''} ${fullName(student)}`.trim()), sessions, [id], held);
+            });
+          }
+        });
+
+      const rows = [...groups.values()]
+        .map(({ students, classes, ...group }) => finish({ ...group, enrolled: groupBy === 'student' ? classes : students.size }))
+        .sort((a, b) => a.label.localeCompare(b.label));
+      const sums = Object.fromEntries(COUNT_KEYS.map((key) => [key, rows.reduce((sum, row) => sum + row[key], 0)]));
+      const devices = deviceSummaries(db, ctx).map((d) => ({
+        device_id: d.device_id, device_name: d.device_name, room_code: d.room_code, status: d.status,
+        queue_count: d.queue_count, last_seen_at: d.last_seen_at, online: d.online,
+      }));
+
+      return {
+        range: { from: range.from, to: range.to },
+        group_by: groupBy,
+        generated_at: now.iso,
+        groups: rows,
+        totals: finish(sums),
+        devices,
+        // Scans still waiting on a device (offline queue): not in the numbers above yet.
+        pending_offline_scans: devices.reduce((sum, d) => sum + d.queue_count, 0),
+      };
+    }
+    return { listAttendance, getAttendanceReport };
+  })();
+
   // ---- auth/device-auth.js ----
   __m["auth/device-auth"] = (function () {
     // Device authentication (step 4b): every device.* request carries device_id +
@@ -3345,12 +3514,13 @@ var RFID = (function () {
     const admins = __m["handlers/admins"];
     const devices = __m["handlers/devices"];
     const settings = __m["handlers/settings"];
+    const attendance = __m["handlers/attendance"];
     const { authenticateDevice } = __m["auth/device-auth"];
     const { submitScans, heartbeat, getRoster } = __m["handlers/device"];
-
+    
     const READ = 'read';
     const WRITE = 'write';
-
+    
     // Tabs: Server.gs loads only what an action declares (step 4a).
     //   reads   - loaded fully (space-separated tab names)
     //   writes  - may change; saved if they did (also loaded fully)
@@ -3360,7 +3530,7 @@ var RFID = (function () {
     const AUTH_TABS = Object.freeze(['AuthSessions', 'Users']);
     const CLASS_REF = 'Terms Programs Sections Subjects Rooms Instructors Students Classes Schedules Enrollments';
     const PORTAL = `${CLASS_REF} ClassSessions Attendance RfidCards`;
-
+    
     const ACTIONS = Object.freeze({
       'auth.login': { run: account.login, mode: WRITE, role: PUBLIC,
         reads: 'Users Settings AuthSessions Instructors Students', writes: 'Users AuthSessions', appends: 'AuditLog' },
@@ -3372,6 +3542,10 @@ var RFID = (function () {
         writes: 'Users AuthSessions', appends: 'AuditLog' },
       'admin.getDashboard': { run: getAdminDashboard, mode: READ, role: 'admin',
         reads: 'Attendance ClassSessions Classes Devices Enrollments Instructors RfidCards Rooms ScanLog Schedules Settings Students Subjects Terms' },
+      'admin.listAttendance': { run: attendance.listAttendance, mode: READ, role: 'admin',
+        reads: 'Attendance ClassSessions Classes Rooms Students' },
+      'admin.getAttendanceReport': { run: attendance.getAttendanceReport, mode: READ, role: 'admin',
+        reads: 'Attendance ClassSessions Classes Devices Enrollments Instructors Programs Rooms Sections Settings Students Subjects' },
       'admin.getStudentOptions': { run: getStudentOptions, mode: READ, role: 'admin',
         reads: 'Programs Sections' },
       'admin.listStudents': { run: listStudents, mode: READ, role: 'admin',
@@ -3506,9 +3680,9 @@ var RFID = (function () {
       'student.getProfile': { run: portal.studentGetProfile, mode: READ, role: 'student',
         reads: PORTAL },
     });
-
+    
     const words = (text) => (text ? text.split(' ') : []);
-
+    
     // { read, write, append } tab names for an action, or null if it is unknown.
     function tabsFor(name) {
       const action = findAction(name);
@@ -3517,9 +3691,9 @@ var RFID = (function () {
       const read = [...new Set([...(action.role === PUBLIC ? [] : AUTH_TABS), ...words(action.reads), ...write])];
       return { read, write, append: words(action.appends).filter((tab) => !read.includes(tab)) };
     }
-
+    
     const isTab = (name) => typeof name === 'string' && /^[A-Z]/.test(name);
-
+    
     // Wraps a db that holds only the declared tabs:
     // - rows of read-only and append tabs are frozen (and read-only arrays too),
     //   so an undeclared change throws instead of being silently not saved;
@@ -3550,11 +3724,11 @@ var RFID = (function () {
         },
       });
     }
-
+    
     function findAction(name) {
       return Object.prototype.hasOwnProperty.call(ACTIONS, name) ? ACTIONS[name] : null;
     }
-
+    
     // Looks the action up, checks the session, the role and the forced password
     // change, then runs it. Throws AppError; error.commit === true means the
     // changes made so far must still be saved (failed logins).
@@ -3563,7 +3737,7 @@ var RFID = (function () {
       const action = findAction(name);
       if (!action) throw new AppError('UNKNOWN_ACTION', `Unknown action: ${name}`);
       if (action.role === PUBLIC) return action.run(db, request, null, ctx);
-
+    
       const session = authorize(db, request.session_token, ctx);
       if (action.role !== ANY && session.role !== action.role) {
         throw new AppError('FORBIDDEN', 'You do not have access to this information.');
@@ -3573,28 +3747,28 @@ var RFID = (function () {
       }
       return action.run(db, request, session, ctx);
     }
-
+    
     // device.* requests (ESP32): no user session; the device key is checked first
     // (authenticateDevice). Same tab rules as ACTIONS; a device action with writes
     // runs under the lock. Unknown device.* actions load only Devices for the check.
     const DEVICE_TABS = Object.freeze({ read: ['Devices'], write: [], append: [] });
-
+    
     const DEVICE_ACTIONS = Object.freeze({
       'device.submitScans': { run: submitScans,
         reads: 'Terms Classes Schedules Enrollments RfidCards Students Settings', writes: 'Devices ClassSessions Attendance ScanLog' },
       'device.heartbeat': { run: heartbeat, reads: 'Settings', writes: 'Devices' },
       'device.getRoster': { run: getRoster, reads: 'Devices RfidCards Students Settings' },
     });
-
+    
     const findDeviceAction = (name) => (Object.prototype.hasOwnProperty.call(DEVICE_ACTIONS, name) ? DEVICE_ACTIONS[name] : null);
-
+    
     function deviceTabsFor(name) {
       const action = findDeviceAction(name);
       if (!action) return DEVICE_TABS;
       const write = words(action.writes);
       return { read: [...new Set([...words(action.reads), ...write])], write, append: words(action.appends) };
     }
-
+    
     function runDeviceAction(db, request, ctx) {
       const device = authenticateDevice(db, request, ctx);
       const name = String(request.action || '');

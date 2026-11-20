@@ -41,7 +41,7 @@ backend/
                        crypto-apps-script (Utilities adapter)
     utils.js           AppError, validation, Manila time, audit log, ids
     config.js          TIMEZONE only
-    handlers/          academic, admins, classes, dashboard, devices, instructors, portal, students
+    handlers/          academic, admins, attendance, classes, dashboard, devices, instructors, portal, students
   seed/seed-data.json  FAKE test data (for a TEST Sheet only)
   tests/               node:test unit tests (+ helpers/db.js in-memory db, helpers/auth.js
                        node:crypto adapter + fake-clock ctx); server-gs.test.js runs the
@@ -63,6 +63,7 @@ tools/
   build_apps_script.mjs   backend/src + seed JSON -> Bundle.gs + SeedData.gs
   xlsx_to_seed_data.py    docs/RFID_Test_Data.xlsx -> backend/seed/seed-data.json (needs openpyxl)
   measure_device_api.mjs  tabs/rows read + written per device.* action (fake Apps Script)
+  measure_admin_reports.mjs tabs/rows read per admin.listAttendance / getAttendanceReport
   live_device_test.mjs    step 4f: real device requests to the DEPLOYED Web App (env vars;
                           backend/README.md "Live test (4f)")
 docs/                  Architecture, Device API spec, audit report, plans/specs
@@ -199,6 +200,26 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
   `from > to` and more than 366 days (inclusive) → `fields.to`. Validated after
   the ownership check. Responses echo `range: {from, to}`; counts and rates are
   computed only inside the range; not_scanned rule unchanged.
+
+## Admin attendance (handlers/attendance.js, read-only, no lock)
+
+- **One counting rule for every view** (`sessionCounts` / `statusOf` in portal.js;
+  dashboards, portals and admin report all use them): a row counts by its
+  effective status (`override_status` wins; an override to absent is absent at
+  once); `not_scanned` is only for enrolled students with NO row, until the
+  session ends, then absent. Cancelled sessions never count.
+- `admin.listAttendance {from?, to?, class_id?, section_id?, student_id?, status?, page?, page_size?}`:
+  Attendance rows newest first (`scanned_at`), `status` = effective, `device_status`
+  = original; `status` filter ∈ present/late/absent; `section_id` = the CLASS's
+  section. `page_size` default 100, over 500 clamped; bad page/page_size → `VALIDATION_ERROR`.
+  Returns `total`.
+- `admin.getAttendanceReport {group_by: class|section|student, from?, to?, class_id?, section_id?}`:
+  per group `sessions_held, enrolled, present, late, absent, not_scanned, total, rate`
+  (class group = instructor report totals). Student group: `enrolled` = number of
+  classes. Classes = active + any class with a counted session in the range.
+  Also `devices` (`queue_count`, `last_seen_at`, `online`) and
+  `pending_offline_scans` (sum of queues: scans not on the server yet).
+- No CSV on the backend. Frontend CSV: escape cells starting with `= + - @`.
 
 ## Tests
 

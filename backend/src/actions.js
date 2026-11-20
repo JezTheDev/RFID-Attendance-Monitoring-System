@@ -22,6 +22,7 @@ import * as classes from './handlers/classes.js';
 import * as admins from './handlers/admins.js';
 import * as devices from './handlers/devices.js';
 import * as settings from './handlers/settings.js';
+import * as attendance from './handlers/attendance.js';
 import { authenticateDevice } from './auth/device-auth.js';
 import { submitScans, heartbeat, getRoster } from './handlers/device.js';
 
@@ -49,6 +50,10 @@ export const ACTIONS = Object.freeze({
     writes: 'Users AuthSessions', appends: 'AuditLog' },
   'admin.getDashboard': { run: getAdminDashboard, mode: READ, role: 'admin',
     reads: 'Attendance ClassSessions Classes Devices Enrollments Instructors RfidCards Rooms ScanLog Schedules Settings Students Subjects Terms' },
+  'admin.listAttendance': { run: attendance.listAttendance, mode: READ, role: 'admin',
+    reads: 'Attendance ClassSessions Classes Rooms Students' },
+  'admin.getAttendanceReport': { run: attendance.getAttendanceReport, mode: READ, role: 'admin',
+    reads: 'Attendance ClassSessions Classes Devices Enrollments Instructors Programs Rooms Sections Settings Students Subjects' },
   'admin.getStudentOptions': { run: getStudentOptions, mode: READ, role: 'admin',
     reads: 'Programs Sections' },
   'admin.listStudents': { run: listStudents, mode: READ, role: 'admin',
