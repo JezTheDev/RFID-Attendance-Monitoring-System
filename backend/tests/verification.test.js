@@ -128,10 +128,23 @@ describe('known bugs (todo until fixed)', () => {
     assert.equal(nextId(rows, 'attendance_id', 'ATT', 5), 'ATT-200001');
   });
 
-  it('BUG-6 "absent" correction during an open session is refused, not a silent no-op', { todo: 'BUG-6: portal.js:350-354 writes an audit row but nothing changes' }, () => {
+  const NO_TAP = 'This student has no tap for this session. They are counted as absent automatically when the class ends.';
+  const absentNoRow = (db, ctx) => portal.instructorCorrectAttendance(db, { session_id: 'SES-0001', student_id: 'STU-0003', status: 'absent', reason: 'did not attend' }, SESSIONS.instructorAna, ctx);
+
+  it('BUG-6 "absent" correction for a student with no row is refused, not a silent no-op', () => {
+    for (const ctx of [clockAt('2026-11-16T09:00:00+08:00'), CTX]) { // during and after the session
+      const db = makeDb();
+      db.ClassSessions[0].status = 'open';
+      assert.throws(() => absentNoRow(db, ctx), (e) => e.code === 'VALIDATION_ERROR' && e.message === NO_TAP);
+    }
+  });
+
+  it('BUG-6 a refused "absent" correction writes nothing (no Attendance, no AuditLog row)', () => {
     const db = makeDb();
     db.ClassSessions[0].status = 'open';
-    assert.throws(() => portal.instructorCorrectAttendance(db, { session_id: 'SES-0001', student_id: 'STU-0003', status: 'absent', reason: 'did not attend' }, SESSIONS.instructorAna, CTX));
+    const before = JSON.stringify([db.Attendance, db.AuditLog]);
+    assert.throws(() => absentNoRow(db, clockAt('2026-11-16T09:00:00+08:00')));
+    assert.equal(JSON.stringify([db.Attendance, db.AuditLog]), before);
   });
 
   it('BUG-7 a running session does not count not-yet-scanned students as absent', () => {

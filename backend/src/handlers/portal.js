@@ -387,6 +387,11 @@ export function instructorCorrectAttendance(db, request, session, ctx) {
   if (Object.keys(fields).length) throw validationError(fields);
 
   const record = recordOf(db, sessionId, studentId);
+  // BUG-6: no row to override, so "absent" would change nothing; refuse instead of a fake success.
+  if (!record && status === 'absent') {
+    const message = 'This student has no tap for this session. They are counted as absent automatically when the class ends.';
+    throw new AppError('VALIDATION_ERROR', message, { status: message });
+  }
   const before = statusOf(record, classSession, now);
   if (before === status) throw validationError({ status: 'The student already has this status.' });
 
@@ -396,7 +401,7 @@ export function instructorCorrectAttendance(db, request, session, ctx) {
     Object.assign(record, {
       override_status: status, override_by: session.user_id, override_at: now.iso, override_reason: reason,
     });
-  } else if (status !== 'absent') {
+  } else {
     const student = maps.students.get(studentId);
     const card = db.RfidCards.find((row) => row.student_id === studentId && row.status === 'active');
     const stamp = `${classSession.session_date}T${classSession.scheduled_start}:00+08:00`;
