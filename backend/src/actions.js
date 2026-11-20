@@ -54,6 +54,8 @@ export const ACTIONS = Object.freeze({
     reads: 'Attendance ClassSessions Classes Rooms Students' },
   'admin.getAttendanceReport': { run: attendance.getAttendanceReport, mode: READ, role: 'admin',
     reads: 'Attendance ClassSessions Classes Devices Enrollments Instructors Programs Rooms Sections Settings Students Subjects' },
+  'admin.correctAttendance': { run: attendance.adminCorrectAttendance, mode: WRITE, role: 'admin',
+    reads: PORTAL, writes: 'Attendance', appends: 'AuditLog' },
   'admin.getStudentOptions': { run: getStudentOptions, mode: READ, role: 'admin',
     reads: 'Programs Sections' },
   'admin.listStudents': { run: listStudents, mode: READ, role: 'admin',

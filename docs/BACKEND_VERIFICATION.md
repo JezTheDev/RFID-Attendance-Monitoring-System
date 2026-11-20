@@ -110,8 +110,8 @@ Test names are from `backend/tests/<file>`.
 | D3 | Admin: present students today | PC §9A | `stats.students_present` (`dashboard.js:76-78`) | read | MET | Counts by the Manila date in `scanned_at`; device rows must be stored with `+08:00`. |
 | D4 | Admin: attendance statistics | PC §9A | `stats.attendance_rate`, `sessions[]` counts | `verification.test.js` BUG-4 | MET | BUG-4 fixed. |
 | D5 | Admin: student / instructor / course-section management | PC §9A | see A1, A3, A4 | see above | MET | |
-| D6 | Admin: attendance management | PC §9A | — | — | MISSING | Admin cannot correct attendance (instructors can). |
-| D7 | Admin: reports | PC §9A | `admin.listAttendance`, `admin.getAttendanceReport` (`attendance.js`) | `admin-attendance.test.js` | MET (backend) | Backend only; frontend page + CSV still to do. D6 (admin corrections) still MISSING. |
+| D6 | Admin: attendance management | PC §9A | `admin.correctAttendance` (`attendance.js`) → shared `correctAttendance` (`portal.js`) | `admin-corrections.test.js` | MET (backend) | Same rules as the instructor correction (one shared core); no ownership limit. Frontend still to do. |
+| D7 | Admin: reports | PC §9A | `admin.listAttendance`, `admin.getAttendanceReport` (`attendance.js`) | `admin-attendance.test.js` | MET (backend) | Backend only; frontend page + CSV still to do. |
 | D8 | Admin: device monitoring | PC §9A | `devices[]`, offline / low-battery / queue alerts | read `dashboard.js:80-136` | PARTIAL | Same as A7. |
 | D9 | Instructor: assigned classes | PC §9B | `classes[]` | `portal.test.js` | MET | |
 | D10 | Instructor: total students per section | PC §9B | `classes[].enrolled`, `stats.students` | read `portal.js:230-236` | MET | |
@@ -180,10 +180,10 @@ Test names are from `backend/tests/<file>`.
 
 | Status | Count |
 |---|---|
-| MET | 56 |
+| MET | 61 |
 | PARTIAL | 11 |
-| MISSING | 14 |
-| WRONG | 2 |
+| MISSING | 11 |
+| WRONG | 0 |
 | N/A | 2 |
 | **Total** | **85** |
 
@@ -240,6 +240,10 @@ Each bug has a test in `backend/tests/verification.test.js` that runs, fails, an
 - `student.getHistory` only lists classes the student is **still** enrolled in (`portal.js:486-490`). After a drop, they can't see their past attendance for that class. Probably fine; confirm.
 - `historyRows` filters `status !== 'scheduled'` (`portal.js:499`), but no session ever has that status. Dead condition.
 - A room can't be deactivated while an **inactive** class still has active slots in it (`academic.js:358`).
+
+### Known limitations
+
+- After a section change, a dropped student's past taps still exist (`admin.listAttendance`) but are not counted in the old class's report totals. Future: enrollment date ranges.
 
 ---
 

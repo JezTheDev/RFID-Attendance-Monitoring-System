@@ -219,6 +219,9 @@ optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
   classes. Classes = active + any class with a counted session in the range.
   Also `devices` (`queue_count`, `last_seen_at`, `online`) and
   `pending_offline_scans` (sum of queues: scans not on the server yet).
+- `admin.correctAttendance {session_id, student_id, status, reason}` (WRITE, lock):
+  same shared `correctAttendance` core (portal.js) as the instructor action, no
+  ownership check; override_by / AuditLog role = the admin.
 - No CSV on the backend. Frontend CSV: escape cells starting with `= + - @`.
 
 ## Tests

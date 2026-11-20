@@ -1,11 +1,11 @@
-// Admin: every attendance row (filtered, paged) and the attendance report.
-// Read-only. Counting reuses the portal helpers, so the numbers always match
+// Admin: every attendance row (filtered, paged), the attendance report (read-only)
+// and corrections (same core as the instructor's, no ownership limit). Counting reuses the portal helpers, so the numbers always match
 // the instructor and student views.
 import {
   validationError, manilaAt, indexBy, fullName, effectiveStatus, dateRange,
 } from '../utils.js';
 import {
-  lookups, sectionLabel, rosterIds, countedSessions, heldCount, sessionCounts, rate,
+  lookups, sectionLabel, rosterIds, countedSessions, heldCount, sessionCounts, rate, correctAttendance,
 } from './portal.js';
 import { deviceSummaries } from './dashboard.js';
 
@@ -147,4 +147,8 @@ export function getAttendanceReport(db, request, _session, ctx) {
     // Scans still waiting on a device (offline queue): not in the numbers above yet.
     pending_offline_scans: devices.reduce((sum, d) => sum + d.queue_count, 0),
   };
+}
+
+export function adminCorrectAttendance(db, request, session, ctx) {
+  return correctAttendance(db, request, session, ctx);
 }

@@ -363,8 +363,14 @@ export function instructorGetSession(db, { session_id: sessionId }, session, ctx
 }
 
 export function instructorCorrectAttendance(db, request, session, ctx) {
-  const now = manilaAt(ctx.now());
   const instructorId = linkedId(db, session, 'instructor');
+  return correctAttendance(db, request, session, ctx, (classId) => ownClass(db, instructorId, classId));
+}
+
+// Shared by instructor.correctAttendance and admin.correctAttendance (D6).
+// checkClass(class_id) throws if this user may not correct the class; admins pass none.
+export function correctAttendance(db, request, session, ctx, checkClass = () => {}) {
+  const now = manilaAt(ctx.now());
   const maps = lookups(db);
   const sessionId = request.session_id;
   const studentId = request.student_id;
@@ -373,7 +379,7 @@ export function instructorCorrectAttendance(db, request, session, ctx) {
 
   const classSession = db.ClassSessions.find((row) => row.session_id === sessionId);
   if (!classSession) throw new AppError('NOT_FOUND', 'This class session was not found.');
-  ownClass(db, instructorId, classSession.class_id);
+  checkClass(classSession.class_id);
   if (classSession.status === 'cancelled') {
     throw new AppError('SESSION_CANCELLED', 'Attendance cannot be changed for a cancelled class.');
   }

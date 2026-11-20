@@ -82,6 +82,7 @@ const CASES = [
   ['admin.removeSchedule', 'admin', { schedule_id: 'SCH-0001' }],
   ['admin.enrollStudents', 'admin', { class_id: 'CLS-0002', student_ids: ['STU-0001'] }],
   ['admin.dropEnrollment', 'admin', { class_id: 'CLS-0001', student_id: 'STU-0003', reason: 'shifted' }],
+  ['admin.correctAttendance', 'admin', { session_id: 'SES-0002', student_id: 'STU-0004', status: 'absent', reason: 'card used by a friend' }],
   ['instructor.getDashboard', 'ana', { date: '2026-11-16' }],
   ['instructor.listSessions', 'ana', { class_id: 'CLS-0001' }],
   ['instructor.getSession', 'ana', { session_id: 'SES-0001' }],
