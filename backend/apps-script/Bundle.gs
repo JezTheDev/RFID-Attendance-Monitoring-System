@@ -3964,10 +3964,12 @@ var RFID = (function () {
     // Editor-only account jobs (see Server.gs):
     //   createBootstrapAdmin - first admin when there is none (production + TEST)
     //   seedTestPasswords    - FAKE seeded users of a TEST Sheet get TEST_SEED_PASSWORD
+    //   resetTestUserPassword - one TEST Sheet user back on TEST_SEED_PASSWORD
     // Both return/throw without saving; Server.gs saves only when they succeed.
-    const { AppError, validationError, writeAudit } = __m["utils"];
+    const { AppError, validationError, writeAudit, toManilaIso } = __m["utils"];
     const { normalizeUsername, validateNewPassword } = __m["auth/account"];
     const { newUserRow, usernameProblem } = __m["auth/admin-users"];
+    const { revokeSessions } = __m["auth/session"];
 
     // TEST Sheet only: every seeded FAKE user without a password gets the
     // TEST_SEED_PASSWORD Script Property (hashed) and must change it.
@@ -3981,6 +3983,26 @@ var RFID = (function () {
         user.failed_attempts = '0';
       });
       return [`${users.length} test user(s) got the TEST_SEED_PASSWORD (must change at first sign-in).`];
+    }
+
+    // TEST Sheet only: puts one user back on TEST_SEED_PASSWORD (must change it at
+    // next sign-in) and signs them out everywhere. Never logs the password.
+    function resetTestUserPassword(db, ctx, username) {
+      const password = ctx.property('TEST_SEED_PASSWORD');
+      if (!password) {
+        throw new AppError('NOT_TEST_SHEET', 'resetTestUserPassword is for the TEST Sheet only (TEST_SEED_PASSWORD is not set). Use the Admin portal instead.');
+      }
+      const wanted = normalizeUsername(username);
+      const user = wanted ? db.Users.find((row) => normalizeUsername(row.username) === wanted) : null;
+      if (!user) throw new AppError('NOT_FOUND', `No user with username "${wanted}".`);
+      user.password_hash = ctx.hash(password);
+      user.must_change_password = 'TRUE';
+      user.failed_attempts = '0';
+      user.locked_until = '';
+      user.temp_password_expires_at = '';
+      user.updated_at = toManilaIso(ctx.now());
+      const revoked = revokeSessions(db, user.user_id);
+      return [`Password reset for ${user.username} (${revoked} session(s) signed out; must change at next sign-in).`];
     }
 
     // Creates the first admin from BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD.
@@ -4004,7 +4026,7 @@ var RFID = (function () {
       }, ctx);
       return { user_id: row.user_id, username: row.username };
     }
-    return { seedTestPasswords, createBootstrapAdmin };
+    return { seedTestPasswords, resetTestUserPassword, createBootstrapAdmin };
   })();
 
   // ---- maintenance.js ----

@@ -665,6 +665,37 @@ describe('Server.gs device route and device keys', () => {
     assert.throws(() => context.issueTestDeviceKey('DEV-RM301-01'), /NOT_TEST_SHEET/);
   });
 
+  it('resetTestUserPassword refuses without TEST_SEED_PASSWORD (production Sheet), nothing saved', () => {
+    const PROD = { PASSWORD_PEPPER: 'prod-pepper', BOOTSTRAP_ADMIN_USERNAME: 'root', BOOTSTRAP_ADMIN_PASSWORD: 'FirstLogin2026' };
+    const { context, tab } = makeServer(PROD);
+    context.setupEmptySheets();
+    context.createBootstrapAdmin();
+    const before = JSON.stringify(tab('Users'));
+    assert.throws(() => context.resetTestUserPassword('root'), /NOT_TEST_SHEET/);
+    assert.equal(JSON.stringify(tab('Users')), before);
+  });
+
+  it('resetTestUserPassword on the TEST Sheet: seed password, must change, unlocked, old sessions revoked', () => {
+    const { context, post, admin, login, logs, tab } = ready();
+    const student = login('9999000001');
+    assert.ok(student, 'seeded student signed in');
+    for (let i = 0; i < 2; i += 1) post({ action: 'auth.login', username: 'admin.test', password: 'wrong-1' });
+    logs.length = 0;
+    context.resetTestUserPassword(' Admin.Test ');
+
+    const log = logs.join('\n');
+    assert.match(log, /Password reset for admin\.test/);
+    assert.ok(!log.includes(SEED), 'password never logged');
+    const user = tab('Users').find((u) => u.username === 'admin.test');
+    assert.deepEqual([user.must_change_password, user.failed_attempts, user.locked_until, user.temp_password_expires_at], ['TRUE', '0', '', '']);
+    assert.match(user.password_hash, /^v1\$/);
+    assert.equal(post({ action: 'auth.me', session_token: admin }).error.code, 'NOT_SIGNED_IN', 'old session revoked');
+    assert.equal(post({ action: 'auth.me', session_token: student }).ok, true, 'other users untouched');
+    const again = post({ action: 'auth.login', username: 'admin.test', password: SEED });
+    assert.deepEqual([again.ok, again.data.must_change_password], [true, true]);
+    assert.throws(() => context.resetTestUserPassword('nobody.here'), /NOT_FOUND/);
+  });
+
   it('issueTestDeviceKey on the TEST Sheet logs the key once and stores only its hash', () => {
     const { context, logs, tab } = makeServer();
     context.setupSheets();

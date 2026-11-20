@@ -211,6 +211,20 @@ function issueTestDeviceKey(deviceId) {
 }
 
 /**
+ * TEST SHEET ONLY. Puts one user's password back to TEST_SEED_PASSWORD (they
+ * must change it at next sign-in), clears the lockout and the temporary-password
+ * expiry, and signs them out everywhere. Refuses unless TEST_SEED_PASSWORD is
+ * set, and on an unknown username. Never logs the password.
+ * Example: resetTestUserPassword('admin.test'); from the editor dropdown, write
+ * a one-line wrapper with the username.
+ */
+function resetTestUserPassword(username) {
+  runEditorJob_(function (db, ctx) {
+    return RFID.resetTestUserPassword(db, ctx, username);
+  });
+}
+
+/**
  * TEST SHEET ONLY (step 4f live test). Adds a temporary ACTIVE schedule
  * (now - 10 min .. now + 60 min, today, Manila) for the class with the most
  * enrolled students with active cards, in a room with an active device. Same

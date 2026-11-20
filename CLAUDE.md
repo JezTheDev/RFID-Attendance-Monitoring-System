@@ -39,7 +39,8 @@ backend/
                        sessionPhase, missingStatus ('not_scanned' until the end, then 'absent')
     auth/              passwords (hash/verify), context (ctx), session, account
                        (login/me/changePassword/logout), admin-users (reset/unlock,
-                       new user rows), migration (bootstrap admin, seedTestPasswords),
+                       new user rows), migration (bootstrap admin, seedTestPasswords,
+                       resetTestUserPassword),
                        device-auth (authenticateDevice, issueTestDeviceKey),
                        crypto-apps-script (Utilities adapter)
     utils.js           AppError, validation, Manila time, audit log, ids
@@ -55,8 +56,8 @@ backend/
     Server.gs          Hand-written: calls RFID.runAction, Sheet read/write, editor-only
                        jobs (setupEmptySheets [production], setupSheets [TEST],
                        createBootstrapAdmin, listScheduleClashes, benchmarkPasswordHash,
-                       checkSetup, issueTestDeviceKey, prepareLiveTest,
-                       cleanupLiveTest [last three: TEST Sheet only])
+                       checkSetup, issueTestDeviceKey, resetTestUserPassword,
+                       prepareLiveTest, cleanupLiveTest [last four: TEST Sheet only])
     Bundle.gs          GENERATED from backend/src — do not edit
     SeedData.gs        GENERATED from backend/seed/seed-data.json — do not edit (TEST only;
                        never in the production project)
@@ -90,8 +91,8 @@ seed data; it refuses unless `TEST_SEED_PASSWORD` is set (TEST spreadsheet only)
 `PASSWORD_PEPPER` (never change once set; the only required one); only for the
 first admin: `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` (delete after);
 TEST Sheet only: `TEST_SEED_PASSWORD` (password of the fake seeded users). It is
-also the **test-Sheet marker** (`setupSheets` / `issueTestDeviceKey` refuse without
-it, `setupEmptySheets` refuses with it, `checkSetup` prints the environment), so it
+also the **test-Sheet marker** (`setupSheets` / `issueTestDeviceKey` / `resetTestUserPassword`
+refuse without it, `setupEmptySheets` refuses with it, `checkSetup` prints the environment), so it
 must **never** be set on the production Sheet;
 optional `SPREADSHEET_ID`. Obsolete (safe to delete): `GOOGLE_CLIENT_ID`,
 `ALLOW_TEST_LOGIN`, `DEFAULT_STUDENT_PASSWORD`, `DEFAULT_INSTRUCTOR_PASSWORD`,
@@ -176,6 +177,16 @@ Tab columns and default Settings live in `backend/src/schema.js`
   clock as `ctx.now()`).
 - `issueTestDeviceKey(device_id)` (editor-only, **TEST Sheet only**) logs a new
   key once for firmware tests; production keys come from the Admin portal.
+
+## TEST-only password reset
+
+- `resetTestUserPassword(username)` (editor-only, **TEST Sheet only**, Server.gs →
+  `migration.js`): refuses without `TEST_SEED_PASSWORD` (`NOT_TEST_SHEET`) and on an
+  unknown username (`NOT_FOUND`). Sets the user's password to `TEST_SEED_PASSWORD`
+  (normal `v1$` hash), `must_change_password` TRUE, clears `failed_attempts`,
+  `locked_until`, `temp_password_expires_at`, revokes all their sessions. Logs only
+  "Password reset for <username>", never the password; no AuditLog row. Real
+  accounts use `admin.resetPassword` (temporary password) in the Admin portal.
 
 ## Admin settings
 
