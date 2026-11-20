@@ -19,6 +19,7 @@ const NAVIGATION = Object.freeze({
         { id: 'academic', label: 'Academic Setup', icon: 'building', href: 'admin/academic.html' },
       ],
     },
+    { section: 'System', items: [{ id: 'devices', label: 'Devices', icon: 'router', href: 'admin/devices.html' }] },
     { section: 'Account', items: [{ id: 'account', label: 'My Account', icon: 'person-gear', href: 'admin/account.html' }] },
   ],
   instructor: [
@@ -381,10 +382,22 @@ export function confirmAction({ title, message, confirmLabel = 'Confirm', tone =
   }).then((result) => result ?? { confirmed: false });
 }
 
-// Shows a new account's temporary password ONCE. It lives only in this modal's
-// DOM (removed on close): never in storage, the URL, or a toast.
+// Shows a new account's temporary password ONCE (see showSecretOnce).
 export function showTempPassword({ username, temp_password: tempPassword, temp_password_expires_at: expiresAt }) {
   if (!tempPassword) return Promise.resolve();
+  return showSecretOnce({
+    title: 'Temporary password',
+    secret: tempPassword,
+    label: 'Temporary password',
+    headHtml: username ? `<p class="mb-2">Username: <span class="font-monospace fw-semibold">${escapeHtml(username)}</span></p>` : '',
+    noteHtml: `Give this to the user. It will not be shown again. ${expiresAt ? `Expires ${escapeHtml(formatDateTime(expiresAt))}.` : 'Expires in 7 days.'}
+              The dash is optional when they type it. Then they choose their own password.`,
+  });
+}
+
+// A secret (temporary password, device key) shown ONCE, with Copy. It lives only
+// in this modal's DOM (removed on close): never in storage, the URL, or a toast.
+export function showSecretOnce({ title, secret, label, headHtml = '', noteHtml, long = false }) {
   return new Promise((resolve) => {
     const element = document.createElement('div');
     element.className = 'modal fade';
@@ -395,17 +408,16 @@ export function showTempPassword({ username, temp_password: tempPassword, temp_p
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
           <div class="modal-header">
-            <h2 class="modal-title fs-5">Temporary password</h2>
+            <h2 class="modal-title fs-5">${escapeHtml(title)}</h2>
           </div>
           <div class="modal-body">
-            ${username ? `<p class="mb-2">Username: <span class="font-monospace fw-semibold">${escapeHtml(username)}</span></p>` : ''}
+            ${headHtml}
             <div class="d-flex align-items-center gap-2 border rounded p-3 bg-body-tertiary">
-              <output class="font-monospace fs-2 fw-bold flex-grow-1 text-break user-select-all" style="letter-spacing:0.08em" aria-label="Temporary password">${escapeHtml(tempPassword)}</output>
+              <output class="font-monospace ${long ? 'small' : 'fs-2'} fw-bold flex-grow-1 text-break user-select-all" style="letter-spacing:${long ? '0' : '0.08em'}" aria-label="${escapeHtml(label)}">${escapeHtml(secret)}</output>
               <button type="button" class="btn btn-outline-primary" data-role="copy"><i class="bi bi-clipboard me-1" aria-hidden="true"></i>Copy</button>
             </div>
             <div class="alert alert-warning small mt-3 mb-0" role="note">
-              Give this to the user. It will not be shown again. ${expiresAt ? `Expires ${escapeHtml(formatDateTime(expiresAt))}.` : 'Expires in 7 days.'}
-              The dash is optional when they type it. Then they choose their own password.
+              ${noteHtml}
             </div>
           </div>
           <div class="modal-footer">
@@ -418,7 +430,7 @@ export function showTempPassword({ username, temp_password: tempPassword, temp_p
     const copy = element.querySelector('[data-role="copy"]');
     copy.addEventListener('click', async () => {
       try {
-        await navigator.clipboard.writeText(tempPassword);
+        await navigator.clipboard.writeText(secret);
         copy.innerHTML = '<i class="bi bi-check2 me-1" aria-hidden="true"></i>Copied';
       } catch {
         window.getSelection()?.selectAllChildren(element.querySelector('output')); // let the admin press Ctrl+C

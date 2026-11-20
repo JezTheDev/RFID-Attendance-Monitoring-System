@@ -163,7 +163,7 @@ export function mountResourceManager(container, config) {
     const requestId = ++state.request;
     if (!state.data) listBox.innerHTML = `<div class="card-body">${[1, 2, 3].map(() => '<div class="skeleton mb-2" style="height:44px"></div>').join('')}</div>`;
     try {
-      const data = await callApi(config.listAction);
+      const data = await (config.load ? config.load() : callApi(config.listAction));
       if (requestId !== state.request) return;
       state.data = data;
       addButton.disabled = false;
