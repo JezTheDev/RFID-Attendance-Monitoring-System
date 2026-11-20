@@ -531,10 +531,13 @@ var RFID = (function () {
     // What the admin pages may show about a login account (never the hash).
     function accountSummary(user, ctx) {
       if (!user) return null;
+      const locked = Date.parse(user.locked_until) > ctx.now();
       return {
+        user_id: user.user_id, // for admin.resetPassword / admin.unlockUser
         username: user.username || '',
         must_change_password: isTrue(user.must_change_password),
-        locked: Date.parse(user.locked_until) > ctx.now(),
+        locked,
+        locked_until: locked ? user.locked_until : null,
         last_login_at: user.last_login_at || null,
       };
     }
@@ -2056,7 +2059,7 @@ var RFID = (function () {
       };
     }
 
-    function listStudents(db, { search = '', section_id = '', status = 'active', card = 'all', page = 1, page_size = 20 }) {
+    function listStudents(db, { search = '', section_id = '', status = 'active', card = 'all', page = 1, page_size = 20 }, _session, ctx) {
       if (!['active', 'inactive', 'all'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status filter.');
       if (!['all', 'with', 'without'].includes(card)) throw new AppError('BAD_REQUEST', 'Invalid card filter.');
       const pageNumber = Math.max(1, Math.floor(Number(page)) || 1);
@@ -2077,7 +2080,8 @@ var RFID = (function () {
 
       const activeStudents = db.Students.filter((row) => row.account_status === 'active');
       return {
-        items: matches.slice((pageNumber - 1) * pageSize, pageNumber * pageSize).map((row) => toListItem(db, row)),
+        items: matches.slice((pageNumber - 1) * pageSize, pageNumber * pageSize)
+          .map((row) => ({ ...toListItem(db, row), account: accountSummary(userOf(db, row.student_id), ctx) })),
         total: matches.length,
         page: pageNumber,
         page_size: pageSize,
@@ -2761,7 +2765,7 @@ var RFID = (function () {
               ...row,
               status: row.account_status,
               class_count: activeClassCount(db, row.instructor_id),
-              ...(accountSummary(user, ctx) ?? { username: '', must_change_password: false, locked: false, last_login_at: null }),
+              ...(accountSummary(user, ctx) ?? { user_id: null, username: '', must_change_password: false, locked: false, locked_until: null, last_login_at: null }),
             };
           }),
       };

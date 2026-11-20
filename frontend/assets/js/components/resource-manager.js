@@ -1,7 +1,42 @@
 import { callApi } from '../api.js';
 import {
-  escapeHtml, stateHtml, errorStateHtml, openFormModal, confirmAction, showToast, showTempPassword,
+  escapeHtml, stateHtml, errorStateHtml, openFormModal, confirmAction, showToast, showTempPassword, formatDateTime,
 } from '../ui.js';
+
+// Sign-in state of an account summary (user_id, locked, locked_until, must_change_password).
+export function accountStateHtml(account) {
+  if (!account?.user_id) return '<span class="badge text-bg-danger">No sign-in account</span>';
+  if (account.locked) return `<span class="badge text-bg-danger">Locked until ${escapeHtml(formatDateTime(account.locked_until))}</span>`;
+  if (account.must_change_password) return '<span class="badge rounded-pill bg-warning-subtle text-warning-emphasis border border-warning-subtle">Must change password</span>';
+  return '<span class="small text-secondary">Password set</span>';
+}
+
+// Confirm → admin.resetPassword → the new temporary password, shown once. Errors stay in the dialog.
+export async function resetPasswordFlow({ user_id: userId, username }, name, done) {
+  const { confirmed, data } = await confirmAction({
+    title: `Reset the password of ${name}?`,
+    message: 'Their current password stops working and they are signed out everywhere. You get a new temporary password to give them; they must change it at the next sign-in.',
+    confirmLabel: 'Reset password',
+    tone: 'danger',
+    run: () => callApi('admin.resetPassword', { user_id: userId }),
+  });
+  if (!confirmed) return;
+  await showTempPassword({ ...data, username });
+  await done();
+}
+
+// Confirm → admin.unlockUser.
+export async function unlockFlow({ user_id: userId }, name, done) {
+  const { confirmed } = await confirmAction({
+    title: `Unlock ${name}?`,
+    message: 'They can sign in again right away. The failed sign-in count goes back to zero.',
+    confirmLabel: 'Unlock',
+    run: () => callApi('admin.unlockUser', { user_id: userId }),
+  });
+  if (!confirmed) return;
+  showToast(`${name} unlocked.`);
+  await done();
+}
 
 const HIDE_BELOW = { sm: 'd-none d-sm-table-cell', md: 'd-none d-md-table-cell', lg: 'd-none d-lg-table-cell' };
 
@@ -107,7 +142,9 @@ export function mountResourceManager(container, config) {
   const actionsHtml = (row) => {
     const id = escapeHtml(row[config.idField]);
     const button = (action, icon, label, extra = '') => `<li><button class="dropdown-item${extra}" type="button" data-rm-action="${action}" data-rm-id="${id}"><i class="bi bi-${icon} me-2" aria-hidden="true"></i>${escapeHtml(label)}</button></li>`;
-    const extras = (config.extraActions ?? []).filter((action) => action.show(row)).map((action) => button(action.id, action.icon, action.label));
+    const disabledItem = (action, reason) => `<li><span class="dropdown-item disabled"><i class="bi bi-${action.icon} me-2" aria-hidden="true"></i>${escapeHtml(action.label)}<br><span class="small">${escapeHtml(reason)}</span></span></li>`;
+    const extras = (config.extraActions ?? []).filter((action) => action.show(row))
+      .map((action) => (action.disabledReason?.(row) ? disabledItem(action, action.disabledReason(row)) : button(action.id, action.icon, action.label)));
     const active = hasStatus && config.statusOf(row) === 'active';
     return `
       <div class="dropdown">

@@ -33,10 +33,13 @@ export function usernameProblem(db, username, ownUserId = null) {
 // What the admin pages may show about a login account (never the hash).
 export function accountSummary(user, ctx) {
   if (!user) return null;
+  const locked = Date.parse(user.locked_until) > ctx.now();
   return {
+    user_id: user.user_id, // for admin.resetPassword / admin.unlockUser
     username: user.username || '',
     must_change_password: isTrue(user.must_change_password),
-    locked: Date.parse(user.locked_until) > ctx.now(),
+    locked,
+    locked_until: locked ? user.locked_until : null,
     last_login_at: user.last_login_at || null,
   };
 }

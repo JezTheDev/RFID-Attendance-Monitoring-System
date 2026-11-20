@@ -30,7 +30,7 @@ export function listInstructors(db, _request, _session, ctx) {
           ...row,
           status: row.account_status,
           class_count: activeClassCount(db, row.instructor_id),
-          ...(accountSummary(user, ctx) ?? { username: '', must_change_password: false, locked: false, last_login_at: null }),
+          ...(accountSummary(user, ctx) ?? { user_id: null, username: '', must_change_password: false, locked: false, locked_until: null, last_login_at: null }),
         };
       }),
   };

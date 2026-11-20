@@ -4,7 +4,9 @@ import {
   renderShell, escapeHtml, formatDateTime, formatRelative, stateHtml, errorStateHtml,
   openFormModal, confirmAction, showToast, showTempPassword,
 } from '../ui.js';
-import { statusBadge } from '../components/resource-manager.js';
+import {
+  statusBadge, accountStateHtml, resetPasswordFlow, unlockFlow,
+} from '../components/resource-manager.js';
 
 const PAGE_SIZE = 20;
 const CARD_STATUS = {
@@ -18,7 +20,9 @@ if (session) start();
 
 function start() {
   const content = renderShell({ role: 'admin', active: 'students', title: 'Students & Cards', session });
-  const state = { search: '', section_id: '', status: 'active', card: 'all', page: 1, sections: [], detailsId: null };
+  const state = { search: '', section_id: '', status: 'active', card: 'all', page: 1, sections: [], detailsId: null, accounts: new Map() };
+  // student_id -> { account, name }: what the reset / unlock actions need
+  const remember = (student, account) => state.accounts.set(student.student_id, { account, name: fullName(student) });
   let listRequest = 0;
   let searchTimer = null;
 
@@ -109,6 +113,7 @@ function start() {
         return;
       }
       document.getElementById('studentCounts').textContent = `${data.counts.active} active · ${data.counts.inactive} inactive · ${data.counts.without_card} active without a card`;
+      data.items.forEach((student) => remember(student, student.account));
       listCard.innerHTML = listHtml(data, state);
     } catch (error) {
       if (requestId !== listRequest) return;
@@ -133,6 +138,7 @@ function start() {
     try {
       const data = await callApi('admin.getStudent', { student_id: studentId });
       if (state.detailsId !== studentId) return;
+      remember(data.student, data.account);
       body.innerHTML = detailsHtml(data);
     } catch (error) {
       body.innerHTML = errorStateHtml(error.message);
@@ -145,6 +151,8 @@ function start() {
     edit: (id) => editStudent(id, state, refresh),
     card: (id) => assignCardFlow(id, refresh),
     revoke: (id) => revokeCardFlow(id, refresh),
+    reset: (id) => resetPasswordFlow(state.accounts.get(id).account, state.accounts.get(id).name, refresh),
+    unlock: (id) => unlockFlow(state.accounts.get(id).account, state.accounts.get(id).name, refresh),
     deactivate: (id) => statusFlow(id, 'inactive', refresh),
     activate: (id) => statusFlow(id, 'active', refresh),
   };
@@ -216,6 +224,8 @@ function actionMenuHtml(student) {
         ${item('edit', 'pencil', 'Edit student')}
         ${active ? item('card', 'credit-card-2-front', student.card ? 'Replace card' : 'Assign card') : ''}
         ${active && student.card ? item('revoke', 'x-octagon', 'Revoke card') : ''}
+        ${student.account?.user_id ? item('reset', 'key', 'Reset password') : ''}
+        ${student.account?.locked ? item('unlock', 'unlock', 'Unlock') : ''}
         <li><hr class="dropdown-divider"></li>
         ${active ? item('deactivate', 'person-dash', 'Deactivate', ' text-danger') : item('activate', 'person-check', 'Activate')}
       </ul>
@@ -247,6 +257,7 @@ function listHtml(data, state) {
               <td>
                 <button type="button" class="btn btn-link p-0 text-start text-decoration-none cell-main" data-student-action="details" data-student-id="${escapeHtml(student.student_id)}">${escapeHtml(fullName(student))}</button>
                 <div class="cell-sub">${escapeHtml(student.student_number)}<span class="d-md-none"> · ${escapeHtml(student.section_label)}</span></div>
+                ${!student.account?.user_id || student.account.locked || student.account.must_change_password ? `<div class="mt-1">${accountStateHtml(student.account)}</div>` : ''}
                 <div class="d-sm-none mt-1">${student.account_status === 'active' ? '' : statusBadge(student.account_status)}</div>
               </td>
               <td class="d-none d-md-table-cell">${escapeHtml(student.section_label)}</td>
@@ -283,6 +294,8 @@ function detailsHtml({ student, account, cards, enrollments, attendance }) {
       ${button('edit', 'pencil', 'Edit')}
       ${active ? button('card', 'credit-card-2-front', student.card ? 'Replace card' : 'Assign card') : ''}
       ${active && student.card ? button('revoke', 'x-octagon', 'Revoke card') : ''}
+      ${account?.user_id ? button('reset', 'key', 'Reset password') : ''}
+      ${account?.locked ? button('unlock', 'unlock', 'Unlock') : ''}
       ${active ? button('deactivate', 'person-dash', 'Deactivate', 'outline-danger') : button('activate', 'person-check', 'Activate', 'outline-primary')}
     </div>
 
@@ -291,7 +304,7 @@ function detailsHtml({ student, account, cards, enrollments, attendance }) {
       <dt class="col-4 fw-normal text-secondary">Username</dt><dd class="col-8 font-monospace">${escapeHtml(account?.username ?? '')}</dd>
       <dt class="col-4 fw-normal text-secondary">Email</dt><dd class="col-8 text-break">${escapeHtml(account?.email || student.email || '—')}</dd>
       <dt class="col-4 fw-normal text-secondary">Account</dt><dd class="col-8">${account ? escapeHtml(account.account_status) : '<span class="text-danger">Missing user record</span>'}</dd>
-      <dt class="col-4 fw-normal text-secondary">Password</dt><dd class="col-8">${account?.locked ? '<span class="text-danger">Locked (too many failed sign-ins)</span>' : account?.must_change_password ? 'Temporary password (not changed yet)' : 'Changed by the student'}</dd>
+      <dt class="col-4 fw-normal text-secondary">Password</dt><dd class="col-8">${account?.locked ? `<span class="text-danger">Locked until ${escapeHtml(formatDateTime(account.locked_until))} (too many failed sign-ins)</span>` : account?.must_change_password ? 'Temporary password (not changed yet)' : 'Changed by the student'}</dd>
       <dt class="col-4 fw-normal text-secondary">Last sign-in</dt><dd class="col-8">${account?.last_login_at ? escapeHtml(formatDateTime(account.last_login_at)) : '—'}</dd>
     </dl>
 

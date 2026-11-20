@@ -1,6 +1,8 @@
 import { requireRole } from '../auth.js';
 import { renderShell, escapeHtml, formatDateTime } from '../ui.js';
-import { mountResourceManager } from '../components/resource-manager.js';
+import {
+  mountResourceManager, accountStateHtml, resetPasswordFlow, unlockFlow,
+} from '../components/resource-manager.js';
 
 const session = requireRole('admin');
 if (session) start();
@@ -33,15 +35,28 @@ function start() {
     statusOf: (row) => row.status,
     searchText: (row) => `${row.display_name} ${row.username} ${row.email}`,
     columns: [
-      { label: 'Name', html: (row) => `<div class="cell-main">${escapeHtml(row.display_name)}${row.is_you ? ' <span class="badge text-bg-light border ms-1">You</span>' : ''}</div><div class="cell-sub d-md-none text-break">${escapeHtml(row.username)}</div>` },
+      { label: 'Name', html: (row) => `<div class="cell-main">${escapeHtml(row.display_name)}${row.is_you ? ' <span class="badge text-bg-light border ms-1">You</span>' : ''}</div><div class="cell-sub d-md-none text-break">${escapeHtml(row.username)}</div><div class="d-lg-none mt-1">${accountStateHtml(row)}</div>` },
       { label: 'Username', hideBelow: 'md', html: (row) => `<span class="small font-monospace">${escapeHtml(row.username)}</span>` },
-      { label: 'Sign-in', hideBelow: 'lg', html: (row) => (row.locked ? '<span class="badge text-bg-danger">Locked</span>' : row.must_change_password ? '<span class="text-secondary">Temporary password</span>' : 'Active') },
+      { label: 'Sign-in', hideBelow: 'lg', html: (row) => accountStateHtml(row) },
       { label: 'Last sign-in', hideBelow: 'lg', html: (row) => (row.last_login_at ? escapeHtml(formatDateTime(row.last_login_at)) : '<span class="text-secondary">—</span>') },
     ],
     formFields: (row) => [
       { name: 'display_name', label: 'Full name', required: true, maxlength: 80, value: row?.display_name === 'Administrator' ? '' : row?.display_name },
       { name: 'username', label: 'Username', required: true, maxlength: 32, value: row?.username, help: '3-32 lowercase letters, numbers, dots, hyphens or underscores. Used to sign in; must be unique.' },
       { name: 'email', label: 'Email', type: 'email', maxlength: 120, value: row?.email },
+    ],
+    extraActions: [
+      {
+        id: 'reset-password', label: 'Reset password', icon: 'key',
+        show: () => true,
+        disabledReason: (row) => (row.is_you ? 'Not for your own account. Ask another administrator.' : ''),
+        run: (row, { reload }) => resetPasswordFlow(row, row.display_name, reload),
+      },
+      {
+        id: 'unlock', label: 'Unlock', icon: 'unlock',
+        show: (row) => row.locked,
+        run: (row, { reload }) => unlockFlow(row, row.display_name, reload),
+      },
     ],
     savedMessage: (_result, editing) => (editing
       ? 'Administrator saved.'

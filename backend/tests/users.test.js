@@ -6,7 +6,7 @@ import { makeDb, SESSIONS, withCode, CTX } from './helpers/db.js';
 import { makeCtx, setPassword, TEST_PROPS } from './helpers/auth.js';
 import { TEMP_PASSWORD_PATTERN } from '../src/auth/passwords.js';
 import { runAction } from '../src/actions.js';
-import { createStudent, updateStudent, getStudent } from '../src/handlers/students.js';
+import { createStudent, updateStudent, getStudent, listStudents } from '../src/handlers/students.js';
 import { createInstructor, updateInstructor, listInstructors } from '../src/handlers/instructors.js';
 import { createAdmin, updateAdmin, listAdmins, setAdminStatus } from '../src/handlers/admins.js';
 import { studentGetProfile } from '../src/handlers/portal.js';
@@ -214,9 +214,34 @@ describe('account info in admin and portal responses', () => {
       createAdmin(db, { username: 'registrar', display_name: 'Registrar' }, SESSIONS.admin, ctx),
     ];
     assert.equal(responses[2].account.username, '2024000001');
+    responses.push(listStudents(db, {}, SESSIONS.admin, ctx));
     const text = JSON.stringify(responses);
     for (const secret of ['v1$', 'password_hash', 'google', 'AnaPass123', 'Carla12345', ...Object.values(TEST_PROPS)]) {
       assert.ok(!text.includes(secret), `leaked: ${secret}`);
     }
+  });
+
+  it('gives user_id + locked_until so the admin can reset / unlock students, instructors and admins', () => {
+    const db = makeDb();
+    const ctx = makeCtx();
+    const until = '2099-01-01T00:00:00+08:00';
+    userById(db, 'USR-0002').locked_until = until; // instructor ana
+    const ana = listInstructors(db, {}, SESSIONS.admin, ctx).items.find((row) => row.instructor_id === 'INS-0001');
+    assert.deepEqual([ana.user_id, ana.locked, ana.locked_until], ['USR-0002', true, until]);
+
+    const student = getStudent(db, { student_id: 'STU-0001' }, SESSIONS.admin, ctx);
+    const listed = listStudents(db, {}, SESSIONS.admin, ctx).items.find((row) => row.student_id === 'STU-0001');
+    assert.equal(listed.account.user_id, student.account.user_id);
+    assert.equal(userById(db, student.account.user_id).linked_id, 'STU-0001');
+    assert.deepEqual([listed.account.locked, listed.account.locked_until, listed.account.must_change_password], [false, null, false]);
+
+    const [admin] = listAdmins(db, {}, SESSIONS.admin, ctx).items;
+    assert.deepEqual([admin.user_id, admin.locked_until], ['USR-0001', null]);
+
+    // the ids work with the reset / unlock actions
+    assert.match(resetPassword(db, { user_id: ana.user_id }, SESSIONS.admin, ctx).temp_password, TEMP_PASSWORD_PATTERN);
+    userById(db, student.account.user_id).locked_until = until;
+    unlockUser(db, { user_id: listed.account.user_id }, SESSIONS.admin, ctx);
+    assert.equal(userById(db, student.account.user_id).locked_until, '');
   });
 });

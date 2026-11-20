@@ -382,7 +382,7 @@ export function confirmAction({ title, message, confirmLabel = 'Confirm', tone =
 
 // Shows a new account's temporary password ONCE. It lives only in this modal's
 // DOM (removed on close): never in storage, the URL, or a toast.
-export function showTempPassword({ username, temp_password: tempPassword }) {
+export function showTempPassword({ username, temp_password: tempPassword, temp_password_expires_at: expiresAt }) {
   if (!tempPassword) return Promise.resolve();
   return new Promise((resolve) => {
     const element = document.createElement('div');
@@ -403,7 +403,7 @@ export function showTempPassword({ username, temp_password: tempPassword }) {
               <button type="button" class="btn btn-outline-primary" data-role="copy"><i class="bi bi-clipboard me-1" aria-hidden="true"></i>Copy</button>
             </div>
             <div class="alert alert-warning small mt-3 mb-0" role="note">
-              Give this to the user. It will not be shown again. Expires in 7 days.
+              Give this to the user. It will not be shown again. ${expiresAt ? `Expires ${escapeHtml(formatDateTime(expiresAt))}.` : 'Expires in 7 days.'}
               The dash is optional when they type it. Then they choose their own password.
             </div>
           </div>

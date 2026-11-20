@@ -1,6 +1,8 @@
 import { requireRole, appUrl } from '../auth.js';
 import { renderShell, escapeHtml } from '../ui.js';
-import { mountResourceManager } from '../components/resource-manager.js';
+import {
+  mountResourceManager, accountStateHtml, resetPasswordFlow, unlockFlow,
+} from '../components/resource-manager.js';
 
 const session = requireRole('admin');
 if (session) start();
@@ -32,11 +34,11 @@ function start() {
     statusOf: (row) => row.status,
     searchText: (row) => `${row.first_name} ${row.last_name} ${row.username} ${row.email} ${row.department}`,
     columns: [
-      { label: 'Instructor', html: (row) => `<div class="cell-main">${escapeHtml(`${row.first_name} ${row.last_name}`)}</div><div class="cell-sub d-lg-none text-break">${escapeHtml(row.username)}</div>` },
+      { label: 'Instructor', html: (row) => `<div class="cell-main">${escapeHtml(`${row.first_name} ${row.last_name}`)}</div><div class="cell-sub d-lg-none text-break">${escapeHtml(row.username)}</div><div class="d-lg-none mt-1">${accountStateHtml(row)}</div>` },
       { label: 'Username', hideBelow: 'lg', html: (row) => `<span class="small font-monospace">${escapeHtml(row.username)}</span>` },
       { label: 'Department', hideBelow: 'md', html: (row) => escapeHtml(row.department) },
       { label: 'Classes', numeric: true, html: (row) => `<a class="text-decoration-none" href="${classesLink({ q: `${row.first_name} ${row.last_name}` })}" title="See this instructor's classes">${row.class_count}</a>` },
-      { label: 'Sign-in', hideBelow: 'lg', html: (row) => (row.locked ? '<span class="badge text-bg-danger">Locked</span>' : row.must_change_password ? '<span class="text-secondary">Temporary password</span>' : 'Active') },
+      { label: 'Sign-in', hideBelow: 'lg', html: (row) => accountStateHtml(row) },
     ],
     formFields: (row) => [
       { name: 'first_name', label: 'First name', required: true, half: true, maxlength: 60, value: row?.first_name },
@@ -46,6 +48,16 @@ function start() {
       { name: 'department', label: 'Department', required: true, maxlength: 80, value: row?.department ?? 'Computer Engineering' },
     ],
     extraActions: [
+      {
+        id: 'reset-password', label: 'Reset password', icon: 'key',
+        show: (row) => Boolean(row.user_id),
+        run: (row, { reload }) => resetPasswordFlow(row, `${row.first_name} ${row.last_name}`, reload),
+      },
+      {
+        id: 'unlock', label: 'Unlock', icon: 'unlock',
+        show: (row) => row.locked,
+        run: (row, { reload }) => unlockFlow(row, `${row.first_name} ${row.last_name}`, reload),
+      },
       {
         id: 'assign', label: 'Assign subject & section', icon: 'journal-plus',
         show: (row) => row.status === 'active',

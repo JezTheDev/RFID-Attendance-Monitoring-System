@@ -64,7 +64,7 @@ export function getStudentOptions(db) {
   };
 }
 
-export function listStudents(db, { search = '', section_id = '', status = 'active', card = 'all', page = 1, page_size = 20 }) {
+export function listStudents(db, { search = '', section_id = '', status = 'active', card = 'all', page = 1, page_size = 20 }, _session, ctx) {
   if (!['active', 'inactive', 'all'].includes(status)) throw new AppError('BAD_REQUEST', 'Invalid status filter.');
   if (!['all', 'with', 'without'].includes(card)) throw new AppError('BAD_REQUEST', 'Invalid card filter.');
   const pageNumber = Math.max(1, Math.floor(Number(page)) || 1);
@@ -85,7 +85,8 @@ export function listStudents(db, { search = '', section_id = '', status = 'activ
 
   const activeStudents = db.Students.filter((row) => row.account_status === 'active');
   return {
-    items: matches.slice((pageNumber - 1) * pageSize, pageNumber * pageSize).map((row) => toListItem(db, row)),
+    items: matches.slice((pageNumber - 1) * pageSize, pageNumber * pageSize)
+      .map((row) => ({ ...toListItem(db, row), account: accountSummary(userOf(db, row.student_id), ctx) })),
     total: matches.length,
     page: pageNumber,
     page_size: pageSize,
