@@ -95,6 +95,34 @@ describe('recentActivityHtml (instructor.getRecentActivity)', () => {
   });
 });
 
+describe('date range helpers (IFIX-07/08/09)', () => {
+  it('rangeText describes the range', () => {
+    assert.equal(ui.rangeText({ from: '', to: '' }), 'Whole term');
+    assert.equal(ui.rangeText({ from: null, to: null }), 'Whole term');
+    assert.equal(ui.rangeText({ from: '2026-11-02', to: '2026-11-16' }), 'Mon, Nov 2, 2026 – Mon, Nov 16, 2026');
+    assert.equal(ui.rangeText({ from: '2026-11-02', to: '' }), 'From Mon, Nov 2, 2026');
+    assert.equal(ui.rangeText({ from: '', to: '2026-11-16' }), 'Up to Mon, Nov 16, 2026');
+  });
+
+  it('dateFieldErrors picks only from/to field errors', () => {
+    assert.deepEqual(ui.dateFieldErrors({ code: 'VALIDATION_ERROR', fields: { to: 'The end date must be on or after the start date.' } }),
+      { to: 'The end date must be on or after the start date.' });
+    assert.deepEqual(ui.dateFieldErrors({ code: 'VALIDATION_ERROR', fields: { from: 'Bad', limit: 'x' } }), { from: 'Bad' });
+    assert.equal(ui.dateFieldErrors({ code: 'VALIDATION_ERROR', fields: { reason: 'x' } }), null);
+    assert.equal(ui.dateFieldErrors({ code: 'FORBIDDEN', fields: null }), null);
+  });
+
+  it('rangeInputsHtml has named From/To inputs with error boxes and a Whole term button', () => {
+    const html = ui.rangeInputsHtml({ from: '2026-11-02', to: '"><x>' });
+    assert.match(html, /name="from"[^>]*value="2026-11-02"/);
+    assert.match(html, /name="to"/);
+    assert.match(html, /data-error-for="from"/);
+    assert.match(html, /data-error-for="to"/);
+    assert.match(html, /data-range-clear/);
+    assert.doesNotMatch(html, /"><x>/);
+  });
+});
+
 describe('csvText', () => {
   it('neutralises formulas, quotes commas, and starts with a BOM', () => {
     assert.equal(ui.csvText([['=1+1', 'a,b', '-5', 'ok']]), '﻿\'=1+1,"a,b",\'-5,ok');

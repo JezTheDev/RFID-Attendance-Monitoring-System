@@ -2,11 +2,12 @@ import { callApi } from '../api.js';
 import { requireRole } from '../auth.js';
 import {
   renderShell, escapeHtml, formatClockTime, formatTimestamp, stateHtml, errorStateHtml,
-  openFormModal, showToast,
+  openFormModal, showToast, showFieldErrors,
 } from '../ui.js';
 import {
   ATTENDANCE_STATUS, attendanceBadge, phaseBadge, countsBarHtml, formatDateShort, formatRate,
   getParam, setParams, scheduleHtml, sessionOptionLabel, statusFilters, canCorrect, classOptionsHtml,
+  dateFieldErrors, rangeInputsHtml,
 } from '../components/attendance-ui.js';
 import { openStudentHistory, openClassRoster } from './instructor-history.js';
 
@@ -15,7 +16,10 @@ if (session) start();
 
 function start() {
   const content = renderShell({ role: 'instructor', active: 'attendance', title: 'Attendance', session });
-  const state = { classId: getParam('class'), sessionId: getParam('session'), filter: 'all', search: '', data: null };
+  const state = {
+    classId: getParam('class'), sessionId: getParam('session'), from: getParam('from'), to: getParam('to'),
+    range: null, filter: 'all', search: '', data: null,
+  };
   let sessionsRequest = 0;
   let rosterRequest = 0;
 
@@ -38,25 +42,27 @@ function start() {
             <label class="form-label small text-secondary mb-1" for="sessionSelect">Session</label>
             <select class="form-select" id="sessionSelect" disabled><option value="">Choose a class first</option></select>
           </div>
+          ${rangeInputsHtml(state)}
         </form>
         <div class="schedule-list mt-2 small" id="classSchedule"></div>
       </div>
     </div>
     <div id="sessionBody"></div>`;
 
+  const form = document.getElementById('pickForm');
   const classSelect = document.getElementById('classSelect');
   const sessionSelect = document.getElementById('sessionSelect');
   const body = document.getElementById('sessionBody');
   document.getElementById('classSchedule').addEventListener('click', (event) => {
     const roster = event.target.closest('[data-roster]');
-    if (roster) openClassRoster(roster.dataset.roster);
+    if (roster) openClassRoster(roster.dataset.roster, { range: state.range });
   });
 
   const loadSessions = async () => {
     const requestId = ++sessionsRequest;
     sessionSelect.disabled = true;
     try {
-      const data = await callApi('instructor.listSessions', { class_id: state.classId });
+      const data = await callApi('instructor.listSessions', { class_id: state.classId, from: state.from, to: state.to });
       if (requestId !== sessionsRequest) return;
       const first = [...data.classes, ...(data.past_classes ?? [])][0];
       if (!state.classId && first) {
@@ -64,18 +70,21 @@ function start() {
         loadSessions();
         return;
       }
+      showFieldErrors(form, {});
+      state.range = data.range ?? null;
       classSelect.innerHTML = classOptionsHtml(data.classes, data.past_classes, state.classId);
       document.getElementById('classSchedule').innerHTML = data.class
         ? `${escapeHtml(data.class.subject_title)} · <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-roster="${escapeHtml(data.class.class_id)}">${data.class.enrolled} students</button> · ${scheduleHtml(data.class.schedules)}`
         : '';
 
       if (!data.sessions.length) {
-        sessionSelect.innerHTML = '<option value="">No sessions recorded yet</option>';
+        const ranged = Boolean(state.from || state.to);
+        sessionSelect.innerHTML = `<option value="">${ranged ? 'No sessions in this range' : 'No sessions recorded yet'}</option>`;
         state.sessionId = '';
-        setParams({ class: state.classId, session: '' });
+        setParams({ class: state.classId, session: '', from: state.from, to: state.to });
         body.innerHTML = `<div class="card">${stateHtml({
           icon: 'calendar',
-          title: 'No sessions yet',
+          title: ranged ? 'No sessions in this range' : 'No sessions yet',
           message: `Sessions appear here once students tap their RFID cards during class. ${data.class?.enrolled ?? 0} students are enrolled.`,
           action: `<button type="button" class="btn btn-primary btn-sm mt-3" data-roster="${escapeHtml(state.classId)}"><i class="bi bi-people me-1" aria-hidden="true"></i>View students</button>`,
         })}</div>`;
@@ -92,14 +101,32 @@ function start() {
       loadRoster();
     } catch (error) {
       if (requestId !== sessionsRequest) return;
+      const dateErrors = dateFieldErrors(error);
+      if (dateErrors) {
+        showFieldErrors(form, dateErrors);
+        sessionSelect.innerHTML = '<option value="">Check the dates</option>';
+        body.innerHTML = `<div class="card">${stateHtml({ icon: 'calendar-x', title: 'Check the dates', message: 'Fix the date range above, or choose “Whole term”.' })}</div>`;
+        if (!classSelect.value) fillClasses();
+        return;
+      }
       body.innerHTML = `<div class="card">${errorStateHtml(error.message)}</div>`;
       body.querySelector('[data-action="retry"]').addEventListener('click', loadSessions);
     }
   };
 
+  // First load with a bad range in the URL: the list failed, so get the classes on their own.
+  const fillClasses = async () => {
+    try {
+      const data = await callApi('instructor.listSessions', {});
+      classSelect.innerHTML = classOptionsHtml(data.classes, data.past_classes, state.classId);
+    } catch {
+      /* the page already shows the date message */
+    }
+  };
+
   const loadRoster = async () => {
     const requestId = ++rosterRequest;
-    setParams({ class: state.classId, session: state.sessionId });
+    setParams({ class: state.classId, session: state.sessionId, from: state.from, to: state.to });
     if (!body.querySelector('table')) {
       body.innerHTML = `<div class="card"><div class="card-body">${[1, 2, 3, 4, 5, 6].map(() => '<div class="skeleton mb-2" style="height:44px"></div>').join('')}</div></div>`;
     }
@@ -135,6 +162,21 @@ function start() {
     state.sessionId = sessionSelect.value;
     loadRoster();
   });
+  const fromDate = document.getElementById('fromDate');
+  const toDate = document.getElementById('toDate');
+  [fromDate, toDate].forEach((input) => input.addEventListener('change', () => {
+    state.from = fromDate.value;
+    state.to = toDate.value;
+    loadSessions();
+  }));
+  form.querySelector('[data-range-clear]').addEventListener('click', () => {
+    fromDate.value = '';
+    toDate.value = '';
+    state.from = '';
+    state.to = '';
+    loadSessions();
+  });
+  form.addEventListener('submit', (event) => event.preventDefault());
   document.getElementById('refreshButton').addEventListener('click', loadSessions);
 
   body.addEventListener('click', (event) => {
@@ -154,9 +196,9 @@ function start() {
       return;
     }
     const history = event.target.closest('[data-history]');
-    if (history) openStudentHistory(state.classId, history.dataset.history);
+    if (history) openStudentHistory(state.classId, history.dataset.history, { range: state.range });
     const roster = event.target.closest('[data-roster]');
-    if (roster) openClassRoster(roster.dataset.roster);
+    if (roster) openClassRoster(roster.dataset.roster, { range: state.range });
   });
 
   loadSessions();

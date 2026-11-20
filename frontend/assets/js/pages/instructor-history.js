@@ -6,11 +6,15 @@ import { callApi } from '../api.js';
 import { escapeHtml, formatClockTime, formatTimestamp, errorStateHtml, stateHtml } from '../ui.js';
 import { appUrl } from '../auth.js';
 import {
-  attendanceBadge, formatDateShort, formatRate, rateMeterHtml, rateTone, scheduleHtml,
+  attendanceBadge, formatDateShort, formatRate, rateMeterHtml, rateTone, scheduleHtml, rangeText,
 } from '../components/attendance-ui.js';
 
 let panel = null;
 let currentKey = '';
+let currentRange = null; // {from, to} of the page that opened the panel; kept for "Back to class"
+
+const rangeParams = (range) => ({ from: range?.from || '', to: range?.to || '' });
+const rangeLineHtml = (range) => `<div class="small text-secondary mb-2"><i class="bi bi-calendar-range me-1" aria-hidden="true"></i>${escapeHtml(rangeText(range))}</div>`;
 
 function ensurePanel() {
   if (panel) return panel;
@@ -31,32 +35,33 @@ function ensurePanel() {
   element.addEventListener('hidden.bs.offcanvas', () => { currentKey = ''; });
   element.addEventListener('click', (event) => {
     const student = event.target.closest('[data-roster-student]');
-    if (student) openStudentHistory(student.dataset.classId, student.dataset.rosterStudent, { back: true });
+    if (student) openStudentHistory(student.dataset.classId, student.dataset.rosterStudent, { back: true, range: currentRange });
     const back = event.target.closest('[data-roster-back]');
-    if (back) openClassRoster(back.dataset.rosterBack);
+    if (back) openClassRoster(back.dataset.rosterBack, { range: currentRange });
   });
   return panel;
 }
 
-export async function openClassRoster(classId) {
+export async function openClassRoster(classId, { range = null } = {}) {
   const { offcanvas, body, element } = ensurePanel();
   const key = `roster:${classId}`;
   currentKey = key;
+  currentRange = range;
   element.querySelector('.offcanvas-title').textContent = 'Class roster';
   body.innerHTML = '<div class="skeleton mb-3" style="height:110px"></div><div class="skeleton" style="height:300px"></div>';
   offcanvas.show();
   try {
-    const data = await callApi('instructor.getClassRoster', { class_id: classId });
+    const data = await callApi('instructor.getClassRoster', { class_id: classId, ...rangeParams(range) });
     if (currentKey !== key) return;
     body.innerHTML = rosterHtml(data);
   } catch (error) {
     if (currentKey !== key) return;
     body.innerHTML = errorStateHtml(error.message);
-    body.querySelector('[data-action="retry"]').addEventListener('click', () => openClassRoster(classId));
+    body.querySelector('[data-action="retry"]').addEventListener('click', () => openClassRoster(classId, { range }));
   }
 }
 
-function rosterHtml({ class: klass, students }) {
+function rosterHtml({ class: klass, students, range }) {
   const list = students.length
     ? `<div class="list-group list-group-flush">${students.map((s) => `
         <button type="button" class="list-group-item list-group-item-action px-0 d-flex justify-content-between align-items-center gap-2" data-roster-student="${escapeHtml(s.student_id)}" data-class-id="${escapeHtml(klass.class_id)}">
@@ -73,7 +78,8 @@ function rosterHtml({ class: klass, students }) {
     <div class="class-card-code">${escapeHtml(klass.subject_code)} · ${escapeHtml(klass.section_label)}</div>
     <div class="fs-5 fw-semibold">${escapeHtml(klass.subject_title)}</div>
     <div class="schedule-list small">${scheduleHtml(klass.schedules)}</div>
-    <div class="d-flex flex-wrap gap-2 my-3">
+    <div class="mt-2">${rangeLineHtml(range)}</div>
+    <div class="d-flex flex-wrap gap-2 mb-3">
       <span class="badge rounded-pill text-bg-light border"><i class="bi bi-people me-1" aria-hidden="true"></i>${klass.enrolled} students</span>
       <span class="badge rounded-pill text-bg-light border"><i class="bi bi-calendar-check me-1" aria-hidden="true"></i>${klass.sessions_held} session${klass.sessions_held === 1 ? '' : 's'} held</span>
     </div>
@@ -85,25 +91,26 @@ function rosterHtml({ class: klass, students }) {
     ${list}`;
 }
 
-export async function openStudentHistory(classId, studentId, { back = false } = {}) {
+export async function openStudentHistory(classId, studentId, { back = false, range = null } = {}) {
   const { offcanvas, body, element } = ensurePanel();
   element.querySelector('.offcanvas-title').textContent = 'Attendance history';
   const key = `${classId}:${studentId}`;
   currentKey = key;
+  currentRange = range;
   body.innerHTML = '<div class="skeleton mb-3" style="height:110px"></div><div class="skeleton" style="height:260px"></div>';
   offcanvas.show();
   try {
-    const data = await callApi('instructor.getStudentHistory', { class_id: classId, student_id: studentId });
+    const data = await callApi('instructor.getStudentHistory', { class_id: classId, student_id: studentId, ...rangeParams(range) });
     if (currentKey !== key) return;
     body.innerHTML = (back ? `<button type="button" class="btn btn-sm btn-link px-0 mb-2 text-decoration-none" data-roster-back="${escapeHtml(classId)}"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Back to class</button>` : '') + historyHtml(data);
   } catch (error) {
     if (currentKey !== key) return;
     body.innerHTML = errorStateHtml(error.message);
-    body.querySelector('[data-action="retry"]').addEventListener('click', () => openStudentHistory(classId, studentId, { back }));
+    body.querySelector('[data-action="retry"]').addEventListener('click', () => openStudentHistory(classId, studentId, { back, range }));
   }
 }
 
-function historyHtml({ student, class: klass, records, totals }) {
+function historyHtml({ student, class: klass, records, totals, range }) {
   const list = records.length
     ? `<ul class="list-group list-group-flush small">${records.map((row) => `
         <li class="list-group-item px-0 d-flex justify-content-between align-items-center gap-2">
@@ -113,10 +120,11 @@ function historyHtml({ student, class: klass, records, totals }) {
           </div>
           ${attendanceBadge(row.status)}
         </li>`).join('')}</ul>`
-    : stateHtml({ icon: 'calendar', title: 'No sessions yet' });
+    : stateHtml({ icon: 'calendar', title: range?.from || range?.to ? 'No sessions in this range' : 'No sessions yet' });
   return `
     <div class="fs-5 fw-semibold">${escapeHtml(student.name)}</div>
-    <div class="text-secondary small mb-3">${escapeHtml(student.student_number)} · ${escapeHtml(student.section_label)} · ${escapeHtml(klass.class_label)}</div>
+    <div class="text-secondary small mb-1">${escapeHtml(student.student_number)} · ${escapeHtml(student.section_label)} · ${escapeHtml(klass.class_label)}</div>
+    ${rangeLineHtml(range)}
     <div class="row g-2 text-center summary-tiles mb-2">
       <div class="col-3"><div class="summary-tile"><div class="summary-num">${formatRate(totals.rate)}</div><div class="summary-label">Rate</div></div></div>
       <div class="col-3"><div class="summary-tile tone-success"><div class="summary-num">${totals.present}</div><div class="summary-label">Present</div></div></div>

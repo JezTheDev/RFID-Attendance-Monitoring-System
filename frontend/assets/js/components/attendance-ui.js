@@ -88,6 +88,35 @@ export function recentActivityHtml({ limit, has_more: hasMore, items }, linkFor)
     </div>`;
 }
 
+// Optional {from, to} filter (YYYY-MM-DD, inclusive) as the backend echoes it in `range`.
+export function rangeText(range) {
+  const { from, to } = range ?? {};
+  if (!from && !to) return 'Whole term';
+  if (from && to) return `${formatDateShort(from)} – ${formatDateShort(to)}`;
+  return from ? `From ${formatDateShort(from)}` : `Up to ${formatDateShort(to)}`;
+}
+
+// The from/to messages of a VALIDATION_ERROR (bad date, from > to, > 366 days), or null.
+export function dateFieldErrors(error) {
+  const fields = {};
+  ['from', 'to'].forEach((key) => { if (error?.fields?.[key]) fields[key] = error.fields[key]; });
+  return Object.keys(fields).length ? fields : null;
+}
+
+// From / To / Whole term inputs for a filter <form>; showFieldErrors() fills the error boxes.
+export function rangeInputsHtml({ from = '', to = '' } = {}) {
+  const input = (name, label, value) => `
+    <div class="col-6 col-lg-3">
+      <label class="form-label small text-secondary mb-1" for="${name}Date">${label}</label>
+      <input type="date" class="form-control" id="${name}Date" name="${name}" value="${escapeHtml(value)}">
+      <div class="invalid-feedback" data-error-for="${name}"></div>
+    </div>`;
+  return `${input('from', 'From', from)}${input('to', 'To', to)}
+    <div class="col-12 col-lg-2 d-grid">
+      <button type="button" class="btn btn-light border" data-range-clear>Whole term</button>
+    </div>`;
+}
+
 // <option>s for an instructor class picker: active classes, then a read-only
 // "Past / inactive classes" group.
 export function classOptionsHtml(classes, pastClasses, selectedId) {

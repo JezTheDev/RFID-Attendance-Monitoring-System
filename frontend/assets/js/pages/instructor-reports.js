@@ -1,10 +1,11 @@
 import { callApi } from '../api.js';
 import { requireRole } from '../auth.js';
 import {
-  renderShell, escapeHtml, formatDateTime, stateHtml, errorStateHtml, showToast,
+  renderShell, escapeHtml, formatDateTime, stateHtml, errorStateHtml, showToast, showFieldErrors,
 } from '../ui.js';
 import {
   statCard, formatRate, rateMeterHtml, rateTone, formatDateShort, getParam, setParams, downloadCsv, scheduleText, classOptionsHtml,
+  rangeText, dateFieldErrors, rangeInputsHtml,
 } from '../components/attendance-ui.js';
 import { openStudentHistory } from './instructor-history.js';
 
@@ -42,22 +43,13 @@ function start() {
             <label class="form-label small text-secondary mb-1" for="classSelect">Class</label>
             <select class="form-select" id="classSelect"><option value="">Loading…</option></select>
           </div>
-          <div class="col-6 col-lg-3">
-            <label class="form-label small text-secondary mb-1" for="fromDate">From</label>
-            <input type="date" class="form-control" id="fromDate" value="${escapeHtml(state.from)}">
-          </div>
-          <div class="col-6 col-lg-3">
-            <label class="form-label small text-secondary mb-1" for="toDate">To</label>
-            <input type="date" class="form-control" id="toDate" value="${escapeHtml(state.to)}">
-          </div>
-          <div class="col-12 col-lg-2 d-grid">
-            <button type="button" class="btn btn-light border" id="wholeTerm">Whole term</button>
-          </div>
+          ${rangeInputsHtml(state)}
         </form>
       </div>
     </div>
     <div id="reportBody"></div>`;
 
+  const form = document.getElementById('reportForm');
   const classSelect = document.getElementById('classSelect');
   const fromDate = document.getElementById('fromDate');
   const toDate = document.getElementById('toDate');
@@ -81,6 +73,7 @@ function start() {
         load();
         return;
       }
+      showFieldErrors(form, {});
       classSelect.innerHTML = classOptionsHtml(data.classes, data.past_classes, state.classId);
       setParams({ class: state.classId, from: state.from, to: state.to });
       state.data = data;
@@ -93,12 +86,25 @@ function start() {
       printButton.disabled = false;
     } catch (error) {
       if (requestId !== requestCounter) return;
-      if (error.fields?.to) {
-        showToast(error.fields.to, 'warning');
+      const dateErrors = dateFieldErrors(error);
+      if (dateErrors) {
+        showFieldErrors(form, dateErrors);
+        body.innerHTML = `<div class="card">${stateHtml({ icon: 'calendar-x', title: 'Check the dates', message: 'Fix the date range above, or choose “Whole term”.' })}</div>`;
+        if (!classSelect.value) fillClasses();
         return;
       }
       body.innerHTML = `<div class="card">${errorStateHtml(error.message)}</div>`;
       body.querySelector('[data-action="retry"]').addEventListener('click', load);
+    }
+  };
+
+  // First load with a bad range in the URL: the report failed, so get the class list on its own.
+  const fillClasses = async () => {
+    try {
+      const data = await callApi('instructor.getClassReport', {});
+      classSelect.innerHTML = classOptionsHtml(data.classes, data.past_classes, state.classId);
+    } catch {
+      /* the page already shows the date message; the picker stays as it was */
     }
   };
 
@@ -111,7 +117,7 @@ function start() {
     state.to = toDate.value;
     load();
   }));
-  document.getElementById('wholeTerm').addEventListener('click', () => {
+  form.querySelector('[data-range-clear]').addEventListener('click', () => {
     fromDate.value = '';
     toDate.value = '';
     state.from = '';
@@ -123,16 +129,10 @@ function start() {
   printButton.addEventListener('click', () => window.print());
   body.addEventListener('click', (event) => {
     const history = event.target.closest('[data-history]');
-    if (history) openStudentHistory(state.classId, history.dataset.history);
+    if (history) openStudentHistory(state.classId, history.dataset.history, { range: state.data?.range });
   });
 
   load();
-}
-
-function rangeText(range) {
-  if (!range.from && !range.to) return 'Whole term';
-  if (range.from && range.to) return `${formatDateShort(range.from)} – ${formatDateShort(range.to)}`;
-  return range.from ? `From ${formatDateShort(range.from)}` : `Up to ${formatDateShort(range.to)}`;
 }
 
 function reportHtml(data) {
