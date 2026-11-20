@@ -5,8 +5,8 @@ import {
   openFormModal, showToast,
 } from '../ui.js';
 import {
-  ATTENDANCE_STATUS, attendanceBadge, sessionBadge, countsBarHtml, formatDateShort, formatRate,
-  getParam, setParams, scheduleHtml,
+  ATTENDANCE_STATUS, attendanceBadge, phaseBadge, countsBarHtml, formatDateShort, formatRate,
+  getParam, setParams, scheduleHtml, sessionOptionLabel, statusFilters, canCorrect, classOptionsHtml,
 } from '../components/attendance-ui.js';
 import { openStudentHistory, openClassRoster } from './instructor-history.js';
 
@@ -58,14 +58,13 @@ function start() {
     try {
       const data = await callApi('instructor.listSessions', { class_id: state.classId });
       if (requestId !== sessionsRequest) return;
-      if (!state.classId && data.classes.length) {
-        state.classId = data.classes[0].class_id;
+      const first = [...data.classes, ...(data.past_classes ?? [])][0];
+      if (!state.classId && first) {
+        state.classId = first.class_id;
         loadSessions();
         return;
       }
-      classSelect.innerHTML = data.classes.length
-        ? data.classes.map((c) => `<option value="${escapeHtml(c.class_id)}"${c.class_id === state.classId ? ' selected' : ''}>${escapeHtml(c.class_label)}</option>`).join('')
-        : '<option value="">No classes assigned</option>';
+      classSelect.innerHTML = classOptionsHtml(data.classes, data.past_classes, state.classId);
       document.getElementById('classSchedule').innerHTML = data.class
         ? `${escapeHtml(data.class.subject_title)} · <button type="button" class="btn btn-link btn-sm p-0 align-baseline" data-roster="${escapeHtml(data.class.class_id)}">${data.class.enrolled} students</button> · ${scheduleHtml(data.class.schedules)}`
         : '';
@@ -87,13 +86,12 @@ function start() {
       }
       sessionSelect.innerHTML = data.sessions.map((row) => `
         <option value="${escapeHtml(row.session_id)}"${row.session_id === state.sessionId ? ' selected' : ''}>
-          ${escapeHtml(formatDateShort(row.session_date))} · ${formatClockTime(row.start_time)} · ${escapeHtml(row.status === 'closed' ? `${row.present + row.late}/${row.enrolled} attended` : (row.status === 'cancelled' ? 'Cancelled' : row.status))}
+          ${escapeHtml(formatDateShort(row.session_date))} · ${formatClockTime(row.start_time)} · ${escapeHtml(sessionOptionLabel(row))}
         </option>`).join('');
       sessionSelect.disabled = false;
       loadRoster();
     } catch (error) {
       if (requestId !== sessionsRequest) return;
-      if (error.code === 'NOT_SIGNED_IN') return void requireRole('instructor');
       body.innerHTML = `<div class="card">${errorStateHtml(error.message)}</div>`;
       body.querySelector('[data-action="retry"]').addEventListener('click', loadSessions);
     }
@@ -165,15 +163,11 @@ function start() {
 }
 
 function rosterHtml(state) {
-  const { session: info, students } = state.data;
-  const cancelled = info.status === 'cancelled';
-  const count = (status) => students.filter((row) => row.status === status).length;
-  const filters = [
-    ['all', 'All', students.length],
-    ['present', 'Present', count('present')],
-    ['late', 'Late', count('late')],
-    ['absent', info.status === 'open' ? 'Not scanned' : 'Absent', info.status === 'open' ? count('not_scanned') : count('absent')],
-  ];
+  const { session: info, students, class: klass } = state.data;
+  const cancelled = info.phase === 'cancelled';
+  const filters = statusFilters(info, students);
+  const live = filters.some(([value]) => value === 'not_scanned');
+  if (!filters.some(([value]) => value === state.filter)) state.filter = 'all'; // e.g. "Not yet" kept from a running session
   const attended = (info.present ?? 0) + (info.late ?? 0);
 
   return `
@@ -183,16 +177,18 @@ function rosterHtml(state) {
           <h3 class="card-title-sm mb-0">${escapeHtml(info.class_label)} · ${escapeHtml(formatDateShort(info.session_date))}</h3>
           <div class="cell-sub">${formatClockTime(info.start_time)}–${formatClockTime(info.end_time)} · ${escapeHtml(info.room_code)}${info.source === 'manual' ? ' · Manual session' : ''}</div>
         </div>
-        ${sessionBadge(info.status)}
+        ${phaseBadge(info)}
       </div>
+      ${klass.status === 'active' ? '' : `<div class="card-body pb-0"><div class="alert alert-secondary mb-0"><i class="bi bi-archive me-1" aria-hidden="true"></i>This class is inactive (past). Its attendance is read-only.</div></div>`}
       ${cancelled
         ? `<div class="card-body pb-0"><div class="alert alert-secondary mb-0"><i class="bi bi-slash-circle me-1" aria-hidden="true"></i>This class was cancelled${info.reason ? `: ${escapeHtml(info.reason)}` : '.'} Attendance is not counted.</div></div>`
         : `<div class="card-body border-bottom">
             <div class="row g-2 text-center summary-tiles">
-              <div class="col-6 col-md-3"><div class="summary-tile"><div class="summary-num">${formatRate(info.enrolled ? attended / info.enrolled : null)}</div><div class="summary-label">Attended</div></div></div>
-              <div class="col-6 col-md-3"><div class="summary-tile tone-success"><div class="summary-num">${info.present ?? 0}</div><div class="summary-label">Present</div></div></div>
-              <div class="col-6 col-md-3"><div class="summary-tile tone-warning"><div class="summary-num">${info.late ?? 0}</div><div class="summary-label">Late</div></div></div>
-              <div class="col-6 col-md-3"><div class="summary-tile tone-danger"><div class="summary-num">${info.absent ?? 0}</div><div class="summary-label">Absent</div></div></div>
+              <div class="col-6 col-md"><div class="summary-tile"><div class="summary-num">${formatRate(info.enrolled ? attended / info.enrolled : null)}</div><div class="summary-label">Attended</div></div></div>
+              <div class="col-6 col-md"><div class="summary-tile tone-success"><div class="summary-num">${info.present ?? 0}</div><div class="summary-label">Present</div></div></div>
+              <div class="col-6 col-md"><div class="summary-tile tone-warning"><div class="summary-num">${info.late ?? 0}</div><div class="summary-label">Late</div></div></div>
+              ${live ? `<div class="col-6 col-md"><div class="summary-tile"><div class="summary-num">${info.not_scanned ?? 0}</div><div class="summary-label">Not yet</div></div></div>` : ''}
+              <div class="col-6 col-md"><div class="summary-tile tone-danger"><div class="summary-num">${info.absent ?? 0}</div><div class="summary-label">Absent</div></div></div>
             </div>
             ${countsBarHtml(info).replace('class="att-bar"', 'class="att-bar att-bar-wide"')}
           </div>`}
@@ -212,17 +208,15 @@ function rosterHtml(state) {
 }
 
 function rowsHtml(state) {
-  const { session: info, students } = state.data;
+  const { session: info, students, class: klass } = state.data;
   const term = state.search.trim().toLowerCase();
-  const matchFilter = (row) => state.filter === 'all'
-    || row.status === state.filter
-    || (state.filter === 'absent' && row.status === 'not_scanned');
+  const matchFilter = (row) => state.filter === 'all' || row.status === state.filter;
   const rows = students.filter((row) => matchFilter(row)
     && (!term || `${row.first_name} ${row.last_name} ${row.student_number}`.toLowerCase().includes(term)));
   if (!rows.length) {
     return `<tr><td colspan="4">${stateHtml({ icon: 'search', title: 'No students to show', message: 'Try another filter or search.' })}</td></tr>`;
   }
-  const canCorrect = info.status !== 'cancelled';
+  const correctable = canCorrect(info, klass);
   return rows.map((row) => {
     const tags = [];
     if (row.corrected) tags.push(`<span class="badge text-bg-light border" title="${escapeHtml(row.correction_reason)}"><i class="bi bi-pencil-square me-1" aria-hidden="true"></i>Corrected</span>`);
@@ -236,7 +230,7 @@ function rowsHtml(state) {
         </td>
         <td><div class="d-flex flex-wrap gap-1 align-items-center">${attendanceBadge(row.status)}${tags.join('')}</div></td>
         <td class="d-none d-sm-table-cell text-nowrap">${row.scanned_at ? escapeHtml(formatTimestamp(row.scanned_at)) : '<span class="text-secondary">—</span>'}</td>
-        <td class="text-end">${canCorrect ? `<button type="button" class="btn btn-sm btn-light border" data-correct="${escapeHtml(row.student_id)}"><i class="bi bi-pencil me-1" aria-hidden="true"></i>Correct</button>` : ''}</td>
+        <td class="text-end">${correctable ? `<button type="button" class="btn btn-sm btn-light border" data-correct="${escapeHtml(row.student_id)}"><i class="bi bi-pencil me-1" aria-hidden="true"></i>Correct</button>` : ''}</td>
       </tr>`;
   }).join('');
 }
@@ -265,7 +259,7 @@ async function correctFlow(state, studentId, refresh) {
       <div class="invalid-feedback d-block" data-error-for="status"></div>
     </fieldset>
     <label class="form-label mt-3" for="cs_reason">Reason</label>
-    <textarea class="form-control" id="cs_reason" name="reason" rows="2" maxlength="200" minlength="5" required placeholder="e.g. Card not read by the device; student was in class"></textarea>
+    <textarea class="form-control" id="cs_reason" name="reason" rows="2" maxlength="500" minlength="5" required placeholder="e.g. Card not read by the device; student was in class"></textarea>
     <div class="invalid-feedback" data-error-for="reason"></div>
     <p class="small text-secondary mt-2 mb-0"><i class="bi bi-shield-check me-1" aria-hidden="true"></i>The change and your reason are saved in the audit log.</p>
     ${student.corrected ? `<p class="small text-secondary mt-1 mb-0">Last correction: ${escapeHtml(student.correction_reason)}</p>` : ''}`;

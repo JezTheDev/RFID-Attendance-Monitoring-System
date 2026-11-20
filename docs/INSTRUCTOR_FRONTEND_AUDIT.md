@@ -138,11 +138,11 @@ Ordered. Effort: **S** < 1 h · **M** half a day · **L** about a day. Frontend 
 
 | # | Task | Functions / files | Effort |
 |---|---|---|---|
-| **Batch 1: phase + not yet (correctness)** | | | |
-| IFIX-01 | Move `SESSION_PHASE` + `phaseBadge(row)` from `admin-dashboard.js` into `attendance-ui.js`; admin dashboard imports it; drop `SESSION_STATUS` `closed`/`open`. | `attendance-ui.js`, `admin-dashboard.js` | S |
-| IFIX-02 | Dashboard: `phaseBadge(row)` in `sessionsHtml`; add "N not yet" to the counts. | `instructor-dashboard.js` `sessionsHtml` | S |
-| IFIX-03 | Attendance: session option label from `phase` + counts; header `phaseBadge(info)`; filters **Present / Late / Absent / Not yet** (Not yet only while `upcoming`/`in_progress`); add a Not yet tile; hide Correct on `upcoming`; reason `maxlength` 500. | `instructor-attendance.js` `loadSessions`, `rosterHtml`, `rowsHtml`, `correctFlow` | S |
-| IFIX-04 | Reports: "Sessions held" hint wording; legend adds `·` not yet and `–` joined later. Delete the 3 dead `NOT_SIGNED_IN` checks. | `instructor-reports.js` `reportHtml`, all 3 pages | S |
+| **Batch 1: phase + not yet (correctness)**: DONE 2026-11-20 (+ IFIX-11 csvText test, + past classes) | | | |
+| IFIX-01 ✅ | Move `SESSION_PHASE` + `phaseBadge(row)` from `admin-dashboard.js` into `attendance-ui.js`; admin dashboard imports it; drop `SESSION_STATUS` `closed`/`open`. | `attendance-ui.js`, `admin-dashboard.js` | S |
+| IFIX-02 ✅ | Dashboard: `phaseBadge(row)` in `sessionsHtml`; add "N not yet" to the counts. | `instructor-dashboard.js` `sessionsHtml` | S |
+| IFIX-03 ✅ | Attendance: session option label from `phase` + counts; header `phaseBadge(info)`; filters **Present / Late / Absent / Not yet** (Not yet only while `upcoming`/`in_progress`); add a Not yet tile; hide Correct on `upcoming`; reason `maxlength` 500. | `instructor-attendance.js` `loadSessions`, `rosterHtml`, `rowsHtml`, `correctFlow` | S |
+| IFIX-04 ✅ | Reports: "Sessions held" hint wording; legend adds `·` not yet and `–` joined later. Delete the 3 dead `NOT_SIGNED_IN` checks. | `instructor-reports.js` `reportHtml`, all 3 pages | S |
 | **Batch 2: missing pieces** | | | |
 | IFIX-05 | My Account: `instructor/account.html` (`data-role="instructor"`) + nav item `{ section: 'Account', … 'instructor/account.html' }`. | new HTML, `ui.js` `NAVIGATION.instructor` | S |
 | IFIX-06 | Dashboard "Recent activity" card: `instructor.getRecentActivity {limit: 10}` (own fetch, own error state so the dashboard still loads if it fails); time, student, class, status badge, offline/corrected tags. | `instructor-dashboard.js` (new `recentHtml`) | S |
@@ -152,8 +152,8 @@ Ordered. Effort: **S** < 1 h · **M** half a day · **L** about a day. Frontend 
 | IFIX-09 | Reports date errors: show `fields.from` / `fields.to` under the inputs (`is-invalid`), still fill the class picker, never leave the skeleton. | `instructor-reports.js` `load` | S |
 | **Batch 4: robustness + polish** | | | |
 | IFIX-10 | `FORBIDDEN` / `NOT_FOUND` deep link: clear `state.classId` and reload the own-class list with a warning toast instead of a "Try again" loop. Same in Reports. | `instructor-attendance.js` `loadSessions`, `instructor-reports.js` `load` | S |
-| IFIX-11 | Tiny `node:test` for `csvText` (formula prefix, quotes, BOM). | `backend/tests` or `frontend` test file | S |
+| IFIX-11 ✅ | Tiny `node:test` for `csvText` (formula prefix, quotes, BOM). | `backend/tests` or `frontend` test file | S |
 | IFIX-12 | Update `frontend/README.md` session fields (`phase`, `not_scanned`). | docs | S |
-| **Decision (owner)** | Should instructors see **inactive (archived) classes** read-only? Today they vanish from every list. If yes: backend option on `listSessions` / `getClassReport` (`include_inactive`) + "Archived" badge and no Correct button (`CLASS_INACTIVE`). | `portal.js` `myClasses`, pages | M |
+| IFIX-P ✅ | **Decided: yes, read-only.** Backend: `past_classes` (own inactive classes: `class_id, class_label, term_name`) on `instructor.getDashboard`, `listSessions`, `getClassReport`; every class object carries `status` (`past-classes.test.js`). Frontend: "Past / inactive classes (read-only)" `<optgroup>` in the Attendance and Reports pickers, a read-only card on the dashboard, banner + no Correct button on Attendance (`canCorrect`). `CLASS_INACTIVE` stays on the server. Done in Batch 1. | `portal.js` `pastClasses`, `classInfo`; `attendance-ui.js` `classOptionsHtml`, `canCorrect` | M |
 
 Not done in this audit: no correction was submitted live (read-only audit; correction paths were checked in code + backend tests); the dashboard on a day with real (`open`) sessions was not seen live, because TEST data has no session today and seeded sessions are `closed`. The `phase` bugs above come from code reading.

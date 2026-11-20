@@ -4,7 +4,7 @@ import {
   renderShell, escapeHtml, todayInManila, formatDateLong, formatClockTime, stateHtml, errorStateHtml,
 } from '../ui.js';
 import {
-  sessionBadge, statCard, formatRate, rateMeterHtml, rateTone, countsBarHtml, scheduleHtml, loadingCardsHtml,
+  phaseBadge, statCard, formatRate, rateMeterHtml, rateTone, countsBarHtml, scheduleHtml, loadingCardsHtml,
 } from '../components/attendance-ui.js';
 import { openClassRoster } from './instructor-history.js';
 
@@ -48,10 +48,6 @@ function start() {
       body.innerHTML = dashboardHtml(data);
     } catch (error) {
       if (requestId !== requestCounter) return;
-      if (error.code === 'NOT_SIGNED_IN') {
-        requireRole('instructor');
-        return;
-      }
       body.innerHTML = `<div class="card">${errorStateHtml(error.message)}</div>`;
       body.querySelector('[data-action="retry"]').addEventListener('click', load);
     }
@@ -113,7 +109,33 @@ function dashboardHtml(data) {
       <div class="col-xl-8">${sessionsHtml(data)}</div>
       <div class="col-xl-4">${watchlistHtml(data.watchlist)}</div>
     </div>
-    ${classesHtml(data.classes)}`;
+    ${classesHtml(data.classes)}
+    ${pastClassesHtml(data.past_classes)}`;
+}
+
+// Inactive classes: read-only (Attendance shows no Correct button; the server refuses with CLASS_INACTIVE).
+function pastClassesHtml(classes) {
+  if (!classes?.length) return '';
+  return `
+    <div class="card mt-3">
+      <div class="card-header border-bottom">
+        <h3 class="card-title-sm">Past / inactive classes</h3>
+        <span class="small text-secondary">Read-only</span>
+      </div>
+      <div class="list-group list-group-flush">
+        ${classes.map((klass) => `
+          <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div class="min-w-0">
+              <div class="cell-main">${escapeHtml(klass.class_label)}</div>
+              <div class="cell-sub">${escapeHtml(klass.term_name)}</div>
+            </div>
+            <div class="d-flex gap-2">
+              <a class="btn btn-sm btn-outline-primary" href="${attendanceLink(klass.class_id)}"><i class="bi bi-clipboard-check me-1" aria-hidden="true"></i>Attendance</a>
+              <a class="btn btn-sm btn-light border" href="${reportLink(klass.class_id)}"><i class="bi bi-file-earmark-bar-graph me-1" aria-hidden="true"></i>Report</a>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
 }
 
 function sessionsHtml(data) {
@@ -127,7 +149,7 @@ function sessionsHtml(data) {
       const counted = row.present !== null;
       const counts = counted
         ? `<div class="session-counts">
-            <span><strong>${row.present}</strong> present</span><span><strong>${row.late}</strong> late</span><span><strong>${row.absent}</strong> absent</span><span class="text-secondary">of ${row.enrolled}</span>
+            <span><strong>${row.present}</strong> present</span><span><strong>${row.late}</strong> late</span><span><strong>${row.absent}</strong> absent</span><span><strong>${row.not_scanned}</strong> not yet</span><span class="text-secondary">of ${row.enrolled}</span>
           </div>${countsBarHtml(row)}`
         : `<div class="session-counts"><span>${row.enrolled} enrolled</span></div>`;
       const action = row.session_id
@@ -140,7 +162,7 @@ function sessionsHtml(data) {
               <button type="button" class="btn btn-link p-0 text-start text-decoration-none cell-main" data-roster="${escapeHtml(row.class_id)}">${escapeHtml(row.class_label)}</button>${row.source === 'manual' ? ' <span class="badge text-bg-light border ms-1">Manual</span>' : ''}
               <div class="cell-sub">${formatClockTime(row.start_time)}–${formatClockTime(row.end_time)} · ${escapeHtml(row.room_code)}</div>
             </div>
-            <div class="d-flex align-items-center gap-2">${sessionBadge(row.status)}${action}</div>
+            <div class="d-flex align-items-center gap-2">${phaseBadge(row)}${action}</div>
           </div>
           ${counts}
         </div>`;

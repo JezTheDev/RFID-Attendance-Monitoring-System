@@ -4,21 +4,7 @@ import {
   renderShell, escapeHtml, todayInManila, formatDateLong, formatClockTime,
   formatTimestamp, formatRelative, stateHtml, errorStateHtml,
 } from '../ui.js';
-import { badge, statCard, countsBarHtml } from '../components/attendance-ui.js';
-
-// Backend `phase` (sessionPhase); a session row exists only after the first tap.
-const SESSION_PHASE = {
-  upcoming: { label: 'Upcoming', tone: 'info' },
-  in_progress: { label: 'In progress', tone: 'primary' },
-  ended: { label: 'Completed', tone: 'success' },
-  cancelled: { label: 'Cancelled', tone: 'secondary' },
-};
-
-function phaseBadge(row) {
-  if (row.session_id === null && row.phase === 'in_progress') return badge({ label: 'In progress · no scans yet', tone: 'warning' });
-  if (row.session_id === null && row.phase === 'ended') return badge({ label: 'No scans recorded', tone: 'warning' });
-  return badge(SESSION_PHASE[row.phase] ?? { label: row.phase, tone: 'secondary' });
-}
+import { badge, statCard, countsBarHtml, phaseBadge } from '../components/attendance-ui.js';
 
 const SCAN_RESULT = {
   ACCEPTED: { label: 'Accepted', tone: 'success' },

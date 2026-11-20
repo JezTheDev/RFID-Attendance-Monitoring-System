@@ -9,14 +9,16 @@ export const ATTENDANCE_STATUS = Object.freeze({
   cancelled: { label: 'Class cancelled', tone: 'secondary', icon: 'slash-circle' },
 });
 
-export const SESSION_STATUS = Object.freeze({
-  closed: { label: 'Completed', tone: 'success' },
-  open: { label: 'Open', tone: 'primary' },
+// Backend `phase` (sessionPhase). A real session stays status "open" after it
+// ends, so labels always come from phase; a session row exists only after the first tap.
+export const SESSION_PHASE = Object.freeze({
+  upcoming: { label: 'Upcoming', tone: 'info' },
+  in_progress: { label: 'In progress', tone: 'primary' },
+  ended: { label: 'Completed', tone: 'success' },
   cancelled: { label: 'Cancelled', tone: 'secondary' },
-  scheduled: { label: 'Upcoming', tone: 'info' },
-  in_progress: { label: 'In progress · no scans yet', tone: 'warning' },
-  no_record: { label: 'No scans recorded', tone: 'warning' },
 });
+
+const LIVE_PHASES = ['upcoming', 'in_progress'];
 
 const DAY_LABELS = { MON: 'Mon', TUE: 'Tue', WED: 'Wed', THU: 'Thu', FRI: 'Fri', SAT: 'Sat', SUN: 'Sun' };
 
@@ -32,8 +34,47 @@ export function attendanceBadge(status) {
   return badge(ATTENDANCE_STATUS[status] ?? { label: status, tone: 'secondary' });
 }
 
-export function sessionBadge(status) {
-  return badge(SESSION_STATUS[status] ?? { label: status, tone: 'secondary' });
+export function phaseBadge(row) {
+  if (row.session_id === null && row.phase === 'in_progress') return badge({ label: 'In progress · no scans yet', tone: 'warning' });
+  if (row.session_id === null && row.phase === 'ended') return badge({ label: 'No scans recorded', tone: 'warning' });
+  return badge(SESSION_PHASE[row.phase] ?? { label: row.phase, tone: 'secondary' });
+}
+
+// Short text for a session in a picker.
+export function sessionOptionLabel(row) {
+  if (row.phase === 'cancelled') return 'Cancelled';
+  if (row.phase === 'upcoming') return 'Upcoming';
+  const attended = `${row.present + row.late}/${row.enrolled}`;
+  return row.phase === 'in_progress' ? `In progress · ${attended} in` : `${attended} attended`;
+}
+
+// [value, label, count] filter buttons. "Not yet" (no tap) only while the class
+// can still be tapped into; after the end those students are absent.
+export function statusFilters(info, students) {
+  const count = (status) => students.filter((row) => row.status === status).length;
+  return [
+    ['all', 'All', students.length],
+    ['present', 'Present', count('present')],
+    ['late', 'Late', count('late')],
+    ...(LIVE_PHASES.includes(info.phase) ? [['not_scanned', 'Not yet', count('not_scanned')]] : []),
+    ['absent', 'Absent', count('absent')],
+  ];
+}
+
+// <option>s for an instructor class picker: active classes, then a read-only
+// "Past / inactive classes" group.
+export function classOptionsHtml(classes, pastClasses, selectedId) {
+  const option = (c, suffix = '') => `<option value="${escapeHtml(c.class_id)}"${c.class_id === selectedId ? ' selected' : ''}>${escapeHtml(c.class_label + suffix)}</option>`;
+  if (!classes.length && !pastClasses?.length) return '<option value="">No classes assigned</option>';
+  const past = pastClasses?.length
+    ? `<optgroup label="Past / inactive classes (read-only)">${pastClasses.map((c) => option(c, c.term_name ? ` · ${c.term_name}` : '')).join('')}</optgroup>`
+    : '';
+  return classes.map((c) => option(c)).join('') + past;
+}
+
+// UI only; the server refuses too (SESSION_CANCELLED, SESSION_NOT_STARTED, CLASS_INACTIVE).
+export function canCorrect(info, klass) {
+  return info.phase !== 'cancelled' && info.phase !== 'upcoming' && klass.status === 'active';
 }
 
 export function formatRate(rate) {

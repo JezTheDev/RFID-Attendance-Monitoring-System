@@ -204,6 +204,7 @@ function classInfo(db, maps, klass) {
     subject_title: subject?.subject_title ?? '',
     section_label: sectionLabel(maps, klass.section_id),
     instructor_name: fullName(maps.instructors.get(klass.instructor_id)),
+    status: klass.status,
     schedules: schedulesOf(db, maps, klass.class_id),
   };
 }
@@ -214,6 +215,15 @@ function myClasses(db, instructorId) {
   return db.Classes
     .filter((row) => row.instructor_id === instructorId && row.status === 'active')
     .sort((a, b) => a.class_label.localeCompare(b.class_label));
+}
+
+// Own inactive classes: read-only "Past / inactive classes" list (corrections refuse with CLASS_INACTIVE).
+function pastClasses(db, instructorId) {
+  const terms = indexBy(db.Terms, 'term_id');
+  return db.Classes
+    .filter((row) => row.instructor_id === instructorId && row.status !== 'active')
+    .sort((a, b) => a.class_label.localeCompare(b.class_label))
+    .map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label, term_name: terms.get(klass.term_id)?.term_name ?? '' }));
 }
 
 function classSummary(db, maps, klass, now) {
@@ -332,6 +342,7 @@ export function instructorDashboard(db, { date }, session, ctx) {
     },
     sessions,
     classes: summaries,
+    past_classes: pastClasses(db, instructorId),
     watchlist: watchlist.slice(0, 8),
   };
 }
@@ -342,7 +353,8 @@ export function instructorListSessions(db, request, session, ctx) {
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
-  if (!classId) return { classes, class: null, sessions: [] };
+  const past = pastClasses(db, instructorId);
+  if (!classId) return { classes, past_classes: past, class: null, sessions: [] };
   const klass = ownClass(db, instructorId, classId);
   const range = dateRange(request);
   const roster = rosterIds(db, maps, classId);
@@ -350,7 +362,7 @@ export function instructorListSessions(db, request, session, ctx) {
     .filter((row) => row.class_id === classId && range.has(row.session_date))
     .sort((a, b) => b.session_date.localeCompare(a.session_date) || b.scheduled_start.localeCompare(a.scheduled_start))
     .map((row) => describeSession(db, maps, row, roster, now));
-  return { classes, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, range: { from: range.from, to: range.to }, sessions };
+  return { classes, past_classes: past, class: { ...classInfo(db, maps, klass), enrolled: roster.length }, range: { from: range.from, to: range.to }, sessions };
 }
 
 export function instructorGetSession(db, { session_id: sessionId }, session, ctx) {
@@ -485,7 +497,8 @@ export function instructorClassReport(db, request, session, ctx) {
   const instructorId = linkedId(db, session, 'instructor');
   const maps = lookups(db);
   const classes = myClasses(db, instructorId).map((klass) => ({ class_id: klass.class_id, class_label: klass.class_label }));
-  if (!classId) return { classes, class: null };
+  const past = pastClasses(db, instructorId);
+  if (!classId) return { classes, past_classes: past, class: null };
   const klass = ownClass(db, instructorId, classId);
   const range = dateRange(request);
 
@@ -512,6 +525,7 @@ export function instructorClassReport(db, request, session, ctx) {
 
   return {
     classes,
+    past_classes: past,
     class: { ...classInfo(db, maps, klass), enrolled: roster.length },
     range: { from: range.from, to: range.to },
     generated_at: now.iso,

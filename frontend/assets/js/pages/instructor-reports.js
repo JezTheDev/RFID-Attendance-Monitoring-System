@@ -4,7 +4,7 @@ import {
   renderShell, escapeHtml, formatDateTime, stateHtml, errorStateHtml, showToast,
 } from '../ui.js';
 import {
-  statCard, formatRate, rateMeterHtml, rateTone, formatDateShort, getParam, setParams, downloadCsv, scheduleText,
+  statCard, formatRate, rateMeterHtml, rateTone, formatDateShort, getParam, setParams, downloadCsv, scheduleText, classOptionsHtml,
 } from '../components/attendance-ui.js';
 import { openStudentHistory } from './instructor-history.js';
 
@@ -75,14 +75,13 @@ function start() {
     try {
       const data = await callApi('instructor.getClassReport', { class_id: state.classId, from: state.from, to: state.to });
       if (requestId !== requestCounter) return;
-      if (!state.classId && data.classes.length) {
-        state.classId = data.classes[0].class_id;
+      const first = [...data.classes, ...(data.past_classes ?? [])][0];
+      if (!state.classId && first) {
+        state.classId = first.class_id;
         load();
         return;
       }
-      classSelect.innerHTML = data.classes.length
-        ? data.classes.map((c) => `<option value="${escapeHtml(c.class_id)}"${c.class_id === state.classId ? ' selected' : ''}>${escapeHtml(c.class_label)}</option>`).join('')
-        : '<option value="">No classes assigned</option>';
+      classSelect.innerHTML = classOptionsHtml(data.classes, data.past_classes, state.classId);
       setParams({ class: state.classId, from: state.from, to: state.to });
       state.data = data;
       if (!data.class) {
@@ -94,7 +93,6 @@ function start() {
       printButton.disabled = false;
     } catch (error) {
       if (requestId !== requestCounter) return;
-      if (error.code === 'NOT_SIGNED_IN') return void requireRole('instructor');
       if (error.fields?.to) {
         showToast(error.fields.to, 'warning');
         return;
@@ -141,6 +139,11 @@ function reportHtml(data) {
   const { class: klass, students, sessions, totals } = data;
   const perfect = students.filter((row) => row.total > 0 && row.absent === 0 && row.late === 0).length;
   const atRisk = students.filter((row) => row.rate !== null && row.rate < 0.8).length;
+  const held = sessions.filter((s) => s.phase === 'ended').length;
+  const running = sessions.length - held;
+  let heldHint = 'Completed class sessions';
+  if (running) heldHint = `${running} in progress or upcoming (not counted yet)`;
+  else if (data.cancelled_sessions) heldHint = `${data.cancelled_sessions} cancelled (not counted)`;
 
   const header = `
     <div class="report-head card mb-3">
@@ -160,7 +163,7 @@ function reportHtml(data) {
 
   const stats = `
     <div class="row g-3 mb-3">
-      ${statCard({ icon: 'calendar-check', label: 'Sessions held', value: sessions.length, hint: data.cancelled_sessions ? `${data.cancelled_sessions} cancelled (not counted)` : 'Completed class sessions' })}
+      ${statCard({ icon: 'calendar-check', label: 'Sessions held', value: held, hint: heldHint })}
       ${statCard({ icon: 'graph-up', label: 'Class attendance', value: formatRate(totals.rate), hint: `${totals.present} present · ${totals.late} late · ${totals.absent} absent`, gold: true })}
       ${statCard({ icon: 'award', label: 'Perfect attendance', value: perfect, hint: `of ${students.length} students` })}
       ${statCard({ icon: 'person-exclamation', label: 'Below 80%', value: atRisk, hint: 'Students needing follow-up', gold: true })}
@@ -206,7 +209,7 @@ function reportHtml(data) {
       <div class="card-header border-bottom flex-wrap gap-2">
         <h3 class="card-title-sm">Session by session</h3>
         <span class="small text-secondary d-flex gap-3">
-          ${['present', 'late', 'absent'].map((key) => `<span><span class="mark mark-${MARK[key].tone}">${MARK[key].letter}</span> ${MARK[key].label}</span>`).join('')}
+          ${['present', 'late', 'absent', 'not_scanned', 'null'].map((key) => `<span><span class="mark mark-${MARK[key].tone}">${MARK[key].letter}</span> ${MARK[key].label}</span>`).join('')}
         </span>
       </div>
       <div class="table-responsive">
