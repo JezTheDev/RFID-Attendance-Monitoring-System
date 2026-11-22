@@ -1,0 +1,68 @@
+{
+  "touch_emulation": {
+    "count": 0,
+    "items": []
+  },
+  "horizontal_scroll": {
+    "count": 8,
+    "items": [
+      "admin/attendance.html@320/chromium scrollWidth 658 > 320",
+      "admin/attendance.html@320/webkit scrollWidth 657 > 320",
+      "admin/attendance.html@375/chromium scrollWidth 657 > 375",
+      "admin/attendance.html@375/webkit scrollWidth 657 > 375",
+      "admin/attendance.html@414/chromium scrollWidth 658 > 414",
+      "admin/attendance.html@414/webkit scrollWidth 657 > 414",
+      "admin/devices.html@1024/chromium scrollWidth 1051 > 1024",
+      "admin/devices.html@1024/webkit scrollWidth 1051 > 1024"
+    ]
+  },
+  "console_errors": {
+    "count": 0,
+    "items": []
+  },
+  "touch_target": {
+    "count": 20,
+    "items": [
+      "admin/instructors.html@1024/chromium a.text-decoration-none[1] 8x20",
+      "admin/instructors.html@1024/chromium a.text-decoration-none[2] 8x20",
+      "admin/instructors.html@1024/webkit a.text-decoration-none[1] 8x20",
+      "admin/instructors.html@1024/webkit a.text-decoration-none[2] 8x20",
+      "admin/instructors.html@320/chromium a.text-decoration-none[1] 8x20",
+      "admin/instructors.html@320/chromium a.text-decoration-none[2] 8x20",
+      "admin/instructors.html@320/webkit a.text-decoration-none[1] 8x20",
+      "admin/instructors.html@320/webkit a.text-decoration-none[2] 8x20",
+      "admin/instructors.html@375/chromium a.text-decoration-none[1] 8x20",
+      "admin/instructors.html@375/chromium a.text-decoration-none[2] 8x20",
+      "admin/instructors.html@375/webkit a.text-decoration-none[1] 8x20",
+      "admin/instructors.html@375/webkit a.text-decoration-none[2] 8x20",
+      "admin/instructors.html@414/chromium a.text-decoration-none[1] 8x20",
+      "admin/instructors.html@414/chromium a.text-decoration-none[2] 8x20",
+      "admin/instructors.html@414/webkit a.text-decoration-none[1] 8x20",
+      "admin/instructors.html@414/webkit a.text-decoration-none[2] 8x20",
+      "admin/instructors.html@768/chromium a.text-decoration-none[1] 8x20",
+      "admin/instructors.html@768/chromium a.text-decoration-none[2] 8x20",
+      "admin/instructors.html@768/webkit a.text-decoration-none[1] 8x20",
+      "admin/instructors.html@768/webkit a.text-decoration-none[2] 8x20"
+    ]
+  },
+  "input_font_size": {
+    "count": 0,
+    "items": []
+  },
+  "input_label": {
+    "count": 0,
+    "items": []
+  },
+  "reduced_motion_animations": {
+    "count": 0,
+    "items": []
+  },
+  "not_yet_wrap": {
+    "count": 0,
+    "items": []
+  },
+  "load_errors": {
+    "count": 0,
+    "items": []
+  }
+}
