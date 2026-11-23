@@ -396,6 +396,20 @@ describe('Server.gs saves in one all-or-nothing batchUpdate', () => {
     assert.equal(changed, 1);
   });
 
+  it('a column with a blank header (inserted by hand) does not shift saved cells', () => {
+    const { post, ss, admin } = ready();
+    const rooms = ss.getSheetByName('Rooms');
+    rooms.cells.forEach((row) => row.splice(1, 0, '')); // empty column B, no header
+    const room = post({ action: 'admin.listRooms', session_token: admin }).data.items[0];
+    const r = post({ action: 'admin.updateRoom', session_token: admin, room_id: room.room_id, room_code: room.room_code, room_name: `${room.room_name} X`, building: room.building });
+    assert.equal(r.ok, true);
+    const again = post({ action: 'admin.listRooms', session_token: admin }).data.items.find((x) => x.room_id === room.room_id);
+    assert.deepEqual([again.room_code, again.room_name, again.building, again.status], [room.room_code, `${room.room_name} X`, room.building, room.status]);
+    const created = post({ action: 'admin.createRoom', session_token: admin, room_code: 'QA-BLANK', room_name: 'Blank col', building: 'B' });
+    const added = post({ action: 'admin.listRooms', session_token: admin }).data.items.find((x) => x.room_id === created.data.room_id);
+    assert.deepEqual([added.room_code, added.room_name, added.status], ['QA-BLANK', 'Blank col', 'active']);
+  });
+
   it('an edited row lands on its own sheet row even with blank rows in between', () => {
     const { post, ss, usersTab, admin } = ready();
     const users = ss.getSheetByName('Users');

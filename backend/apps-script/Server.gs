@@ -393,7 +393,9 @@ function setTab_(state, name, mode, headerRow, body, lastRow) {
   var tracked = state.isWrite && mode === 'full' && (state.writable === null || state.writable.indexOf(name) !== -1);
   state.raw[name] = records;
   state.tabs[name] = {
-    headers: cols.filter(Boolean), lastRow: lastRow, width: width, count: records.length, mode: mode, rowNumbers: rowNumbers,
+    // Keep blank header cells in place: saves write column by position, so dropping one would shift every later cell.
+    // shortcut: a column with no header is written empty in rows the server saves; name the column if it must keep data.
+    headers: cols.some(Boolean) ? cols : [], lastRow: lastRow, width: width, count: records.length, mode: mode, rowNumbers: rowNumbers,
     snapshot: tracked ? records.map(function (row) { return JSON.stringify(row); }) : null,
   };
 }
