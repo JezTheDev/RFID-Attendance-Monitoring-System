@@ -1,6 +1,6 @@
 // Layout checker: every page x width x engine against the fake API (no real API call).
 // Usage: node tools/check_layout.mjs [--engine chromium|firefox|webkit|all] [--pages login,admin,instructor,student,admin/devices.html]
-//          [--widths 320,375,...] [--quick] [--compare <baseline.json>] [--write-baseline <file>]
+//          [--widths 320,375,...] [--quick] [--compare <baseline.json>] [--write-baseline <file>] [--motion reduce|no-preference]
 // --quick = chromium, widths 375 and 1366, --pages required.
 // Needs Playwright installed with: npm install --no-save playwright && npx playwright install
 import http from 'node:http';
@@ -129,7 +129,7 @@ async function runEngine(engineName) {
       const phone = width <= PHONE_MAX;
       const touch = width <= TOUCH_MAX && engineName !== 'firefox'; // Firefox has no isMobile: no touch checks there
       const context = await browser.newContext({
-        viewport: { width, height: phone ? 800 : 900 }, reducedMotion: 'reduce', serviceWorkers: 'block',
+        viewport: { width, height: phone ? 800 : 900 }, reducedMotion: value('motion') ?? 'reduce', serviceWorkers: 'block',
         ...(touch ? { hasTouch: true, isMobile: true } : {}),
       });
       contexts.push(context);
