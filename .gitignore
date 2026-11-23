@@ -4,3 +4,6 @@ firmware/**/secrets*.h
 .DS_Store
 __pycache__/
 .playwright-mcp/
+node_modules/
+layout-shots/
+.claude/

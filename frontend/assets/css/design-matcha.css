@@ -421,3 +421,14 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-title); letter-spacing: -.01em;
 @media (max-width: 575.98px) {
   .stat-value { font-size: 1.5rem; }
 }
+
+/* ---------- Touch screens: 16px fields so iOS Safari does not zoom on focus ---------- */
+@media (pointer: coarse) {
+  input, select, textarea { font-size: 16px !important; }
+}
+
+/* ---------- Reduced motion: animations the app.css/auth.css reduce blocks miss ---------- */
+@media (prefers-reduced-motion: reduce) {
+  .auth-card[data-mode] .auth-pane,
+  .page-enter .rate-meter > span { animation: none !important; }
+}
