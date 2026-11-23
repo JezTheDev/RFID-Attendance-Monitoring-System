@@ -30,15 +30,15 @@ function start() {
     <div class="card mb-3">
       <div class="card-body">
         <form class="row g-2 align-items-end" id="filterForm" role="search">
-          <div class="col-12 col-md-4">
+          <div class="col-12 col-lg-4">
             <label class="form-label small text-secondary mb-1" for="termFilter">Term</label>
             <select class="form-select" id="termFilter"><option value="">Loading…</option></select>
           </div>
-          <div class="col-12 col-md-5">
+          <div class="col-12 col-sm-7 col-lg-5">
             <label class="form-label small text-secondary mb-1" for="searchInput">Search</label>
             <input type="search" class="form-control" id="searchInput" placeholder="Subject, section, or instructor" autocomplete="off">
           </div>
-          <div class="col-12 col-md-3">
+          <div class="col-12 col-sm-5 col-lg-3">
             <label class="form-label small text-secondary mb-1" for="statusFilter">Status</label>
             <select class="form-select" id="statusFilter">
               <option value="active">Active</option><option value="inactive">Inactive</option><option value="all">All</option>
@@ -88,7 +88,7 @@ function start() {
   // Needs both options (terms) and the list (selected term); runs after whichever arrives last.
   const fillTermFilter = () => {
     if (!state.options || !state.data) return;
-    termFilter.innerHTML = state.options.terms.map((t) => `<option value="${escapeHtml(t.value)}"${t.value === state.termId ? ' selected' : ''}>${escapeHtml(t.label)}</option>`).join('')
+    termFilter.innerHTML = state.options.terms.map((t) => `<option value="${escapeHtml(t.value)}"${t.value === state.termId ? ' selected' : ''}>${escapeHtml(t.label.replace(/ \(active\)$/, ' ✓'))}</option>`).join('')
       || '<option value="">No terms yet</option>';
   };
 
@@ -125,7 +125,7 @@ function start() {
         <table class="table table-hover align-middle mb-0">
           <thead><tr>
             <th>Class</th><th class="d-none d-md-table-cell">Instructor</th><th class="d-none d-xl-table-cell">Schedule</th>
-            <th class="num">Students</th><th class="d-none d-sm-table-cell">Status</th><th class="text-end"><span class="visually-hidden">Actions</span></th>
+            <th class="num d-none d-sm-table-cell">Students</th><th class="d-none d-sm-table-cell">Status</th><th class="text-end"><span class="visually-hidden">Actions</span></th>
           </tr></thead>
           <tbody>
             ${rows.map((row) => `
@@ -133,12 +133,13 @@ function start() {
                 <td>
                   <button type="button" class="btn btn-link p-0 text-start text-decoration-none cell-main text-nowrap" data-open="${escapeHtml(row.class_id)}">${escapeHtml(row.class_label)}</button>
                   <div class="cell-sub">${escapeHtml(row.subject_title)}<span class="d-md-none"> · ${escapeHtml(row.instructor_name)}</span></div>
-                  <div class="cell-sub d-xl-none">${row.schedules.map((s) => `${escapeHtml(s.day)} ${escapeHtml(s.start_time)}–${escapeHtml(s.end_time)} ${escapeHtml(s.room_code)}`).join(' · ')}</div>
+                  <div class="cell-sub d-xl-none">${row.schedules.map((s) => `<span class="d-block text-nowrap">${escapeHtml(s.day)} ${escapeHtml(s.start_time)}–${escapeHtml(s.end_time)} · ${escapeHtml(s.room_code)}</span>`).join('')}</div>
+                  <div class="cell-sub d-sm-none">${row.enrolled} student${row.enrolled === 1 ? '' : 's'}</div>
                   ${row.schedules.length ? '' : '<span class="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle mt-1">No schedule yet</span>'}
                 </td>
                 <td class="d-none d-md-table-cell">${escapeHtml(row.instructor_name)}</td>
                 <td class="d-none d-xl-table-cell"><div class="schedule-list mt-0">${row.schedules.length ? scheduleHtml(row.schedules) : '<span class="text-secondary small">—</span>'}</div></td>
-                <td class="num">${row.enrolled}</td>
+                <td class="num d-none d-sm-table-cell">${row.enrolled}</td>
                 <td class="d-none d-sm-table-cell">${statusBadge(row.status)}</td>
                 <td class="text-end"><button type="button" class="btn btn-sm btn-light border" data-open="${escapeHtml(row.class_id)}">Manage</button></td>
               </tr>`).join('')}

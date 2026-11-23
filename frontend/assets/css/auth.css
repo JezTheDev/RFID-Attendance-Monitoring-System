@@ -956,3 +956,70 @@
   .auth-splash *::before,
   .auth-splash *::after { animation: none !important; }
 }
+
+/* =========================================================
+   Login only: one centered card, no side panel.
+   (The sliding-panel rules above stay for reference but are unused.)
+   ========================================================= */
+.auth-card--single {
+  max-width: 440px;
+  grid-template-columns: 1fr;
+  min-height: 0;
+  border-top: 4px solid var(--brand-700);
+}
+@media (min-width: 768px) {
+  .auth-card--single { grid-template-columns: 1fr; min-height: 0; }
+}
+.auth-card--single .auth-pane {
+  grid-row: 1;
+  grid-column: 1;
+  padding: 2rem 2.25rem 2rem;
+}
+@media (max-width: 420px) {
+  .auth-card--single .auth-pane { padding: 1.5rem 1.25rem 1.75rem; }
+}
+
+.auth-logo-row {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding-bottom: 1.25rem;
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+.auth-logo-row img {
+  flex: none;
+  border-radius: 12px;
+  box-shadow: 0 6px 14px -8px rgba(63, 15, 15, .6);
+}
+.auth-logo-name {
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--brand-900);
+  line-height: 1.2;
+}
+.auth-logo-sub {
+  font-size: .78rem;
+  color: var(--ink-muted);
+}
+
+/* Help line under the form, shown on every screen size */
+.auth-help {
+  margin: 1.25rem 0 0;
+  text-align: center;
+  font-size: .82rem;
+  color: var(--ink-muted);
+}
+
+/* A filled field is not the same as a correct password: no green "valid"
+   border on sign-in (it looked right next to "Incorrect username or password"). */
+.auth-card--single .was-validated .auth-input:valid { border-color: var(--line); }
+
+/* Forgot-password view starts at the top of the card (no empty gap above
+   "Back to sign in"); the slide animation between the two views stays. */
+.auth-card--single .auth-view { justify-content: flex-start; }
+
+/* iPhone zooms in when a field's text is under 16px: keep login fields at 16px on phones */
+@media (max-width: 575.98px) {
+  .auth-input { font-size: 16px; }
+}

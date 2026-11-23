@@ -41,7 +41,7 @@ function start() {
         <form class="row g-2 align-items-end" id="filterForm" role="search">
           <div class="col-12 col-lg-4">
             <label class="form-label small text-secondary mb-1" for="searchInput">Search</label>
-            <input type="search" class="form-control" id="searchInput" placeholder="Name, student number, email, or card UID" autocomplete="off">
+            <input type="search" class="form-control" id="searchInput" placeholder="Name, number, or card UID" autocomplete="off">
           </div>
           <div class="col-6 col-lg-3">
             <label class="form-label small text-secondary mb-1" for="sectionFilter">Section</label>
@@ -245,7 +245,7 @@ function listHtml(data, state) {
         <thead>
           <tr>
             <th>Student</th><th class="d-none d-md-table-cell">Section</th><th class="d-none d-lg-table-cell">Email</th>
-            <th>RFID card</th><th class="d-none d-sm-table-cell">Status</th><th class="text-end"><span class="visually-hidden">Actions</span></th>
+            <th class="d-none d-sm-table-cell">RFID card</th><th class="d-none d-sm-table-cell">Status</th><th class="text-end"><span class="visually-hidden">Actions</span></th>
           </tr>
         </thead>
         <tbody>
@@ -255,11 +255,11 @@ function listHtml(data, state) {
                 <button type="button" class="btn btn-link p-0 text-start text-decoration-none cell-main" data-student-action="details" data-student-id="${escapeHtml(student.student_id)}">${escapeHtml(fullName(student))}</button>
                 <div class="cell-sub">${escapeHtml(student.student_number)}<span class="d-md-none"> · ${escapeHtml(student.section_label)}</span></div>
                 ${!student.account?.user_id || student.account.locked || student.account.must_change_password ? `<div class="mt-1">${accountStateHtml(student.account)}</div>` : ''}
-                <div class="d-sm-none mt-1">${student.account_status === 'active' ? '' : statusBadge(student.account_status)}</div>
+                <div class="d-sm-none mt-1">${cardCellHtml(student.card)}${student.account_status === 'active' ? '' : ` ${statusBadge(student.account_status)}`}</div>
               </td>
               <td class="d-none d-md-table-cell">${escapeHtml(student.section_label)}</td>
               <td class="d-none d-lg-table-cell small">${escapeHtml(student.email)}</td>
-              <td>${cardCellHtml(student.card)}</td>
+              <td class="d-none d-sm-table-cell">${cardCellHtml(student.card)}</td>
               <td class="d-none d-sm-table-cell">${statusBadge(student.account_status)}</td>
               <td class="text-end">${actionMenuHtml(student)}</td>
             </tr>`).join('')}

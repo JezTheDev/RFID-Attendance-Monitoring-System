@@ -187,17 +187,18 @@ function reportHtml(data) {
       </div>
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
-          <thead><tr><th>Student</th><th class="num">Present</th><th class="num">Late</th><th class="num">Absent</th><th style="min-width:150px">Rate</th></tr></thead>
+          <thead><tr><th>Student</th><th class="num d-none d-sm-table-cell">Present</th><th class="num d-none d-sm-table-cell">Late</th><th class="num d-none d-sm-table-cell">Absent</th><th class="report-rate-col">Rate</th></tr></thead>
           <tbody>
             ${students.map((row) => `
               <tr>
                 <td>
                   <button type="button" class="btn btn-link p-0 text-start text-decoration-none cell-main" data-history="${escapeHtml(row.student_id)}">${escapeHtml(`${row.last_name}, ${row.first_name}`)}</button>
                   <div class="cell-sub">${escapeHtml(row.student_number)}</div>
+                  <div class="cell-sub d-sm-none">${row.present} present · ${row.late} late · ${row.absent} absent</div>
                 </td>
-                <td class="num">${row.present}</td>
-                <td class="num">${row.late}</td>
-                <td class="num">${row.absent}</td>
+                <td class="num d-none d-sm-table-cell">${row.present}</td>
+                <td class="num d-none d-sm-table-cell">${row.late}</td>
+                <td class="num d-none d-sm-table-cell">${row.absent}</td>
                 <td>
                   <div class="d-flex align-items-center gap-2">
                     <span class="fw-semibold text-${rateTone(row.rate)}-emphasis text-end" style="min-width:4.5ch">${formatRate(row.rate)}</span>

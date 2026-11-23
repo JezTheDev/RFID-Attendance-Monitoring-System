@@ -73,8 +73,8 @@ function start() {
     nameOf: (row) => row.device_id,
     searchText: (row) => `${row.device_id} ${row.device_name} ${row.room_code} ${row.status} ${row.firmware_version}`,
     columns: [
-      { label: 'Device', html: (row) => `<div class="cell-main">${escapeHtml(row.device_name)}</div><div class="cell-sub font-monospace">${escapeHtml(row.device_id)}</div>` },
-      { label: 'Room', html: (row) => (row.room_code ? escapeHtml(row.room_code) : '<span class="text-secondary">Unassigned</span>') },
+      { label: 'Device', html: (row) => `<div class="cell-main">${escapeHtml(row.device_name)}</div><div class="cell-sub font-monospace text-nowrap">${escapeHtml(row.device_id)}</div><div class="cell-sub d-sm-none">${row.room_code ? `Room ${escapeHtml(row.room_code)}` : 'No room yet'}</div>` },
+      { label: 'Room', hideBelow: 'sm', html: (row) => (row.room_code ? escapeHtml(row.room_code) : '<span class="text-secondary">Unassigned</span>') },
       { label: 'Status', html: (row) => badge(DEVICE_STATUS[row.status] ?? { label: row.status, tone: 'secondary' }) },
       { label: 'Key', hideBelow: 'sm', html: (row) => (row.has_key ? 'Yes' : '<span class="text-danger">No</span>') },
       {

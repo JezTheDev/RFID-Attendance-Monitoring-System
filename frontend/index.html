@@ -11,16 +11,24 @@
   <link rel="stylesheet" href="assets/css/app.css">
   <link rel="stylesheet" href="assets/css/bubbles.css">
   <link rel="stylesheet" href="assets/css/auth.css">
+  <link rel="stylesheet" href="assets/css/theme.css">
 </head>
 <body>
   <div class="login-page">
     <div class="bubbles" id="bubbles" aria-hidden="true"></div>
     <div class="login-wrap">
-      <div class="login-card auth-card" id="authCard" data-mode="signin">
+      <div class="login-card auth-card auth-card--single" id="authCard" data-mode="signin">
 
         <!-- ============ SIGN IN + FORGOT PASSWORD ============ -->
         <!-- No self-registration: only the administrator creates accounts. -->
         <section class="auth-pane auth-pane--signin" aria-labelledby="signInTitle">
+          <div class="auth-logo-row">
+            <img src="assets/img/logo.svg" alt="" width="44" height="44">
+            <div>
+              <div class="auth-logo-name">RFID Attendance</div>
+              <div class="auth-logo-sub">Pampanga State University · Computer Engineering</div>
+            </div>
+          </div>
           <div class="auth-views" data-view="signin">
 
             <!-- Sign in -->
@@ -99,7 +107,7 @@
 
               <div id="signInError" class="alert alert-danger d-none mb-0 mt-3" role="alert"></div>
 
-              <p class="auth-switch-mobile"><i class="bi bi-person-lock me-1" aria-hidden="true"></i>No account yet? Ask your administrator to create one.</p>
+              <p class="auth-help"><i class="bi bi-person-lock me-1" aria-hidden="true"></i>No account yet? Ask your administrator to create one.</p>
             </div>
 
             <!-- Forgot password -->
@@ -119,53 +127,6 @@
           </div>
         </section>
 
-        <!-- ============ SLIDING MAROON PANEL ============ -->
-        <aside class="login-hero auth-overlay">
-          <div class="d-flex align-items-center gap-2 auth-brand">
-            <div class="brand-mark" aria-hidden="true"><i class="bi bi-person-badge"></i></div>
-            <div>
-              <div class="brand-name">RFID Attendance</div>
-              <div class="brand-sub">Pampanga State University</div>
-            </div>
-          </div>
-
-          <div class="auth-faces">
-            <!-- shown while signing in -->
-            <div class="auth-face auth-face--signin">
-              <div>
-                <h1>Attendance, recorded <span class="auth-accent">with a tap.</span></h1>
-                <p class="mt-2">Monitoring system for the Department of Computer Engineering.</p>
-              </div>
-              <ul class="auth-roles">
-                <li class="auth-role auth-role--admin">
-                  <span class="auth-role-icon" aria-hidden="true"><i class="bi bi-shield-check"></i></span>
-                  <div>
-                    <div class="auth-role-name">Admin <span class="auth-role-tag">Full management</span></div>
-                    <div class="auth-role-desc">Manages accounts, RFID cards, classes, schedules, and reports.</div>
-                  </div>
-                </li>
-                <li class="auth-role auth-role--instructor">
-                  <span class="auth-role-icon" aria-hidden="true"><i class="bi bi-mortarboard"></i></span>
-                  <div>
-                    <div class="auth-role-name">Instructor <span class="auth-role-tag">Assigned classes only</span></div>
-                    <div class="auth-role-desc">Monitors attendance and generates reports for their own classes.</div>
-                  </div>
-                </li>
-                <li class="auth-role auth-role--student">
-                  <span class="auth-role-icon" aria-hidden="true"><i class="bi bi-person"></i></span>
-                  <div>
-                    <div class="auth-role-name">Student <span class="auth-role-tag">View only</span></div>
-                    <div class="auth-role-desc">Views their own attendance summary, history, and profile.</div>
-                  </div>
-                </li>
-              </ul>
-              <div class="auth-cta">
-                <i class="bi bi-person-lock" aria-hidden="true"></i>
-                <span>Only the administrator can create accounts.</span>
-              </div>
-            </div>
-          </div>
-        </aside>
       </div>
     </div>
     <footer class="login-footer">Pampanga State University · College of Engineering and Architecture · Department of Computer Engineering</footer>

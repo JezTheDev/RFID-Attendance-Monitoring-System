@@ -95,7 +95,7 @@ function start() {
       }
       sessionSelect.innerHTML = data.sessions.map((row) => `
         <option value="${escapeHtml(row.session_id)}"${row.session_id === state.sessionId ? ' selected' : ''}>
-          ${escapeHtml(formatDateShort(row.session_date))} · ${formatClockTime(row.start_time)} · ${escapeHtml(sessionOptionLabel(row))}
+          ${escapeHtml(pickerDate(row.session_date))} · ${formatClockTime(row.start_time)} · ${escapeHtml(sessionOptionLabel(row))}
         </option>`).join('');
       sessionSelect.disabled = false;
       loadRoster();
@@ -327,4 +327,13 @@ async function correctFlow(state, studentId, refresh) {
     showToast(`${student.first_name} ${student.last_name} marked ${ATTENDANCE_STATUS[result.status].label.toLowerCase()}.`);
     refresh();
   }
+}
+
+// Session picker: phones leave out the weekday and year so the whole label fits
+// (the session heading below still shows the full date).
+function pickerDate(dateString) {
+  if (!window.matchMedia('(max-width: 575.98px)').matches) return formatDateShort(dateString);
+  const [year, month, day] = dateString.split('-').map(Number);
+  return new Intl.DateTimeFormat('en-PH', { timeZone: 'UTC', month: 'short', day: 'numeric' })
+    .format(new Date(Date.UTC(year, month - 1, day)));
 }

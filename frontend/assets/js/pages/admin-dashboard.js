@@ -84,8 +84,8 @@ function loadingHtml() {
       ${[1, 2, 3, 4].map(() => `<div class="col-6 col-xl-3">${block(96)}</div>`).join('')}
     </div>
     <div class="row g-3">
-      <div class="col-xl-8">${block(320)}</div>
-      <div class="col-xl-4">${block(320)}</div>
+      <div class="col-xxl-8">${block(320)}</div>
+      <div class="col-xxl-4">${block(320)}</div>
     </div>`;
 }
 
@@ -94,8 +94,8 @@ function dashboardHtml(data) {
     ${statsHtml(data)}
     ${alertsHtml(data.alerts)}
     <div class="row g-3 mb-3">
-      <div class="col-xl-8">${sessionsHtml(data)}</div>
-      <div class="col-xl-4">${devicesHtml(data.devices)}</div>
+      <div class="col-xxl-8">${sessionsHtml(data)}</div>
+      <div class="col-xxl-4">${devicesHtml(data.devices)}</div>
     </div>
     ${scansHtml(data.recent_scans)}`;
 }

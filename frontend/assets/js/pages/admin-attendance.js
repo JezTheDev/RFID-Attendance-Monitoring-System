@@ -210,21 +210,21 @@ function recordsHtml(data) {
     <div class="table-responsive">
       <table class="table table-hover align-middle mb-0">
         <thead><tr>
-          <th>Date</th><th>Class</th><th>Student</th><th>Scanned at</th><th>Status</th>
+          <th class="d-none d-md-table-cell">Date</th><th>Class</th><th>Student</th><th class="d-none d-sm-table-cell">Scanned at</th><th>Status</th>
           <th class="d-none d-lg-table-cell">Source</th><th class="d-none d-xl-table-cell">Correction</th>
           <th class="text-end"><span class="visually-hidden">Actions</span></th>
         </tr></thead>
         <tbody>
           ${data.rows.map((row) => `
             <tr>
-              <td class="text-nowrap">${escapeHtml(formatDateShort(row.session_date))}</td>
-              <td><div class="cell-main">${escapeHtml(row.class_label)}</div><div class="cell-sub">${escapeHtml(row.room_code)}</div></td>
+              <td class="text-nowrap d-none d-md-table-cell">${escapeHtml(formatDateShort(row.session_date))}</td>
+              <td class="text-nowrap"><div class="cell-main">${escapeHtml(row.class_label)}</div><div class="cell-sub">${escapeHtml(row.room_code)}</div><div class="cell-sub d-md-none">${escapeHtml(formatDateShort(row.session_date))}</div></td>
               <td><div class="cell-main">${escapeHtml(row.student_name)}</div><div class="cell-sub font-monospace">${escapeHtml(row.student_number)}</div></td>
-              <td class="text-nowrap">${escapeHtml(formatTimestamp(row.scanned_at))}</td>
-              <td>${attendanceBadge(row.status)}${row.corrected ? `<div class="cell-sub mt-1">Device: ${escapeHtml(row.device_status)}</div>` : ''}</td>
+              <td class="text-nowrap d-none d-sm-table-cell">${escapeHtml(formatTimestamp(row.scanned_at))}</td>
+              <td>${attendanceBadge(row.status)}<div class="cell-sub d-sm-none mt-1">${escapeHtml(formatTimestamp(row.scanned_at))}</div>${row.corrected ? `<div class="cell-sub mt-1">Device: ${escapeHtml(row.device_status)}</div>` : ''}</td>
               <td class="d-none d-lg-table-cell small">${sourceText(row)}</td>
               <td class="d-none d-xl-table-cell small">${correctionHtml(row)}</td>
-              <td class="text-end"><button type="button" class="btn btn-sm btn-light border text-nowrap" data-correct="${escapeHtml(row.attendance_id)}"><i class="bi bi-pencil-square me-1" aria-hidden="true"></i>Correct</button></td>
+              <td class="text-end"><button type="button" class="btn btn-sm btn-light border text-nowrap" data-correct="${escapeHtml(row.attendance_id)}" title="Correct this record" aria-label="Correct ${escapeHtml(row.student_name)}"><i class="bi bi-pencil-square" aria-hidden="true"></i><span class="d-none d-sm-inline ms-1">Correct</span></button></td>
             </tr>`).join('')}
         </tbody>
       </table>
