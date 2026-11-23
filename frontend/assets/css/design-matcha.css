@@ -64,6 +64,8 @@ h1, h2, h3, h4, h5, h6 { font-family: var(--font-title); letter-spacing: -.01em;
 /* ---------- Buttons: soft pills ---------- */
 .btn { border-radius: 999px; font-weight: 700; padding-left: 1.1rem; padding-right: 1.1rem; }
 .btn-sm { padding-left: .8rem; padding-right: .8rem; }
+/* Full-width filter groups (student history): pill padding pushed 4-5 buttons past a 320px phone */
+.btn-group.w-100 > .btn { padding-left: .5rem; padding-right: .5rem; }
 .btn-primary {
   --bs-btn-bg: var(--brand-700);
   --bs-btn-border-color: var(--brand-700);
