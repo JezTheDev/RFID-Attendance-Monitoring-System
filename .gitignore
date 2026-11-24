@@ -1,5 +1,5 @@
-firmware/**/secrets.h
 firmware/**/secrets*.h
+!firmware/**/secrets.example.h
 *.local.js
 .DS_Store
 __pycache__/
@@ -7,4 +7,3 @@ __pycache__/
 node_modules/
 layout-shots/
 .claude/
-firmware/**/secrets.h

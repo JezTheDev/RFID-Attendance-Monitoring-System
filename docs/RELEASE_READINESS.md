@@ -248,7 +248,7 @@ Reviewer verdict: **no Critical**, release "with fixes".
   `device.submitScans` reads all of ScanLog + Attendance per tap (~10k rows read at
   5k rows each). Live today: 2.3–4.3 s per tap, 12.7 s worst under 10 parallel,
   2/10 SERVER_BUSY. Fine at TEST size; must be re-measured on a term-sized Sheet
-  (FINAL_BACKEND_REVIEW P9) before real students.
+  (`docs/archive/FINAL_BACKEND_REVIEW.md` P9) before real students.
 
 **Minor (not fixed, no new features):** re-enrolled student keeps old `enrolled_at`;
 admin dashboard rate counts not_scanned mid-class (portals don't); instructor

@@ -3,7 +3,7 @@
 IoT attendance for PSU Computer Engineering: **ESP32 + MFRC522 → Google Apps
 Script Web App → private Google Sheet**. Static Bootstrap 5 site on GitHub
 Pages with Admin, Instructor and Student portals. Current state and known
-issues: `docs/BACKEND_VERIFICATION.md` and `docs/FINAL_BACKEND_REVIEW.md`.
+issues: `docs/RELEASE_READINESS.md` and `docs/BACKEND_VERIFICATION.md`.
 Production setup: `docs/PRODUCTION_SETUP.md`. Old audit and plan/spec docs:
 `docs/archive/` (history only, not current).
 
@@ -70,8 +70,17 @@ tools/
   measure_admin_reports.mjs tabs/rows read per admin.listAttendance / getAttendanceReport
   live_device_test.mjs    step 4f: real device requests to the DEPLOYED Web App (env vars;
                           backend/README.md "Live test (4f)")
-docs/                  Architecture, Device API spec, verification + final review,
-                       PRODUCTION_SETUP.md; archive/ = old audit + plans/specs
+  preview_server.mjs      interactive local preview: real Server.gs + Bundle.gs on a fake
+                          Sheet with TEST seed data (port 8777, also reachable from LAN);
+                          sign in as admin.test / instructor01.test / 9999000001 to click through
+  check_layout.mjs        automated layout checker (Playwright: every page x width x engine,
+                          fake API in backend/tests/helpers/layout-api.js); --write-baseline /
+                          --compare <file> to prove a change made nothing worse
+                          (needs: npm install --no-save playwright && npx playwright install)
+firmware/              ESP32 sketch (stage 1); secrets.example.h -> copy to secrets.h (ignored)
+docs/                  Architecture, Device API spec, verification, release readiness,
+                       paper system logic, PRODUCTION_SETUP.md; archive/ = old audits,
+                       final backend review + plans/specs
 ```
 
 ## Build and deploy the Apps Script

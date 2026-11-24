@@ -1,4 +1,4 @@
-// Backend wrap-up (docs/FINAL_BACKEND_REVIEW.md): I1, I3, D12 and the small Minor fixes.
+// Backend wrap-up (docs/archive/FINAL_BACKEND_REVIEW.md): I1, I3, D12 and the small Minor fixes.
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeDb, SESSIONS, withCode, CTX } from './helpers/db.js';

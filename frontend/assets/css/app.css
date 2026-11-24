@@ -36,10 +36,6 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--bs-heading-color);
 }
 
-.login-hero h1 {
-  color: #fff;
-}
-
 body {
   font-size: 0.9375rem;
   background: var(--canvas);
@@ -558,60 +554,6 @@ body {
 @media (min-width: 768px) {
   .login-card {
     grid-template-columns: 1.05fr 1fr;
-  }
-}
-
-.login-hero {
-  background: linear-gradient(160deg, var(--brand-700) 0%, var(--brand-900) 100%);
-  color: #fff;
-  padding: 2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-@media (min-width: 768px) {
-  .login-hero {
-    padding: 2.75rem;
-  }
-}
-
-.login-hero h1 {
-  font-size: 1.75rem;
-  font-weight: 700;
-  margin: 0;
-}
-
-.login-hero p {
-  opacity: 0.85;
-  margin: 0;
-}
-
-.hero-points {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 0.6rem;
-  font-size: 0.875rem;
-}
-
-.hero-points .bi {
-  color: var(--gold-500);
-  margin-right: 0.5rem;
-}
-
-.login-form {
-  padding: 2rem;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 1rem;
-}
-
-@media (min-width: 768px) {
-  .login-form {
-    padding: 2.75rem;
   }
 }
 

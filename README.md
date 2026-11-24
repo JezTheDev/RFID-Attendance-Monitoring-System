@@ -17,10 +17,11 @@ Website ──────┘
 |---|---|
 | `backend/` | Apps Script server + business logic + tests (see `backend/README.md`) |
 | `frontend/` | Website for GitHub Pages (see `frontend/README.md`) |
-| `tools/` | `build_apps_script.mjs` (builds Bundle.gs/SeedData.gs), device/report measurement + live test scripts |
-| `docs/` | Architecture, Device API spec, backend verification + final review, `PRODUCTION_SETUP.md`; `archive/` = old audit and plans |
+| `tools/` | `build_apps_script.mjs` (builds Bundle.gs/SeedData.gs), `preview_server.mjs` (local preview on fake data), `check_layout.mjs` (layout checker), device/report measurement + live test scripts |
+| `firmware/` | ESP32 sketch, stage 1 (copy `secrets.example.h` to `secrets.h`; never commit it) |
+| `docs/` | Architecture, Device API spec, backend verification, release readiness, paper system logic, `PRODUCTION_SETUP.md`; `archive/` = old audits, final backend review and plans |
 
-## Status (2026-11-18)
+## Status (2026-11-25)
 
 | Part | Status |
 |---|---|
@@ -29,18 +30,21 @@ Website ──────┘
 | Instructor portal: dashboard, sessions, attendance corrections, roster, reports + CSV | Done |
 | Student portal: overview, history, profile | Done |
 | Unit tests for the business logic (`npm test`) | Done |
-| Login: admin-created username/password accounts | Done (backend + basic login page): lockout, forced first-login password change, admin reset/unlock actions. Login page polish, Settings page and admin reset/unlock buttons are next |
-| Device API (`device.submitScans`, heartbeat, roster) + session engine | Not started |
-| Firmware | Not in this repository yet |
+| Login: admin-created username/password accounts | Done: lockout, forced first-login password change, admin reset/unlock, account page |
+| Device API (`device.submitScans`, heartbeat, roster) + session engine | Done (see `docs/Device_API_Spec.md`) |
+| Firmware (ESP32 + MFRC522) | Stage 1 in `firmware/rfid_attendance/` |
+| Website design | Matcha Latte (`frontend/assets/css/theme.css` → `design-matcha.css`) |
 
 There is **no demo mode** and **no Google Sign-In**: the website always talks
-to the live Apps Script backend. Fake data is only for a TEST Google Sheet.
+to the live Apps Script backend. Fake data is only for a TEST Google Sheet
+and the local preview (`tools/preview_server.mjs`).
 
 ## Quick commands
 
 ```bash
 npm test                          # run unit tests (Node 20+, no installs needed)
 node tools/build_apps_script.mjs  # rebuild backend/apps-script/Bundle.gs + SeedData.gs
+node tools/preview_server.mjs     # local preview on FAKE data: http://localhost:8777
 ```
 
 Project rules for contributors (and AI assistants): see `CLAUDE.md`.

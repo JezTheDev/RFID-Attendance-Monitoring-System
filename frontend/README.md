@@ -7,15 +7,19 @@ It always talks to the **live** Apps Script backend — there is no demo mode.
 
 | Part | Status |
 |---|---|
-| Design system (PSU maroon/gold), app shell, responsive sidebar | Done |
+| Design: Matcha Latte (`theme.css` imports `design-matcha.css` over the original PSU maroon/gold in `app.css`/`auth.css`), app shell, responsive sidebar | Done |
 | Admin portal: dashboard, attendance, students & RFID cards, instructors, admins, classes, academic setup, devices, settings, my account | Done |
 | Instructor portal: dashboard (+ recent activity, past classes), attendance (sessions + corrections + date filter), reports + CSV, my account | Done |
 | Student portal: overview, history (date filter, corrections with reason + role), profile, my account | Done |
-| Login page | Username / student number + password (`auth.login`), forced change-password step (`auth.changePassword`). Polish comes in Step 3. |
+| Login page: username / student number + password (`auth.login`), forced change-password step (`auth.changePassword`), forgot-password help (ask the admin) | Done |
 
 ## Run it locally
 
-ES modules do not load from `file://`, so serve the folder:
+ES modules do not load from `file://`, so serve the folder.
+
+- **Fake data, no live API:** `node tools/preview_server.mjs` (repo root) → `http://localhost:8777`. Runs the real backend code on a fake Sheet with the TEST seed accounts (`admin.test`, `instructor01.test`, `9999000001`; the password is printed at start).
+
+Against the live API in `config.js`:
 
 - **VS Code:** "Live Server" extension → right-click `frontend/index.html` → *Open with Live Server* (port 5500), or
 - **Terminal:** `cd frontend` then `python -m http.server 5500`, and open `http://localhost:5500`.
@@ -44,7 +48,8 @@ frontend/
 ├── instructor/                index, attendance, reports, account
 ├── student/                   index, history, profile, account
 └── assets/
-    ├── css/                   app.css (design tokens + components), auth.css, bubbles.css
+    ├── css/                   app.css (tokens + components), auth.css (login), bubbles.css,
+    │                          theme.css (design switch) → design-matcha.css
     └── js/
         ├── config.js          API_URL, timezone
         ├── api.js             callApi(): sends requests to the backend, error handling
