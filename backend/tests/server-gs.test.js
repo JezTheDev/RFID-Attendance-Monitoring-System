@@ -761,3 +761,71 @@ describe('prepareLiveTest / cleanupLiveTest editor jobs (step 4f)', () => {
     assert.equal(tab('Schedules').at(-1).status, 'inactive');
   });
 });
+
+describe('wipeTestData (editor only, TEST Sheet only)', () => {
+  const KEPT = { Users: 'admin.test', Rooms: 'RM301', Devices: 'DEV-RM301-01' };
+  const keyOf = { Users: 'username', Rooms: 'room_code', Devices: 'device_id' };
+  const dataTabs = (context) => Object.keys(context.RFID.TAB_COLUMNS).filter((name) => name !== 'Settings');
+
+  it('refuses on the production Sheet (no TEST_SEED_PASSWORD), even with CONFIRM_WIPE = YES', () => {
+    const PROD = { PASSWORD_PEPPER: 'prod-pepper', BOOTSTRAP_ADMIN_USERNAME: 'root', BOOTSTRAP_ADMIN_PASSWORD: 'FirstLogin2026', CONFIRM_WIPE: 'YES' };
+    const { context, ss } = makeServer(PROD);
+    context.setupEmptySheets();
+    context.createBootstrapAdmin();
+    const before = allCells(ss);
+    assert.throws(() => context.wipeTestData(), /NOT_TEST_SHEET/);
+    assert.equal(allCells(ss), before);
+  });
+
+  it('dry run (no CONFIRM_WIPE) logs the counts and changes nothing', () => {
+    const { context, ss, logs, tab } = makeServer();
+    context.setupSheets();
+    const before = allCells(ss);
+    logs.length = 0;
+    context.wipeTestData();
+    const log = logs.join('\n');
+    assert.match(log, /DRY RUN/);
+    assert.ok(log.includes(`Students: delete ${tab('Students').length}, keep 0`), log);
+    assert.ok(log.includes(`Users: delete ${tab('Users').length - 1}, keep 1 (admin.test)`), log);
+    assert.match(log, /CONFIRM_WIPE/);
+    assert.equal(allCells(ss), before);
+  });
+
+  it('CONFIRM_WIPE = YES keeps exactly admin.test, RM301, DEV-RM301-01, Settings, headers, View tabs; bumps roster_version; deletes the property', () => {
+    const { context, ss, tab, props } = makeServer();
+    context.setupSheets();
+    const keep = Object.fromEntries(Object.entries(KEPT).map(([name, value]) => [name, tab(name).filter((row) => row[keyOf[name]] === value)]));
+    assert.ok(keep.Devices[0].device_key_hash !== undefined && keep.Users[0].password_hash, 'seed has the kept rows');
+    const settings = tab('Settings');
+    ss.insertSheet('View - Attendance').getRange(1, 1, 2, 1).setValues([['Date'], ['=ARRAYFORMULA(1)']]); // the fake skips setupViews
+    const viewCells = () => JSON.stringify(ss.getSheets().filter((s) => s.getName().startsWith('View - ')).map((s) => [s.getName(), s.cells]));
+    const views = viewCells();
+    assert.match(views, /View - Attendance/);
+    props.CONFIRM_WIPE = 'YES';
+    context.wipeTestData();
+
+    for (const name of dataTabs(context)) {
+      assert.deepEqual(ss.getSheetByName(name).cells[0], [...context.RFID.TAB_COLUMNS[name]], `${name} header kept`);
+      assert.deepEqual(tab(name), keep[name] || [], name);
+    }
+    const version = (rows) => Number(rows.find((r) => r.key === 'roster_version').value);
+    assert.equal(version(tab('Settings')), version(settings) + 1);
+    assert.deepEqual(tab('Settings').filter((r) => r.key !== 'roster_version'), settings.filter((r) => r.key !== 'roster_version'));
+    assert.equal(viewCells(), views, 'View tabs untouched');
+    assert.equal(props.CONFIRM_WIPE, undefined, 'CONFIRM_WIPE deleted');
+  });
+
+  it('after the wipe admin.test signs in and new ids continue correctly', () => {
+    const { context, post, props, tab } = ready();
+    props.CONFIRM_WIPE = 'YES';
+    context.wipeTestData();
+    const admin = post({ action: 'auth.login', username: 'admin.test', password: 'NewAdmin99' }).data.session_token;
+    const room = post({ action: 'admin.createRoom', session_token: admin, room_code: 'CPE-103', room_name: 'Lab 3', building: '' });
+    assert.equal(room.data.room_id, 'ROM-0002', 'after the kept ROM-0001');
+    const program = post({ action: 'admin.createProgram', session_token: admin, program_code: 'BSEE', program_name: 'Electrical Engineering' });
+    assert.equal(program.data.program_id, 'PRG-0001');
+    assert.equal(tab('Rooms').length, 2);
+    assert.match(tab('AuditLog')[0].audit_id, /-0+1$/, 'AuditLog ids restart after the wipe');
+    assert.equal(new Set(tab('AuditLog').map((r) => r.audit_id)).size, tab('AuditLog').length, 'no duplicate audit ids');
+  });
+});

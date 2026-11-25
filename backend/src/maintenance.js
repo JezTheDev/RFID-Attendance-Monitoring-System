@@ -2,8 +2,9 @@
 // Each takes the db and returns lines to log.
 import { overlaps, addSchedule, removeSchedule } from './handlers/classes.js';
 import {
-  AppError, fullName, manilaAt, dayCodeOf, writeAudit,
+  AppError, fullName, manilaAt, dayCodeOf, writeAudit, bumpRosterVersion,
 } from './utils.js';
+import { TAB_COLUMNS } from './schema.js';
 
 // Lists ACTIVE classes (same term) whose ACTIVE schedules overlap on the same
 // day and share a room, an instructor or a section. Read-only. Uses the same
@@ -137,4 +138,35 @@ export function cleanupLiveTest(db, ctx) {
   return marked.length
     ? marked.map((row) => `Set LIVE TEST schedule ${row.schedule_id} (${row.class_id}, ${row.day_of_week} ${row.start_time}-${row.end_time}) inactive.`)
     : ['Nothing to change: no active LIVE TEST schedule.'];
+}
+
+/* ---------- Wipe test data: TEST Sheet only ---------- */
+
+// The only data rows a wipe keeps (Settings is kept whole).
+const WIPE_KEEP = { Users: ['username', 'admin.test'], Rooms: ['room_code', 'RM301'], Devices: ['device_id', 'DEV-RM301-01'] };
+
+// Deletes every data row of every schema tab except Settings and the WIPE_KEEP
+// rows, and bumps roster_version. confirm false = dry run: only the counts.
+// Headers, tabs and the "View - …" tabs are never touched (Server.gs).
+export function wipeTestData(db, ctx, confirm) {
+  requireTestSheet(ctx, 'wipeTestData');
+  if (!db.Users.some((row) => row.username === WIPE_KEEP.Users[1])) {
+    throw new AppError('NOT_FOUND', 'admin.test is not in Users: refusing, the wipe would leave no admin to sign in.');
+  }
+  const lines = [confirm ? 'WIPED (CONFIRM_WIPE = YES):' : 'DRY RUN, nothing changed. Would delete:'];
+  Object.keys(TAB_COLUMNS).filter((name) => name !== 'Settings').forEach((name) => {
+    const rows = db[name] || [];
+    const [key, value] = WIPE_KEEP[name] || [];
+    const kept = rows.filter((row) => key && row[key] === value);
+    lines.push(`${name}: delete ${rows.length - kept.length}, keep ${kept.length}${kept.length ? ` (${value})` : ''}`);
+    if (confirm) rows.splice(0, rows.length, ...kept);
+  });
+  lines.push('Kept: every header row, the Settings tab, the "View - …" tabs.');
+  if (confirm) {
+    bumpRosterVersion(db);
+    lines.push(`roster_version is now ${db.Settings.find((row) => row.key === 'roster_version')?.value}: the ESP32 re-downloads the roster.`);
+  } else {
+    lines.push('To really delete: set the Script Property CONFIRM_WIPE = YES and run wipeTestData again.');
+  }
+  return lines;
 }

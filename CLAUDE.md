@@ -34,7 +34,8 @@ backend/
     schema.js          TAB_COLUMNS (every tab + columns) and DEFAULT_SETTINGS rows
     maintenance.js     Editor-only jobs: findScheduleClashes,
                        prepareLiveTest / cleanupLiveTest (TEST Sheet; marker = AuditLog
-                       LIVE_TEST_SCHEDULE row)
+                       LIVE_TEST_SCHEDULE row),
+                       wipeTestData (TEST Sheet; dry run unless CONFIRM_WIPE = YES)
     sessions.js        Session engine (pure): resolveScan (tap -> session decision, no writes),
                        sessionPhase, missingStatus ('not_scanned' until the end, then 'absent')
     auth/              passwords (hash/verify), context (ctx), session, account
@@ -57,7 +58,7 @@ backend/
                        jobs (setupEmptySheets [production], setupSheets [TEST],
                        createBootstrapAdmin, listScheduleClashes, benchmarkPasswordHash,
                        checkSetup, issueTestDeviceKey, resetTestUserPassword,
-                       prepareLiveTest, cleanupLiveTest [last four: TEST Sheet only])
+                       prepareLiveTest, cleanupLiveTest, wipeTestData [last five: TEST Sheet only])
     Bundle.gs          GENERATED from backend/src — do not edit
     SeedData.gs        GENERATED from backend/seed/seed-data.json — do not edit (TEST only;
                        never in the production project)
@@ -196,6 +197,15 @@ Tab columns and default Settings live in `backend/src/schema.js`
   `locked_until`, `temp_password_expires_at`, revokes all their sessions. Logs only
   "Password reset for <username>", never the password; no AuditLog row. Real
   accounts use `admin.resetPassword` (temporary password) in the Admin portal.
+
+## TEST-only data wipe
+
+- `wipeTestData()` (editor-only, **TEST Sheet only**, Server.gs -> `maintenance.js`):
+  refuses without `TEST_SEED_PASSWORD` (`NOT_TEST_SHEET`) or without `admin.test`.
+  DRY RUN (logs per-tab delete/keep counts) unless Script Property `CONFIRM_WIPE` =
+  `YES`; the property is deleted after every run. Keeps headers, Settings, View tabs,
+  Users `admin.test`, Rooms `RM301`, Devices `DEV-RM301-01` (key hash too); deletes
+  every other data row of every schema tab; bumps `roster_version`. No AuditLog row.
 
 ## Admin settings
 

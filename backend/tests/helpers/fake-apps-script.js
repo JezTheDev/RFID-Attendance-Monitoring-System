@@ -197,10 +197,14 @@ export function makeServer(props = PROPS, { sheetsApi = true, seedData = true } 
     const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(date).map((x) => [x.type, x.value]));
     return pattern.replace('yyyy', p.year).replace('MM', p.month).replace('dd', p.day).replace('HH', p.hour).replace('mm', p.minute).replace('ss', p.second);
   };
+  const store = { ...props }; // editor jobs may set/delete properties (CONFIRM_WIPE)
   const globals = {
     console: { log: (m) => logs.push(String(m)), warn: (m) => logs.push(String(m)), error: (m) => logs.push(String(m)) },
     SpreadsheetApp: { getActiveSpreadsheet: () => ss, openById: () => ss },
-    PropertiesService: { getScriptProperties: () => ({ getProperty: (n) => props[n] ?? null, getProperties: () => ({ ...props }) }) },
+    PropertiesService: { getScriptProperties: () => ({
+      getProperty: (n) => store[n] ?? null, getProperties: () => ({ ...store }),
+      setProperty: (n, v) => { store[n] = String(v); }, deleteProperty: (n) => { delete store[n]; },
+    }) },
     LockService: { getScriptLock: () => ({ tryLock: () => { locks.taken += 1; return locks.available; }, releaseLock: () => { locks.released += 1; } }) },
     ContentService: { MimeType: { JSON: 'json' }, createTextOutput: (text) => ({ setMimeType: () => ({ text }) }) },
     Utilities: {
@@ -228,5 +232,5 @@ export function makeServer(props = PROPS, { sheetsApi = true, seedData = true } 
     return rows.filter((r) => r.some((v) => v !== '' && v !== undefined)).map((r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ''])));
   };
   const usersTab = () => tab('Users');
-  return { context, ss, post, logs, usersTab, tab, locks, stats, resetStats, clock };
+  return { context, ss, post, logs, usersTab, tab, locks, stats, resetStats, clock, props: store };
 }

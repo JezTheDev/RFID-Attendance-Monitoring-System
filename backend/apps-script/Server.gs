@@ -257,6 +257,22 @@ function cleanupLiveTest() {
 }
 
 /**
+ * TEST SHEET ONLY. Deletes every data row except admin.test (Users), RM301
+ * (Rooms) and DEV-RM301-01 (Devices, key hash kept), and bumps roster_version.
+ * Keeps headers, Settings and the "View - …" tabs. DRY RUN unless the Script
+ * Property CONFIRM_WIPE = YES; that property is deleted after every run.
+ */
+function wipeTestData() {
+  var props = props_();
+  var confirm = props.getProperty('CONFIRM_WIPE') === 'YES';
+  try {
+    return runEditorJob_(function (db, ctx) { return RFID.wipeTestData(db, ctx, confirm); });
+  } finally {
+    props.deleteProperty('CONFIRM_WIPE'); // one YES = one wipe
+  }
+}
+
+/**
  * Times password hashing here in Apps Script, to choose PASSWORD_HASH_ITERATIONS
  * (backend/src/auth/passwords.js). Aim for about 200-500 ms per hash.
  */
