@@ -36,6 +36,9 @@ const CONFIG_JS = `export const CONFIG = Object.freeze({
   API_URL: '/api',
   TIMEZONE: 'Asia/Manila',
 });`;
+// Same security headers as Cloudflare Pages: the indented "Name: value" lines of frontend/_headers (one "/*" block)
+const HEADERS = Object.fromEntries(readFileSync(join(root, '_headers'), 'utf8').split('\n')
+  .filter((line) => /^\s+[\w-]+:/.test(line)).map((line) => line.trim().split(/:\s*(.*)/s).slice(0, 2)));
 
 http.createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/api') {
@@ -55,13 +58,14 @@ http.createServer((req, res) => {
   }
   let path = decodeURIComponent(req.url.split('?')[0]);
   if (path.endsWith('/')) path += 'index.html';
+  for (const [name, value] of Object.entries(HEADERS)) res.setHeader(name, value);
   if (path === '/assets/js/config.js') {
     res.writeHead(200, { 'Content-Type': 'text/javascript', 'Cache-Control': 'no-store' });
     res.end(CONFIG_JS);
     return;
   }
   const file = normalize(join(root, path));
-  if (!file.startsWith(normalize(root)) || !existsSync(file)) {
+  if (!file.startsWith(normalize(root)) || !existsSync(file) || path === '/_headers') {
     res.writeHead(404);
     res.end('Not found');
     return;
