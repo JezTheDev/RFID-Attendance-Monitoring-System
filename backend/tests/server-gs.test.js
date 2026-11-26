@@ -585,6 +585,26 @@ describe('Server.gs device route and device keys', () => {
     return s;
   }
 
+  it('device replies carry data.timing (whole ms ≥ 0); user replies and device errors do not', () => {
+    const s = tapReady();
+    const keys = ['lock_ms', 'load_ms', 'run_ms', 'save_ms', 'total_ms'];
+    [
+      submit(s, [scanOf(s, 1)]),
+      s.post({ action: 'device.heartbeat', device_id: s.deviceId, device_key: s.key, sent_at: 0, battery_voltage: 3.9, wifi_rssi: -60, queue_count: 0, time_synced: true, firmware_version: '0.5.0', uptime_seconds: 1 }),
+      s.post({ action: 'device.getRoster', device_id: s.deviceId, device_key: s.key, known_version: '' }),
+    ].forEach((reply) => {
+      assert.equal(reply.ok, true, JSON.stringify(reply.error));
+      assert.deepEqual(Object.keys(reply.data.timing), keys);
+      keys.forEach((k) => assert.ok(Number.isInteger(reply.data.timing[k]) && reply.data.timing[k] >= 0, k));
+      const t = reply.data.timing;
+      assert.equal(t.total_ms, t.lock_ms + t.load_ms + t.run_ms + t.save_ms);
+    });
+    const bad = s.post({ action: 'device.getRoster', device_id: s.deviceId, device_key: 'f'.repeat(64), known_version: '' });
+    assert.equal(bad.ok, false);
+    assert.equal(bad.data, undefined);
+    assert.equal(s.post({ action: 'auth.login', username: 'nobody', password: 'x' }).data?.timing, undefined);
+  });
+
   it('device.submitScans: ACCEPTED, under the lock, declared tabs only, ONE batchUpdate of 4 rows', () => {
     const s = tapReady();
     const taken = s.locks.taken;
@@ -631,7 +651,9 @@ describe('Server.gs device route and device keys', () => {
     const row = s.tab('Devices').find((d) => d.device_id === s.deviceId);
     assert.deepEqual([row.firmware_version, row.queue_count], ['0.5.0', '2']);
     const again = s.post({ action: 'device.getRoster', device_id: s.deviceId, device_key: s.key, known_version: reply.data.roster_version });
-    assert.deepEqual(again.data, { changed: false, roster_version: reply.data.roster_version });
+    const { timing, ...unchanged } = again.data;
+    assert.ok(timing);
+    assert.deepEqual(unchanged, { changed: false, roster_version: reply.data.roster_version });
   });
 
   it('device.submitScans resent: ALREADY_RECORDED and no new rows in the Sheet', () => {

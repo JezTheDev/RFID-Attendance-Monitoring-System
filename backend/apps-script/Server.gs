@@ -117,8 +117,11 @@ function handleRequest_(request) {
     t.push(Date.now());
     if (isWrite) saveDb_(state);
     t.push(Date.now());
-    // Device timing for the Executions log (Stage 2 A2 measurement). No ids, keys or UIDs.
-    if (isDevice) console.log('timing ' + action + ' lock_ms=' + (t[1] - t[0]) + ' load_ms=' + (t[2] - t[1]) + ' run_ms=' + (t[3] - t[2]) + ' save_ms=' + (t[4] - t[3]));
+    // Where a device request spends its time (Stage 2 A2). Web App logs are not
+    // visible for anonymous requests, so it goes in the reply. No secrets in it.
+    if (isDevice) {
+      data.timing = { lock_ms: t[1] - t[0], load_ms: t[2] - t[1], run_ms: t[3] - t[2], save_ms: t[4] - t[3], total_ms: t[4] - t[0] };
+    }
     return success_(data);
   } catch (error) {
     // Normally nothing is saved when an action fails. Exception: a failed

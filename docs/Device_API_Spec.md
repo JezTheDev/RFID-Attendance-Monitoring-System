@@ -198,6 +198,8 @@ All three actions use the same reply shape:
 { "ok": false, "server_time": "2026-11-20T08:05:13+08:00", "error": { "code": "BAD_REQUEST", "message": "..." } }
 ```
 
+Every `ok: true` device reply also has `data.timing = { lock_ms, load_ms, run_ms, save_ms, total_ms }`: where the server spent its time (for measurement only). The firmware ignores it.
+
 ### 6.1 `device.submitScans` — send 1 to 20 scans
 
 Used for both live scans (1 item) and queue sync (batch). One code path.
