@@ -1442,6 +1442,12 @@ body {
    the table's scroll box, or a wide table stretches the whole page on phones. */
 .table-responsive { position: relative; }
 
+/* Edge adds its own reveal eye next to our show/hide button: keep only ours */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear { display: none; }
+/* 44px touch target for the show/hide buttons without changing how they look */
+[data-toggle-password]::after { content: ""; position: absolute; inset: -4px; }
+
 /* Sidebar footer: wrap instead of being cut off ("Computer Engin…") */
 .app-layout:not(.sidebar-collapsed) .sidebar-footer { white-space: normal; line-height: 1.4; }
 @media (max-width: 991.98px) {

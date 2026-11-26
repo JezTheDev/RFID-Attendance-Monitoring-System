@@ -44,8 +44,11 @@ function passwordField(name, label, autocomplete, hint = '') {
   return `
     <div class="mb-3">
       <label class="form-label" for="${name}">${escapeHtml(label)}</label>
-      <input class="form-control" type="password" id="${name}" name="${name}" autocomplete="${autocomplete}" minlength="${name === 'old_password' ? 1 : 8}" maxlength="128" required${hint ? ` aria-describedby="${name}Hint"` : ''}>
-      <div class="invalid-feedback" data-error-for="${name}"></div>
+      <div class="input-group has-validation">
+        <input class="form-control" type="password" id="${name}" name="${name}" autocomplete="${autocomplete}" minlength="${name === 'old_password' ? 1 : 8}" maxlength="128" required${hint ? ` aria-describedby="${name}Hint"` : ''}>
+        <button class="btn btn-outline-secondary" type="button" data-toggle-password aria-label="Show password" aria-pressed="false"><i class="bi bi-eye" aria-hidden="true"></i></button>
+        <div class="invalid-feedback" data-error-for="${name}"></div>
+      </div>
       ${hint ? `<div class="form-text" id="${name}Hint">${escapeHtml(hint)}</div>` : ''}
     </div>`;
 }
@@ -80,6 +83,14 @@ async function loadAccount() {
 function setupPasswordForm(form) {
   const submit = form.querySelector('[data-role="submit"]');
   const result = form.querySelector('[data-role="form-result"]');
+  form.querySelectorAll('[data-toggle-password]').forEach((button) => button.addEventListener('click', () => {
+    const input = button.parentElement.querySelector('input');
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    button.setAttribute('aria-label', showing ? 'Show password' : 'Hide password');
+    button.setAttribute('aria-pressed', String(!showing));
+    button.querySelector('.bi').className = `bi ${showing ? 'bi-eye' : 'bi-eye-slash'}`;
+  }));
   const show = (tone, message) => {
     result.className = `alert alert-${tone}`;
     result.textContent = message;

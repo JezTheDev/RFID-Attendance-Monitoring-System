@@ -1,6 +1,9 @@
 import { CONFIG } from './config.js';
 import { appUrl, signOut } from './auth.js';
 
+// Fixed-position menus escape the tables' scroll box (.table-responsive) instead of being clipped by it.
+if (window.bootstrap) window.bootstrap.Dropdown.Default.popperConfig = { strategy: 'fixed' };
+
 const NAVIGATION = Object.freeze({
   admin: [
     {
