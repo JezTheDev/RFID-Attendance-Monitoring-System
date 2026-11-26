@@ -96,23 +96,8 @@ describe('device.heartbeat', () => {
   });
 });
 
+// v2 contract (windows, hash version): roster-v2.test.js.
 describe('device.getRoster', () => {
-  it('known_version == roster_version → changed:false and nothing else (number or string)', () => {
-    const { roster } = setup();
-    assert.deepEqual(roster({ known_version: 1 }), { changed: false, roster_version: 1 });
-    assert.deepEqual(roster({ known_version: '1' }), { changed: false, roster_version: 1 });
-  });
-
-  it('missing or older known_version → full roster with numeric settings', () => {
-    const { roster } = setup();
-    const data = roster({ known_version: 0 });
-    assert.equal(data.changed, true);
-    assert.equal(data.roster_version, 1);
-    assert.deepEqual(data.settings, { duplicate_window_minutes: 7, heartbeat_interval_seconds: 120 });
-    assert.deepEqual(data.cards, [{ uid: 'A1B2C3D4', name: 'C. Santos' }]);
-    assert.equal(roster().changed, true);
-  });
-
   it('excludes revoked cards and inactive students', () => {
     const { db, roster } = setup();
     db.RfidCards.push(

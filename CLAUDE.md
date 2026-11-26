@@ -176,10 +176,15 @@ Tab columns and default Settings live in `backend/src/schema.js`
   1–32 chars (else `BAD_REQUEST`); updates ONLY its own Devices row (1 row, under
   the lock), **no AuditLog row**. Returns `roster_version`, `low_battery`
   (stored 2-decimal voltage < `low_battery_voltage`).
-- `device.getRoster` (4e): read-only, no lock. `known_version` == current →
-  `{changed:false, roster_version}`; else active cards of active students
-  (`{uid, name}`, name ≤ 16 chars) + `duplicate_window_minutes`,
-  `heartbeat_interval_seconds`.
+- `device.getRoster` (v2, Stage 2, spec 6.3 v0.3): offline cache. Lock (writes
+  ONLY its own Devices row: `last_seen_at`, optional `firmware_version` /
+  `queue_count`, bad values ignored). `cards` = active cards of active students;
+  `windows` = tap windows of the device's room overlapping [now, now+48h] from
+  `roomSlots()` (sessions.js, shared with resolveScan) + `joinedAfter()` (portal.js),
+  `{start, end, label, cancelled, uids}` in epoch s. `roster_version` = first 16 hex
+  of SHA-256 over `{settings, cards, windows}` (a STRING; heartbeat/submitScans
+  still return the integer Settings counter, a different value).
+  `settings.roster_refresh_seconds` = `heartbeat_interval_seconds`.
 - **roster_version** must be bumped by every change to roster content: card
   assign/replace/revoke, any student status change, student first/last name change.
 - Rows read/written per device action: `node tools/measure_device_api.mjs`.

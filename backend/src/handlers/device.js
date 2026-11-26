@@ -2,8 +2,9 @@
 // authenticated (runDeviceAction). Scans are handled oldest first and each one
 // changes the db before the next, so a batch sees its own taps (DUPLICATE, one
 // new session shared). Server.gs saves everything in one batchUpdate or nothing.
-import { AppError, nextId, setting, toManilaIso } from '../utils.js';
-import { resolveScan } from '../sessions.js';
+import { AppError, nextId, setting, toManilaIso, manilaAt, shiftDate } from '../utils.js';
+import { resolveScan, roomSlots } from '../sessions.js';
+import { joinedAfter } from './portal.js';
 import { normalizeUid, UID_PATTERN } from './students.js';
 
 const MAX_SCANS = 20;
@@ -159,21 +160,62 @@ export function heartbeat(db, request, device, ctx) {
   return { roster_version: rosterVersion(db), low_battery: lowBattery };
 }
 
-// device.getRoster (Device_API_Spec 6.3): the offline roster. Read-only (no lock).
-// Only ACTIVE cards of ACTIVE students; names fit the LCD (shortName).
-export function getRoster(db, request, _device, _ctx) {
-  const version = rosterVersion(db);
-  if (Number(request.known_version) === version) return { changed: false, roster_version: version };
+const ROSTER_HOURS = 48;
+const epochOf = (date, hhmm) => Date.parse(`${date}T${hhmm}:00+08:00`) / 1000;
+
+// device.getRoster (Device_API_Spec 6.3, v0.3): the offline cache. The device
+// uses it only when it cannot reach the server; submitScans stays the authority.
+// cards = ACTIVE cards of ACTIVE students (LCD names). windows = every tap window
+// in the device's room overlapping [now, now+48h], from the session engine
+// (roomSlots); uids = cards of students enrolled in that class (joinedAfter rule).
+// roster_version = hash of settings + cards + windows, so any change shows.
+export function getRoster(db, request, device, ctx) {
+  const nowMs = ctx.now();
+  const now = Math.floor(nowMs / 1000);
+  const until = now + ROSTER_HOURS * 3600;
   const students = new Map(db.Students.filter((row) => row.account_status === 'active').map((row) => [row.student_id, row]));
-  return {
-    changed: true,
-    roster_version: version,
+  const activeCards = db.RfidCards.filter((card) => card.status === 'active' && students.has(card.student_id));
+  const early = Number(setting(db, 'early_window_minutes', 15)) || 0;
+  const afterEnd = Number(setting(db, 'accept_after_end_minutes', 0)) || 0;
+  const labels = new Map(db.Classes.map((row) => [row.class_id, row.class_label]));
+
+  const windows = [];
+  for (let date = manilaAt(nowMs).date; date <= manilaAt(until * 1000).date; date = shiftDate(date, 1)) {
+    const slots = roomSlots(db, device.room_id, date);
+    if (!slots) continue;
+    [...slots.manual, ...slots.scheduled].forEach((slot) => {
+      const start = epochOf(date, slot.start) - early * 60;
+      const end = epochOf(date, slot.end) + afterEnd * 60;
+      if (end < now || start > until) return;
+      const enrolled = new Set(db.Enrollments
+        .filter((row) => row.class_id === slot.classId && row.status === 'enrolled' && !joinedAfter(db, slot.classId, row.student_id, date, slot.end))
+        .map((row) => row.student_id));
+      windows.push({
+        start,
+        end,
+        label: String(labels.get(slot.classId) ?? slot.classId).slice(0, LCD_WIDTH),
+        cancelled: slot.session?.status === 'cancelled',
+        uids: activeCards.filter((card) => enrolled.has(card.student_id)).map((card) => card.rfid_uid),
+      });
+    });
+  }
+  windows.sort((a, b) => a.start - b.start || (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+
+  const content = {
     settings: {
       duplicate_window_minutes: Number(setting(db, 'duplicate_window_minutes', 5)),
-      heartbeat_interval_seconds: Number(setting(db, 'heartbeat_interval_seconds', 300)),
+      roster_refresh_seconds: Number(setting(db, 'heartbeat_interval_seconds', 300)),
     },
-    cards: db.RfidCards
-      .filter((card) => card.status === 'active' && students.has(card.student_id))
-      .map((card) => ({ uid: card.rfid_uid, name: shortName(students.get(card.student_id)) })),
+    cards: activeCards.map((card) => ({ uid: card.rfid_uid, name: shortName(students.get(card.student_id)) })),
+    windows,
   };
+  const version = ctx.tokenHash(JSON.stringify(content)).slice(0, 16); // plain SHA-256, used only as a change marker
+
+  // Last-seen info (columns exist in Devices); a bad value is ignored, like submitScans.
+  device.last_seen_at = toManilaIso(nowMs);
+  if (HEARTBEAT_FIELDS.firmware_version(request.firmware_version)) device.firmware_version = request.firmware_version.trim();
+  if (HEARTBEAT_FIELDS.queue_count(request.queue_count)) device.queue_count = String(request.queue_count);
+
+  if (String(request.known_version ?? '') === version) return { changed: false, roster_version: version };
+  return { changed: true, roster_version: version, generated_at: now, valid_until: until, ...content };
 }

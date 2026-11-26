@@ -617,16 +617,19 @@ describe('Server.gs device route and device keys', () => {
     assert.deepEqual([row.battery_voltage, row.last_heartbeat_at, row.last_seen_at], ['3.82', MON, MON]);
   });
 
-  it('device.getRoster: no lock, declared tabs only, nothing written', () => {
+  it('device.getRoster: lock, declared tabs only, only its own Devices row written', () => {
     const s = tapReady();
     const taken = s.locks.taken;
-    const reply = s.post({ action: 'device.getRoster', device_id: s.deviceId, device_key: s.key, known_version: 0 });
+    const reply = s.post({ action: 'device.getRoster', device_id: s.deviceId, device_key: s.key, known_version: '', firmware_version: '0.5.0', queue_count: 2 });
     assert.equal(reply.ok, true, JSON.stringify(reply.error));
     assert.equal(reply.data.changed, true);
     assert.ok(reply.data.cards.some((c) => c.uid === '04B50101' && c.name === 'J. Dela Cruz'));
-    assert.equal(s.locks.taken, taken);
+    assert.ok(reply.data.windows.length > 0);
+    assert.equal(s.locks.taken, taken + 1);
     assert.deepEqual([...s.stats.tabsRead].sort(), [...s.context.RFID.deviceTabsFor('device.getRoster').read].sort());
-    assert.deepEqual([s.stats.batchUpdates, s.stats.rowsWritten], [0, 0]);
+    assert.deepEqual([s.stats.batchUpdates, s.stats.rowsWritten], [1, 1]);
+    const row = s.tab('Devices').find((d) => d.device_id === s.deviceId);
+    assert.deepEqual([row.firmware_version, row.queue_count], ['0.5.0', '2']);
     const again = s.post({ action: 'device.getRoster', device_id: s.deviceId, device_key: s.key, known_version: reply.data.roster_version });
     assert.deepEqual(again.data, { changed: false, roster_version: reply.data.roster_version });
   });

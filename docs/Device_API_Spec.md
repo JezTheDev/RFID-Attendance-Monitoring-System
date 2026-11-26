@@ -4,13 +4,25 @@
 | | |
 |---|---|
 | For | ESP32 firmware programmer (Velasco, Jezreel B.) |
-| Version | 0.2 — November 20, 2026 |
+| Version | 0.3 — November 27, 2026 (Section 6.3 `device.getRoster` v2) |
 | Status | **Server API implemented and live-tested on 2026-11-20 (all 78 test requests passed).** This document describes what the deployed server actually does. The Web App URL is shared privately (never in GitHub) |
 | Parent document | `RFID_Attendance_System_Architecture.md` (Sections 4 and 6) |
 
 Tags used: **[P]** original proposal requirement · **[S]** approved software expansion · **[D]** team decision · **[R]** recommendation (needs agreement) · **[?]** open item for the hardware team
 
 ---
+
+## Changes from v0.2
+
+Only `device.getRoster` changed (Section 6.3). Firmware v0.4.1 never calls it, so nothing on the device now breaks.
+
+| # | Topic | v0.2 | v0.3 |
+|---|---|---|---|
+| 1 | `roster_version` from getRoster | Integer, same as heartbeat / submitScans | **String** (16 hex characters), a hash of `settings` + `cards` + `windows`. Send it back as `known_version` |
+| 2 | Tap windows | Not sent | New `windows`: every tap window in this device's room for the next 48 hours, with the enrolled UIDs |
+| 3 | Settings | `heartbeat_interval_seconds` | `roster_refresh_seconds` (same admin setting): how often to call getRoster |
+| 4 | Lifetime | — | New `generated_at`, `valid_until` (= `generated_at` + 48 h) |
+| 5 | Request | `known_version` only | Optional `firmware_version`, `queue_count`; stored on the device row with `last_seen_at`. getRoster now takes the write lock for that one row |
 
 ## Changes from v0.1
 
@@ -251,7 +263,7 @@ If **one** item is bad, the whole request fails with `BAD_REQUEST` and **nothing
 | `final` | Always `true` (see Section 7.1) |
 | `lcd_line2` | Short name (first initial + last name, at most 16 characters) for `ACCEPTED` and `DUPLICATE`; `""` for all other results |
 | `original_result` | Only on `ALREADY_RECORDED`: the result the server gave the first time |
-| `roster_version` | If it is different from the device's cached version, call `device.getRoster` |
+| `roster_version` | Integer: goes up on card, student and settings changes. If it changed since your last reply, call `device.getRoster` (its own version is a different string, Section 6.3) |
 
 `ALREADY_RECORDED` example (the same `scan_id` was sent again after a lost reply):
 ```json
@@ -313,11 +325,11 @@ All six fields are **required**. Any missing or invalid one → `BAD_REQUEST` (t
 
 - `low_battery` is `true` when the rounded voltage is **below** the admin setting `low_battery_voltage` (default 3.5 V).
 - The low-battery alert itself is shown on the **dashboard** [P]. Showing it on the LCD too is optional [?].
-- If `roster_version` is different from the cached one, call `device.getRoster`.
+- If `roster_version` changed since your last reply, call `device.getRoster` (Section 6.3; do not compare it with the getRoster string).
 
-### 6.3 `device.getRoster` — cached student list and settings
+### 6.3 `device.getRoster` — offline cache: cards + room schedule (v0.3)
 
-The proposal requires the student list to be cached in flash [P]. It is used **only when offline** (Section 7). This action only reads; it never waits for the write queue.
+The device saves this in flash and uses it **only when it cannot reach the server** (offline, or a live upload failed) to show one of: `Unregistered` / `No class now` / `Class cancelled` / `Not enrolled` / `Saved offline`. The server stays the final authority: every queued scan still goes through `device.submitScans` later, and its result is the real one.
 
 **Request**
 ```json
@@ -325,24 +337,36 @@ The proposal requires the student list to be cached in flash [P]. It is used **o
   "action": "device.getRoster",
   "device_id": "DEV-RM301-01",
   "device_key": "<secret>",
-  "known_version": 11
+  "known_version": "3f9a0c1d2b4e5f60",
+  "firmware_version": "0.5.0",
+  "queue_count": 0
 }
 ```
 
-`known_version` = the `roster_version` of the roster you have saved. If you have none (first boot), leave it out or send `0`.
+| Field | Required | Meaning |
+|---|---|---|
+| `known_version` | yes (may be `""`) | The `roster_version` string of the roster you have saved; `""` on first boot |
+| `firmware_version` | no | 1–32 characters; stored on the device row |
+| `queue_count` | no | Integer ≥ 0 (scans waiting in your queue); stored on the device row |
+
+A bad `firmware_version` / `queue_count` is ignored (not an error). Every call also sets the device's `last_seen_at`.
 
 **Response (changed)**
 ```json
 {
   "ok": true,
-  "server_time": "2026-11-20T08:05:13+08:00",
+  "server_time": "2026-11-23T08:10:00+08:00",
   "data": {
     "changed": true,
-    "roster_version": 12,
-    "settings": { "duplicate_window_minutes": 5, "heartbeat_interval_seconds": 300 },
+    "roster_version": "3f9a0c1d2b4e5f60",
+    "generated_at": 1795392600,
+    "valid_until": 1795565400,
+    "settings": { "duplicate_window_minutes": 5, "roster_refresh_seconds": 300 },
     "cards": [
-      { "uid": "04A1B2C3", "name": "J. Dela Cruz" },
-      { "uid": "04D5E6F7", "name": "M. Santos" }
+      { "uid": "4A485C83", "name": "J. Dela Cruz" }
+    ],
+    "windows": [
+      { "start": 1795391100, "end": 1795399200, "label": "TEST 101 - 3C", "cancelled": false, "uids": ["4A485C83"] }
     ]
   }
 }
@@ -350,15 +374,29 @@ The proposal requires the student list to be cached in flash [P]. It is used **o
 
 **Response (not changed)** — when `known_version` equals the current version:
 ```json
-{ "ok": true, "server_time": "2026-11-20T08:05:13+08:00", "data": { "changed": false, "roster_version": 11 } }
+{ "ok": true, "server_time": "2026-11-23T08:10:00+08:00", "data": { "changed": false, "roster_version": "3f9a0c1d2b4e5f60" } }
 ```
 Keep your saved roster as it is.
 
-- `cards` contains only **active cards of active students**. `name` is at most 16 characters.
-- `settings.duplicate_window_minutes` = the local cooldown (Section 7); `settings.heartbeat_interval_seconds` = how often to send a heartbeat.
-- The version goes up whenever a card is assigned, replaced or revoked, a student's status changes, or a student's name changes.
+| Field | Meaning |
+|---|---|
+| `roster_version` | String. Changes whenever `settings`, `cards` or `windows` change (card assigned/revoked, student status or name, schedule, enrollment, cancellation, settings, or a window entering/leaving the 48-hour range). Not affected by `generated_at` |
+| `generated_at`, `valid_until` | Epoch seconds (UTC). `valid_until` = `generated_at` + 48 h. After `valid_until` the cache no longer covers "now": treat every tap as `Saved offline` (queue it) instead of guessing |
+| `settings.duplicate_window_minutes` | Local double-tap cooldown (Section 7) |
+| `settings.roster_refresh_seconds` | How often to call getRoster (admin setting `heartbeat_interval_seconds`) |
+| `cards` | **All active cards of active students** (revoked/lost cards and inactive students are left out). `name` ≤ 16 characters |
+| `windows` | Every tap window in **this device's room** that overlaps [now, now + 48 h], sorted by `start`. Back-to-back classes give overlapping windows |
+| `windows[].start` | Epoch seconds: scheduled start − `early_window_minutes` (default 15) |
+| `windows[].end` | Epoch seconds: scheduled end (+ `accept_after_end_minutes`, default 0). The server counts the whole end minute, so a tap with `end ≤ t < end + 60` is still inside |
+| `windows[].label` | Class label, ≤ 16 characters |
+| `windows[].cancelled` | `true` = the session was cancelled (show `Class cancelled`, do not queue as attendance) |
+| `windows[].uids` | Active card UIDs of the students enrolled in that class |
+
+Offline decision on the device (suggested): UID not in `cards` → `Unregistered`; no window with `start ≤ t ≤ end` → `No class now`; only cancelled windows → `Class cancelled`; UID not in any matching window's `uids` → `Not enrolled`; otherwise → `Saved offline` (queue it).
+
+- The heartbeat / submitScans `roster_version` is a **different value** (an integer that only goes up for card, student and settings changes). Do **not** compare it with this string. Call getRoster at boot, every `roster_refresh_seconds`, and when that integer changes.
 - Save to LittleFS (e.g., `/roster.json`); replace the old file only after the new one is fully written.
-- Call at boot, whenever `roster_version` in any reply is different from yours, and at least every few hours.
+- Errors: same as every device action (Section 6.4): `INVALID_DEVICE_KEY`, `DEVICE_DISABLED`, `DEVICE_NOT_ASSIGNED`, `BAD_REQUEST`, `SERVER_BUSY`.
 
 ### 6.4 Request-level errors (`ok: false`)
 

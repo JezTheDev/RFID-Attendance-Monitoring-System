@@ -269,7 +269,8 @@ export const DEVICE_ACTIONS = Object.freeze({
   'device.submitScans': { run: submitScans,
     reads: 'Terms Classes Schedules Enrollments RfidCards Students Settings', writes: 'Devices ClassSessions Attendance ScanLog' },
   'device.heartbeat': { run: heartbeat, reads: 'Settings', writes: 'Devices' },
-  'device.getRoster': { run: getRoster, reads: 'Devices RfidCards Students Settings' },
+  'device.getRoster': { run: getRoster,
+    reads: 'RfidCards Students Settings Terms Classes Schedules ClassSessions Enrollments', writes: 'Devices' },
 });
 
 const findDeviceAction = (name) => (Object.prototype.hasOwnProperty.call(DEVICE_ACTIONS, name) ? DEVICE_ACTIONS[name] : null);

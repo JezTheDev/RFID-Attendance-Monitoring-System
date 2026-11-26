@@ -26,6 +26,27 @@ export function missingStatus(session, now) {
 
 const reject = (result, reason, extra = {}) => ({ result, reason, ...extra });
 
+// Every class that meets in a room on a date (Manila 'YYYY-MM-DD'), for one tap
+// (resolveScan) and for the device's offline cache (device.getRoster).
+// null = no active term on that date. manual includes cancelled manual sessions;
+// scheduled = active schedules of active classes in the term, with their session row if any.
+export function roomSlots(db, roomId, date) {
+  const term = db.Terms.find((row) => row.is_active === 'TRUE' && row.start_date <= date && date <= row.end_date);
+  if (!term) return null;
+  const manual = db.ClassSessions
+    .filter((row) => row.source === 'manual' && row.room_id === roomId && row.session_date === date)
+    .map((row) => ({ classId: row.class_id, start: startOf(row), end: endOf(row), session: row }));
+  const day = dayCodeOf(date);
+  const scheduled = db.Schedules
+    .filter((row) => row.status === 'active' && row.room_id === roomId && row.day_of_week === day
+      && db.Classes.some((klass) => klass.class_id === row.class_id && klass.status === 'active' && klass.term_id === term.term_id))
+    .map((row) => ({
+      classId: row.class_id, start: row.start_time, end: row.end_time, schedule: row,
+      session: db.ClassSessions.find((s) => s.schedule_id === row.schedule_id && s.session_date === date),
+    }));
+  return { manual, scheduled };
+}
+
 // scan = { room_id, scanned_at (epoch seconds), student_id }; nowMs = ctx.now().
 // Returns a decision; the caller (4d) saves newSession / the attendance row.
 export function resolveScan(db, { room_id: roomId, scanned_at: scannedAt, student_id: studentId }, settings, nowMs) {
@@ -39,27 +60,17 @@ export function resolveScan(db, { room_id: roomId, scanned_at: scannedAt, studen
   const afterEnd = Number(settings.accept_after_end_minutes ?? 0) || 0;
   const covers = (start, end) => minutes(start) - early <= t && t <= minutes(end) + afterEnd;
 
-  const term = db.Terms.find((row) => row.is_active === 'TRUE' && row.start_date <= date && date <= row.end_date);
-  if (!term) return reject('NO_ACTIVE_SESSION', 'No active term on this date.');
+  const slots = roomSlots(db, roomId, date);
+  if (!slots) return reject('NO_ACTIVE_SESSION', 'No active term on this date.');
 
   const enrolledIn = (classId) => db.Enrollments.some((row) => row.class_id === classId && row.student_id === studentId && row.status === 'enrolled');
   const hasRecord = (session) => Boolean(session) && db.Attendance.some((row) => row.session_id === session.session_id && row.student_id === studentId);
 
   // Manual sessions win over the schedule.
-  let candidates = db.ClassSessions
-    .filter((row) => row.source === 'manual' && row.room_id === roomId && row.session_date === date
-      && row.status !== 'cancelled' && covers(startOf(row), endOf(row)))
-    .map((row) => ({ classId: row.class_id, start: startOf(row), end: endOf(row), session: row }));
+  let candidates = slots.manual.filter((c) => c.session.status !== 'cancelled' && covers(c.start, c.end));
 
   if (!candidates.length) {
-    const day = dayCodeOf(date);
-    candidates = db.Schedules
-      .filter((row) => row.status === 'active' && row.room_id === roomId && row.day_of_week === day && covers(row.start_time, row.end_time)
-        && db.Classes.some((klass) => klass.class_id === row.class_id && klass.status === 'active' && klass.term_id === term.term_id))
-      .map((row) => ({
-        classId: row.class_id, start: row.start_time, end: row.end_time, schedule: row,
-        session: db.ClassSessions.find((s) => s.schedule_id === row.schedule_id && s.session_date === date),
-      }));
+    candidates = slots.scheduled.filter((c) => covers(c.start, c.end));
     if (!candidates.length) return reject('NO_ACTIVE_SESSION', 'No class in this room at this time.');
     candidates = candidates.filter((c) => c.session?.status !== 'cancelled');
     if (!candidates.length) return reject('SESSION_CANCELLED', 'This class session was cancelled.');

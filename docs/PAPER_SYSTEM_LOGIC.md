@@ -216,7 +216,7 @@ R = read (no lock), W = write (lock + one batchUpdate). Tabs: r = reads, w = wri
 | student.getOverview / getHistory / getProfile | student | R | r PORTAL |
 | device.submitScans | device key | W | r Terms Classes Schedules Enrollments RfidCards Students Settings; w Devices ClassSessions Attendance ScanLog |
 | device.heartbeat | device key | W | r Settings; w Devices |
-| device.getRoster | device key | R | r Devices RfidCards Students Settings |
+| device.getRoster | device key | W | r RfidCards Students Settings Terms Classes Schedules ClassSessions Enrollments; w Devices |
 
 Total: 76 user actions + 3 device actions. Every declared tab list is checked by `tests/tabs.test.js`.
 
@@ -333,7 +333,7 @@ Other derived numbers:
 
 **device.heartbeat** — every field required: `battery_voltage` number 0–6; `wifi_rssi` integer −127..0; `queue_count` integer ≥ 0; `time_synced` boolean; `firmware_version` 1–32 chars (trimmed); `uptime_seconds` integer ≥ 0 (validated, not stored). Stores battery rounded to 2 dp, rssi, queue_count, time_synced, firmware_version, `last_heartbeat_at = last_seen_at = now` on its own row only. **No AuditLog row.** Returns `{roster_version, low_battery: stored_volts < low_battery_voltage}`.
 
-**device.getRoster** — read-only, no lock. `Number(known_version) === roster_version` → `{changed:false, roster_version}`. Else `{changed:true, roster_version, settings:{duplicate_window_minutes, heartbeat_interval_seconds}, cards:[{uid, name}]}` for **active cards of active students**, name = LCD short name.
+**device.getRoster** (v2, Device_API_Spec 6.3 v0.3) — lock, writes only its own Devices row (`last_seen_at`, optional `firmware_version`, `queue_count`). `roster_version` = 16-hex SHA-256 of `{settings, cards, windows}`; `String(known_version) === roster_version` → `{changed:false, roster_version}`. Else `{changed:true, roster_version, generated_at, valid_until (+48 h), settings:{duplicate_window_minutes, roster_refresh_seconds}, cards:[{uid, name}], windows:[{start, end, label, cancelled, uids}]}`. cards = **active cards of active students**; windows = every slot of the device's room (`roomSlots`, same rules as resolveScan) overlapping [now, now+48h], start = start − early_window_minutes, end = end + accept_after_end_minutes.
 
 **roster_version bump rules** (`utils.js:bumpRosterVersion`, +1; no-op if the row is missing):
 
@@ -350,7 +350,7 @@ Other derived numbers:
 online = last_seen_at ≠ '' AND (now − parse(last_seen_at)) ≤ device_offline_after_minutes × 60,000 ms
 low_battery = battery_voltage ≠ '' AND battery_voltage < low_battery_voltage
 ```
-`last_seen_at` is set by heartbeat and submitScans (not by getRoster).
+`last_seen_at` is set by heartbeat, submitScans and getRoster.
 
 **Device admin rules** (`devices.js`): new device starts `maintenance`, no key; name 1–80 chars; notes ≤ 500; activating needs a key (`NO_DEVICE_KEY`) and a free room (`ROOM_HAS_ACTIVE_DEVICE`: only ONE active device per room, also checked on room change of an active device); `retired` is final (`DEVICE_RETIRED` on any later change) and clears the key hash; same status/room → `NO_CHANGE`; lists never return `device_key_hash` (only `has_key`).
 

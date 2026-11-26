@@ -130,9 +130,14 @@ function enrolledAtOf(db, classId, studentId) {
 export function statusFor(db, session, studentId, now) {
   const record = recordOf(db, session.session_id, studentId);
   if (record) return effectiveStatus(record);
-  const enrolledAt = enrolledAtOf(db, session.class_id, studentId);
-  const ended = `${session.session_date}T${session.actual_end || session.scheduled_end}:00+08:00`;
-  return enrolledAt && enrolledAt > ended ? null : missingStatus(session, now);
+  return joinedAfter(db, session.class_id, studentId, session.session_date, session.actual_end || session.scheduled_end)
+    ? null : missingStatus(session, now);
+}
+
+// True when the student joined the class after a session (date, end 'HH:mm') ended.
+export function joinedAfter(db, classId, studentId, date, end) {
+  const enrolledAt = enrolledAtOf(db, classId, studentId);
+  return Boolean(enrolledAt) && enrolledAt > `${date}T${end}:00+08:00`;
 }
 
 export function rate(present, late, total) {
