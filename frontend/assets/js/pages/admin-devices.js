@@ -44,7 +44,9 @@ function start() {
     label: `${room.room_code} · ${room.room_name}${room.device_id ? ` (has ${room.device_id})` : ''}`,
   }));
   const isLive = (row) => row.status !== 'retired';
-  const battery = (row) => (row.battery_voltage === '' ? null : Number(row.battery_voltage));
+  // Same rule as the dashboard (deviceSummaries): no battery without a heartbeat inside the offline window.
+  const battery = (row) => (!row.last_heartbeat_at || row.battery_voltage === '' || Date.now() - Date.parse(row.last_heartbeat_at) > limits.offlineMinutes * 60000
+    ? null : Number(row.battery_voltage));
   const online = (row) => Boolean(row.last_seen_at) && Date.now() - Date.parse(row.last_seen_at) <= limits.offlineMinutes * 60000;
 
   const setStatus = (row, status, reload) => {

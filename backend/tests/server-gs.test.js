@@ -812,6 +812,7 @@ describe('wipeTestData (editor only, TEST Sheet only)', () => {
     assert.match(log, /DRY RUN/);
     assert.ok(log.includes(`Students: delete ${tab('Students').length}, keep 0`), log);
     assert.ok(log.includes(`Users: delete ${tab('Users').length - 1}, keep 1 (admin.test)`), log);
+    assert.ok(log.includes('Devices DEV-RM301-01: clear battery_voltage, wifi_rssi, time_synced, last_heartbeat_at'), log);
     assert.match(log, /CONFIRM_WIPE/);
     assert.equal(allCells(ss), before);
   });
@@ -829,6 +830,9 @@ describe('wipeTestData (editor only, TEST Sheet only)', () => {
     props.CONFIRM_WIPE = 'YES';
     context.wipeTestData();
 
+    const HEARTBEAT = ['battery_voltage', 'wifi_rssi', 'time_synced', 'last_heartbeat_at'];
+    assert.ok(keep.Devices[0].battery_voltage && keep.Devices[0].last_heartbeat_at, 'seed device has a heartbeat');
+    keep.Devices = keep.Devices.map((row) => ({ ...row, ...Object.fromEntries(HEARTBEAT.map((c) => [c, ''])) }));
     for (const name of dataTabs(context)) {
       assert.deepEqual(ss.getSheetByName(name).cells[0], [...context.RFID.TAB_COLUMNS[name]], `${name} header kept`);
       assert.deepEqual(tab(name), keep[name] || [], name);

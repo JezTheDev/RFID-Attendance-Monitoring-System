@@ -144,6 +144,8 @@ export function cleanupLiveTest(db, ctx) {
 
 // The only data rows a wipe keeps (Settings is kept whole).
 const WIPE_KEEP = { Users: ['username', 'admin.test'], Rooms: ['room_code', 'RM301'], Devices: ['device_id', 'DEV-RM301-01'] };
+// Columns only device.heartbeat writes: cleared on the kept device so no old (test) reading stays on the dashboard.
+const WIPE_HEARTBEAT_COLUMNS = ['battery_voltage', 'wifi_rssi', 'time_synced', 'last_heartbeat_at'];
 
 // Deletes every data row of every schema tab except Settings and the WIPE_KEEP
 // rows, and bumps roster_version. confirm false = dry run: only the counts.
@@ -161,6 +163,8 @@ export function wipeTestData(db, ctx, confirm) {
     lines.push(`${name}: delete ${rows.length - kept.length}, keep ${kept.length}${kept.length ? ` (${value})` : ''}`);
     if (confirm) rows.splice(0, rows.length, ...kept);
   });
+  lines.push(`Devices ${WIPE_KEEP.Devices[1]}: clear ${WIPE_HEARTBEAT_COLUMNS.join(', ')} (key, room and status kept)`);
+  if (confirm) db.Devices.forEach((row) => WIPE_HEARTBEAT_COLUMNS.forEach((column) => { row[column] = ''; }));
   lines.push('Kept: every header row, the Settings tab, the "View - …" tabs.');
   if (confirm) {
     bumpRosterVersion(db);

@@ -94,6 +94,20 @@ describe('device.heartbeat', () => {
     const device = getAdminDashboard(db, { date: '2026-11-23' }, SESSIONS.admin, ctx).devices.find((d) => d.device_id === deviceId);
     assert.deepEqual([device.battery_voltage, device.low_battery, device.online], [3.4, true, true]);
   });
+
+  it('dashboard battery only from a heartbeat inside device_offline_after_minutes (default 10)', () => {
+    const { db, ctx, beat, deviceId } = setup();
+    const device = () => getAdminDashboard(db, { date: '2026-11-23' }, SESSIONS.admin, ctx).devices.find((d) => d.device_id === deviceId);
+    const pick = (d) => [d.battery_voltage, d.low_battery];
+    assert.deepEqual(pick(device()), [null, false], 'no heartbeat');
+    beat({ battery_voltage: 3.4 });
+    ctx.clock.ms += 10 * 60000;
+    assert.deepEqual(pick(device()), [3.4, true], 'fresh (at the limit)');
+    ctx.clock.ms += 1;
+    assert.deepEqual(pick(device()), [null, false], 'old heartbeat');
+    db.Devices.find((d) => d.device_id === deviceId).last_heartbeat_at = '';
+    assert.deepEqual(pick(device()), [null, false], 'value but no heartbeat time');
+  });
 });
 
 // v2 contract (windows, hash version): roster-v2.test.js.

@@ -10,7 +10,9 @@ export function deviceSummaries(db, ctx) {
   const lowBatteryVoltage = Number(setting(db, 'low_battery_voltage', 3.5));
   const offlineAfterMs = Number(setting(db, 'device_offline_after_minutes', 10)) * 60000;
   return db.Devices.filter((row) => row.status !== 'retired').map((row) => {
-    const battery = row.battery_voltage === '' ? null : Number(row.battery_voltage);
+    // Battery only from a heartbeat inside the offline window: an old reading (e.g. a test) is not current.
+    const fresh = Boolean(row.last_heartbeat_at) && ctx.now() - Date.parse(row.last_heartbeat_at) <= offlineAfterMs;
+    const battery = !fresh || row.battery_voltage === '' ? null : Number(row.battery_voltage);
     return {
       device_id: row.device_id,
       device_name: row.device_name,

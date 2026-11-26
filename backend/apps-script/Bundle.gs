@@ -1534,7 +1534,9 @@ var RFID = (function () {
       const lowBatteryVoltage = Number(setting(db, 'low_battery_voltage', 3.5));
       const offlineAfterMs = Number(setting(db, 'device_offline_after_minutes', 10)) * 60000;
       return db.Devices.filter((row) => row.status !== 'retired').map((row) => {
-        const battery = row.battery_voltage === '' ? null : Number(row.battery_voltage);
+        // Battery only from a heartbeat inside the offline window: an old reading (e.g. a test) is not current.
+        const fresh = Boolean(row.last_heartbeat_at) && ctx.now() - Date.parse(row.last_heartbeat_at) <= offlineAfterMs;
+        const battery = !fresh || row.battery_voltage === '' ? null : Number(row.battery_voltage);
         return {
           device_id: row.device_id,
           device_name: row.device_name,
@@ -4332,6 +4334,8 @@ var RFID = (function () {
 
     // The only data rows a wipe keeps (Settings is kept whole).
     const WIPE_KEEP = { Users: ['username', 'admin.test'], Rooms: ['room_code', 'RM301'], Devices: ['device_id', 'DEV-RM301-01'] };
+    // Columns only device.heartbeat writes: cleared on the kept device so no old (test) reading stays on the dashboard.
+    const WIPE_HEARTBEAT_COLUMNS = ['battery_voltage', 'wifi_rssi', 'time_synced', 'last_heartbeat_at'];
 
     // Deletes every data row of every schema tab except Settings and the WIPE_KEEP
     // rows, and bumps roster_version. confirm false = dry run: only the counts.
@@ -4349,6 +4353,8 @@ var RFID = (function () {
         lines.push(`${name}: delete ${rows.length - kept.length}, keep ${kept.length}${kept.length ? ` (${value})` : ''}`);
         if (confirm) rows.splice(0, rows.length, ...kept);
       });
+      lines.push(`Devices ${WIPE_KEEP.Devices[1]}: clear ${WIPE_HEARTBEAT_COLUMNS.join(', ')} (key, room and status kept)`);
+      if (confirm) db.Devices.forEach((row) => WIPE_HEARTBEAT_COLUMNS.forEach((column) => { row[column] = ''; }));
       lines.push('Kept: every header row, the Settings tab, the "View - …" tabs.');
       if (confirm) {
         bumpRosterVersion(db);
